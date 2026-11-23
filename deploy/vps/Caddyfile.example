@@ -1,0 +1,19 @@
+# Bloque para /etc/caddy/Caddyfile. Cambia API_DOMAIN por el subdominio real.
+# TLS por DNS-01 con el plugin cloudflare-dns: CF_API_TOKEN viene del entorno de Caddy
+# (p. ej. un EnvironmentFile del servicio caddy), nunca escrito en este archivo.
+API_DOMAIN {
+	encode gzip
+	reverse_proxy 127.0.0.1:8110
+
+	tls {
+		dns cloudflare {env.CF_API_TOKEN}
+		resolvers 1.1.1.1 8.8.8.8
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}

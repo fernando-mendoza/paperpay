@@ -16,7 +16,7 @@ La ruta `/api/health` indica que el proceso responde; no comprueba Horizon ni el
 
 ## Despliegue
 
-La API corre en Railway. El workflow `.github/workflows/deploy-api-railway.yml` la despliega en cada push a `main` que toque `apps/api`, `packages/shared` o las dependencias: instala, corre `pnpm test`, compila y espera a que Railway confirme el deploy. Las variables de producción se configuran en Railway, no en el repositorio.
+La API corre en una VPS con systemd y Caddy, detrás de Cloudflare: `https://paperpay-api.blockchains.tf`. Se despliega con `scripts/deploy-vps.sh` (corre `pnpm test`, compila, sube el release y verifica `/api/health`, con rollback si falla). Las variables de producción viven en `/etc/paperpay/api.env` en el servidor, no en el repositorio. Guía completa: [deploy/vps/README.md](../../deploy/vps/README.md). Antes corría en Railway; esa cuenta ya no se usa.
 
 ## Contrato HTTP
 

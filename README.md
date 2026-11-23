@@ -30,9 +30,9 @@ Las cabeceras `payment-required`, `payment-signature` y `payment-response` sigue
 | Parte | Dónde | Cómo |
 | --- | --- | --- |
 | Frontend | Vercel ([paperpay.press](https://paperpay.press/)) | Workflow `deploy-web-vercel.yml` en cada push a `main` que toque `apps/web`, `packages/shared` o dependencias. Los PR generan preview. |
-| API | Railway | Workflow `deploy-api-railway.yml` en cada push a `main` que toque `apps/api`, `packages/shared` o dependencias. Corre las pruebas antes de desplegar. |
+| API | VPS con systemd + Caddy detrás de Cloudflare ([paperpay-api.blockchains.tf](https://paperpay-api.blockchains.tf/api/health)) | `scripts/deploy-vps.sh`: prueba, compila, sube el release y verifica `/api/health` con rollback automático. Detalle en [deploy/vps/README.md](deploy/vps/README.md). |
 
-Ambos usan secretos del repositorio (`VERCEL_TOKEN`, `RAILWAY_API_TOKEN`); los IDs de proyecto que aparecen en los workflows no son secretos.
+El frontend usa el secreto del repositorio `VERCEL_TOKEN`; los IDs de proyecto que aparecen en los workflows no son secretos. La API estuvo en Railway hasta que esa cuenta dejó de usarse (noviembre de 2026): `deploy-api-railway.yml` quedó solo como disparo manual y ya no corre en cada push.
 
 ## Requisitos y arranque local
 

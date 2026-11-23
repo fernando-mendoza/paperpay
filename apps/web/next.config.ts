@@ -2,7 +2,7 @@ import type { NextConfig } from 'next'
 
 // El navegador llama a /api/* en el mismo dominio del frontend y Next lo reenvía al backend.
 // Así CORS no depende de qué dominio tenga cada deploy (producción, previews de PR o localhost).
-const apiProxyTarget = (process.env.API_PROXY_TARGET ?? 'https://paperpay-backend-production.up.railway.app').replace(/\/$/, '')
+const apiProxyTarget = (process.env.API_PROXY_TARGET ?? 'https://paperpay-api.blockchains.tf').replace(/\/$/, '')
 
 const nextConfig: NextConfig = {
   // En dev, React Strict Mode monta el provider de Pollar dos veces y crea dos

@@ -1,16 +1,8 @@
 name: Deploy API to Railway
 
+# La cuenta de Railway ya no se usa (nov 2026): la API vive en una VPS (deploy/vps/README.md).
+# Se deja solo como disparo manual para no fallar en cada push.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/api/**'
-      - 'packages/shared/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'pnpm-workspace.yaml'
-      - 'railway.json'
-      - '.github/workflows/deploy-api-railway.yml'
   workflow_dispatch:
 
 permissions:

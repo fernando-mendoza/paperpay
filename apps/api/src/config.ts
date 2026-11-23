@@ -5,6 +5,7 @@ import path from 'path';
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 export interface AppConfig {
+  host: string;
   port: number;
   nodeEnv: string;
   stellarTreasuryPublicKey: string;
@@ -21,6 +22,9 @@ export interface AppConfig {
 const defaultTreasuryKey = 'GB6X402TREASURYDEMOUNAM2026GOYAHACKPAPERPAYTESTNET';
 
 export const config: AppConfig = {
+  // Sin HOST escucha en todas las interfaces (PaaS, Docker). En una VPS detrás de un
+  // reverse proxy se fija HOST=127.0.0.1 para que la API no quede expuesta directo.
+  host: process.env.HOST || '0.0.0.0',
   port: parseInt(process.env.PORT || '4000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
   stellarTreasuryPublicKey: process.env.STELLAR_TREASURY_PUBLIC_KEY || defaultTreasuryKey,
