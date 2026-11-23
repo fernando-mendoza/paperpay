@@ -5,6 +5,13 @@ import { ArticleView } from '@/views/ArticleView'
 
 const CATALOG = papers as PaperFull[]
 
+// Pre-renderiza una página por artículo del catálogo. El export estático (Cloudflare Pages)
+// lo necesita; con servidor solo adelanta el render. El catálogo del frontend es el mismo
+// que el de la API (52 ids): un artículo nuevo en la API pide recompilar el frontend.
+export function generateStaticParams() {
+  return CATALOG.map((paper) => ({ id: paper.id }))
+}
+
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params
   const paper = CATALOG.find((p) => p.id === id)

@@ -8,7 +8,7 @@ pnpm dev:web
 
 Abre `http://localhost:3000`. La configuración de ejemplo usa la API desplegada en la VPS (`paperpay-api.blockchains.tf`) y la wallet Freighter. Para una demo sin backend ni wallet, cambia a `NEXT_PUBLIC_DATA_SOURCE=mock` y `NEXT_PUBLIC_WALLET=mock`. Los 52 artículos, sus autores y DOI son datos ficticios.
 
-En producción ([paperpay.press](https://paperpay.press/)) el workflow `.github/workflows/deploy-web-vercel.yml` despliega en cada push a `main` que toque `apps/web`, `packages/shared` o las dependencias; las variables se configuran en Vercel.
+En producción ([paperpay.press](https://paperpay.press/)) el workflow `.github/workflows/deploy-web-vercel.yml` despliega en cada push a `main` que toque `apps/web`, `packages/shared` o las dependencias; las variables se configuran en Vercel. La réplica [paperpay.blockchains.tf](https://paperpay.blockchains.tf/) es un export estático en Cloudflare Pages (`STATIC_EXPORT=1`); cómo se compila y publica está en [deploy/cloudflare-pages/README.md](../../deploy/cloudflare-pages/README.md).
 
 ## Modos de datos y wallet
 

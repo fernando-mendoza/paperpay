@@ -4,7 +4,7 @@
 
 Paywall para artículos científicos: el lector paga un micropago en USDC sobre Stellar y desbloquea el artículo, sin crear cuenta ni usar tarjeta. Proyecto del track Stellar de Goya Hack 2026, construido con Next.js, Express y Stellar **Testnet**.
 
-- **Sitio:** [paperpay.press](https://paperpay.press/)
+- **Sitio:** [paperpay.press](https://paperpay.press/) · réplica en Cloudflare Pages: [paperpay.blockchains.tf](https://paperpay.blockchains.tf/)
 - **Versión:** 2.0.0 (v1: Freighter · v2: Pollar con login social)
 
 El catálogo contiene **52 artículos ficticios de demostración** en 10 disciplinas; sus autores, DOI, resultados y cifras no son publicaciones reales. El precio de 0.50 USDC y el reparto 98% editorial / 2% PaperPay son propuestas iniciales.
@@ -30,6 +30,7 @@ Las cabeceras `payment-required`, `payment-signature` y `payment-response` sigue
 | Parte | Dónde | Cómo |
 | --- | --- | --- |
 | Frontend | Vercel ([paperpay.press](https://paperpay.press/)) | Workflow `deploy-web-vercel.yml` en cada push a `main` que toque `apps/web`, `packages/shared` o dependencias. Los PR generan preview. |
+| Frontend (réplica) | Cloudflare Pages ([paperpay.blockchains.tf](https://paperpay.blockchains.tf/)) | `scripts/deploy-web-cf-pages.sh`: export estático de Next más una Pages Function que reenvía `/api/*` a la API. Detalle en [deploy/cloudflare-pages/README.md](deploy/cloudflare-pages/README.md). |
 | API | VPS con systemd + Caddy detrás de Cloudflare ([paperpay-api.blockchains.tf](https://paperpay-api.blockchains.tf/api/health)) | `scripts/deploy-vps.sh`: prueba, compila, sube el release y verifica `/api/health` con rollback automático. Detalle en [deploy/vps/README.md](deploy/vps/README.md). |
 
 El frontend usa el secreto del repositorio `VERCEL_TOKEN`; los IDs de proyecto que aparecen en los workflows no son secretos. La API estuvo en Railway hasta que esa cuenta dejó de usarse (noviembre de 2026): `deploy-api-railway.yml` quedó solo como disparo manual y ya no corre en cada push.

@@ -27,3 +27,6 @@ Thumbs.db
 .env*
 !.env.example
 .agents/
+
+# Estado local de wrangler (pages dev)
+.wrangler/
