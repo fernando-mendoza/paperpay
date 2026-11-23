@@ -209,6 +209,38 @@ export const COPY = {
       tx: 'Transacción',
     },
   },
+  landing: {
+    badge: 'Stellar testnet · USDC · ~5 segundos',
+    ctaPrimary: 'Explorar artículos',
+    ctaSecondary: 'Ver cómo funciona',
+    footer: 'Pagos en Stellar testnet con USDC de prueba.',
+    lee: {
+      metaTitle: 'Lee ciencia por $0.50',
+      metaDescription:
+        'Paga por artículo con tu wallet, sin cuenta ni suscripción. El pago se liquida en Stellar en unos 5 segundos.',
+      headline: 'Lee ciencia por',
+      price: '$0.50',
+      subhead: 'Sin cuenta. Sin suscripción.',
+      description: 'Pagas un artículo con tu wallet y se abre en unos 5 segundos. Solo pagas lo que lees.',
+      // Cada tramo se enciende palabra por palabra con el scroll. Solo afirmaciones que el producto cumple.
+      manifesto: [
+        { text: 'Un artículo cuesta' },
+        { text: '$39.95', tone: 'old' as const },
+        { text: 'en la editorial. Aquí cuesta' },
+        { text: '$0.50.', tone: 'price' as const },
+        { text: 'Sin cuenta: tu wallet paga, Stellar liquida en unos 5 segundos y el artículo es tuyo durante' },
+        { text: '24 horas.', tone: 'accent' as const },
+      ],
+      stepsTitle: 'Así se desbloquea',
+      stepsSubtitle: 'Tres pasos, sin registro',
+      steps: [
+        { number: '01', title: 'Eliges un artículo', description: 'Lees el resumen gratis y decides si lo quieres completo.' },
+        { number: '02', title: 'Firmas $0.50 USDC', description: 'Tu wallet aprueba el pago. No hay cuenta ni contraseña.' },
+        { number: '03', title: 'Lo lees al instante', description: 'Stellar liquida en unos 5 segundos y tienes 24 horas de acceso.' },
+      ],
+      closingSubtitle: 'Todos a $0.50 USDC por artículo.',
+    },
+  },
   debug: {
     title: 'Panel de depuración',
     forceState: 'Forzar estado:',

@@ -10,6 +10,15 @@ Abre `http://localhost:3000`. La configuración de ejemplo usa la API desplegada
 
 En producción ([paperpay.press](https://paperpay.press/)) el workflow `.github/workflows/deploy-web-vercel.yml` despliega en cada push a `main` que toque `apps/web`, `packages/shared` o las dependencias; las variables se configuran en Vercel. La réplica [paperpay.blockchains.tf](https://paperpay.blockchains.tf/) es un export estático en Cloudflare Pages (`STATIC_EXPORT=1`); cómo se compila y publica está en [deploy/cloudflare-pages/README.md](../../deploy/cloudflare-pages/README.md).
 
+## Landings de campaña
+
+Páginas para anuncios, separadas del catálogo (`/`). Viven en el grupo `src/app/(landing)/`, que monta el scroll suave (Lenis) y `MotionConfig`, y salen con `noindex, follow` para no competir con el catálogo en buscadores. No usan el `Navbar` del sitio: traen un header con un solo CTA (`src/components/landing/`).
+
+- `/lee`: la historia del pago (titular, manifiesto que se enciende con el scroll y los pasos).
+- `/top`: los artículos destacados del catálogo (pendiente).
+
+Con `prefers-reduced-motion` no hay Lenis ni movimiento, y sin JavaScript el contenido se muestra igual (`<noscript>` en el layout del grupo).
+
 ## Modos de datos y wallet
 
 `NEXT_PUBLIC_DATA_SOURCE=mock` (el valor por defecto si la variable no existe) funciona sin API y nunca transfiere fondos. `NEXT_PUBLIC_DATA_SOURCE=api` usa el backend: Next reenvía `/api/*` a `API_PROXY_TARGET`. Para un backend local, usa `API_PROXY_TARGET=http://localhost:4000` y reinicia Next. `NEXT_PUBLIC_API_URL` permite llamar directamente desde el navegador si CORS está configurado.

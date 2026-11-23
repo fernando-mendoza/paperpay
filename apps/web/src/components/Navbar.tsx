@@ -3,12 +3,16 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { COPY } from '@/lib/copy'
+import { isLandingRoute } from '@/lib/landing'
 import { LogoMark } from './LogoMark'
 
 export function Navbar() {
   const pathname = usePathname()
   const isHome = pathname === '/'
   const isEditorial = pathname === '/editorial'
+
+  // Las landings de campaña traen su propio header (un solo CTA).
+  if (isLandingRoute(pathname)) return null
 
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-background/90 px-4 backdrop-blur-md sm:px-6">
