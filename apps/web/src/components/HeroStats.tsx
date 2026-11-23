@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { getEditorialStats } from '@/services/editorial'
+import { getEditorialStatsShared } from '@/services/editorial'
 
 // Dato en vivo: lecturas ya liquidadas on-chain. Falla en silencio si no carga.
 export function HeroStats() {
@@ -9,7 +9,7 @@ export function HeroStats() {
 
   useEffect(() => {
     let cancelled = false
-    getEditorialStats()
+    getEditorialStatsShared()
       .then((s) => !cancelled && setReads(s.reads))
       .catch(() => {})
     return () => {

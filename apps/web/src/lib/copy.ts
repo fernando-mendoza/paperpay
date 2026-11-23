@@ -315,6 +315,22 @@ export const COPY = {
       closingTitle: '¿Buscas otro tema?',
       closingCta: 'Explorar el catálogo',
     },
+    live: {
+      eyebrow: 'En vivo · Stellar testnet',
+      title: 'Los números salen de la red.',
+      subtitle:
+        'Las lecturas se cuentan al abrir esta página, directo de la cuenta de la tesorería en Stellar. Cualquiera puede verificarlas.',
+      reads: 'lecturas liquidadas on-chain',
+      readsSource: 'En vivo · Horizon',
+      readsError: 'No se pudo leer la red ahora',
+      papers: 'artículos en el catálogo',
+      disciplines: 'disciplinas',
+      catalogSource: 'Catálogo',
+      settle: 'para liquidar un pago',
+      settleSource: 'Red Stellar',
+      verify: 'Verificar en stellar.expert',
+      testnet: 'Testnet · USDC de prueba',
+    },
   },
   debug: {
     title: 'Panel de depuración',

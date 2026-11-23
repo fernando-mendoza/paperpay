@@ -8,6 +8,7 @@ import { Manifesto } from '@/components/landing/Manifesto'
 import { PaymentStory } from '@/components/landing/PaymentStory'
 import type { StoryPaper } from '@/components/landing/StoryWindow'
 import { LandingFooter } from '@/components/landing/LandingFooter'
+import { LiveNumbers } from '@/components/landing/LiveNumbers'
 import { Reveal } from '@/components/landing/Reveal'
 import { CATALOG, DISCIPLINE_COUNT, PAPER_COUNT } from '@/lib/catalog'
 import { COPY } from '@/lib/copy'
@@ -100,6 +101,8 @@ export default function LeeLandingPage() {
         <PaymentStory eyebrow={LEE.story.eyebrow} title={LEE.story.title} steps={LEE.story.steps} paper={STORY_PAPER} />
 
         <DisciplineRail eyebrow={LEE.rail.eyebrow} title={LEE.rail.title} subtitle={LEE.rail.subtitle} disciplines={RAIL_DISCIPLINES} />
+
+        <LiveNumbers paperCount={PAPER_COUNT} disciplineCount={DISCIPLINE_COUNT} />
 
         <section className="px-4 py-24 sm:px-6 sm:py-32">
           <Reveal className="mx-auto max-w-3xl text-center">

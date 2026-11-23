@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { HeroStats } from '@/components/HeroStats'
 import { LandingFooter } from '@/components/landing/LandingFooter'
 import { LandingHeader } from '@/components/landing/LandingHeader'
+import { LiveNumbers } from '@/components/landing/LiveNumbers'
 import { PicksFan } from '@/components/landing/PicksFan'
 import { PicksStack } from '@/components/landing/PicksStack'
 import { Reveal } from '@/components/landing/Reveal'
@@ -78,6 +79,8 @@ export default function TopLandingPage() {
           </Reveal>
           <PicksStack picks={PICKS} labels={TOP.card} />
         </section>
+
+        <LiveNumbers paperCount={PAPER_COUNT} disciplineCount={DISCIPLINE_COUNT} />
 
         <section className="bg-foreground px-4 py-24 text-white sm:px-6 sm:py-28">
           <div className="mx-auto max-w-5xl">

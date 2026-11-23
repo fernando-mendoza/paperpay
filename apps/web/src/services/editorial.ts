@@ -25,6 +25,10 @@ export interface EditorialStats {
   feeUsdc: number
   perDay: { label: string; count: number }[]
   recent: EditorialTx[]
+  /** Cuenta de la tesorería, para enlazarla en el explorador. */
+  treasury: string
+  /** Horizon devolvió el máximo pedido: puede haber más pagos que los contados. */
+  truncated: boolean
 }
 
 interface HorizonPayment {
@@ -91,7 +95,22 @@ export async function getEditorialStats(): Promise<EditorialStats> {
     feeUsdc: totalUsdc * PLATFORM_FEE,
     perDay,
     recent,
+    treasury,
+    truncated: data._embedded.records.length >= MAX_PAYMENTS,
   }
+}
+
+// Una sola lectura por carga de página: el hero y la sección de números piden lo mismo.
+// Si falla, se olvida para que un montaje posterior pueda reintentar.
+let shared: Promise<EditorialStats> | null = null
+export function getEditorialStatsShared(): Promise<EditorialStats> {
+  if (!shared) {
+    shared = getEditorialStats().catch((error: unknown) => {
+      shared = null
+      throw error
+    })
+  }
+  return shared
 }
 
 export const READ_PRICE = DEFAULT_PAPER_PRICE_USDC
