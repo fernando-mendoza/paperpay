@@ -276,6 +276,45 @@ export const COPY = {
       },
       closingSubtitle: 'Todos a $0.50 USDC por artículo.',
     },
+    top: {
+      metaTitle: 'Seis artículos para empezar',
+      metaDescription:
+        'Seis artículos de seis disciplinas, elegidos a mano. Lee el resumen gratis y paga $0.50 USDC solo por el que quieras completo.',
+      eyebrow: 'Elegidos a mano · 6 disciplinas',
+      headline: 'Seis artículos para empezar.',
+      price: '$0.50 cada uno.',
+      description:
+        'De la edición genética a la materia oscura. Lee el resumen gratis y paga solo el que quieras completo, con tu wallet y sin cuenta.',
+      ctaPicks: 'Ver la selección',
+      picks: {
+        eyebrow: 'La selección',
+        title: 'Uno por disciplina. Todos a $0.50.',
+        subtitle: 'Baja para recorrerlos. Cada botón abre el artículo con su pago listo.',
+      },
+      card: {
+        why: 'Por qué leerlo',
+        abstract: 'Resumen · gratis',
+        cta: 'Leer por $0.50 USDC',
+        access: 'Acceso por 24 horas',
+      },
+      how: {
+        eyebrow: 'Así pagas',
+        title: 'Tres pasos, unos cinco segundos.',
+        steps: [
+          { title: 'Abre el artículo', description: 'El resumen es gratis. Decide si lo quieres completo.' },
+          {
+            title: 'Firma con Freighter',
+            description: 'Pagas 0.50 USDC con la extensión de tu navegador. Sin cuenta ni contraseña.',
+          },
+          {
+            title: 'Léelo 24 horas',
+            description: 'Stellar confirma el pago en unos 5 segundos y el artículo se abre completo.',
+          },
+        ],
+      },
+      closingTitle: '¿Buscas otro tema?',
+      closingCta: 'Explorar el catálogo',
+    },
   },
   debug: {
     title: 'Panel de depuración',

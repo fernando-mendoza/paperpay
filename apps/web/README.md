@@ -15,7 +15,7 @@ En producción ([paperpay.press](https://paperpay.press/)) el workflow `.github/
 Páginas para anuncios, separadas del catálogo (`/`). Viven en el grupo `src/app/(landing)/`, que monta el scroll suave (Lenis) y `MotionConfig`, y salen con `noindex, follow` para no competir con el catálogo en buscadores. No usan el `Navbar` del sitio: traen un header con un solo CTA (`src/components/landing/`).
 
 - `/lee`: la historia del pago: titular, manifiesto que se enciende con el scroll y "Cómo funciona" fijo en pantalla, donde cada paso cambia una ventana de navegador hecha en HTML (resumen → firma en Freighter → liquidación → artículo abierto). Después, un carrusel de las 10 disciplinas que avanza de lado con el scroll; cada tarjeta lleva al catálogo filtrado (`/?disciplina=<nombre>`, que `HomeView` lee al cargar).
-- `/top`: los artículos destacados del catálogo (pendiente).
+- `/top`: seis artículos elegidos a mano, uno por disciplina. Abanico de tres en el hero y, al bajar, tarjetas que se apilan con el scroll; cada una tiene su botón directo a la página de pago del artículo (`/papers/<id>`). La lista (ids y la razón de leer cada uno) vive en `src/lib/top-picks.ts`; si un id no existe en el catálogo, el build falla.
 
 Con `prefers-reduced-motion` no hay Lenis ni movimiento, y sin JavaScript el contenido se muestra igual (`<noscript>` en el layout del grupo).
 

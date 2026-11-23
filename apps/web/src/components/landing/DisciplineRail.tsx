@@ -189,7 +189,7 @@ function RailCard({
 
 // Pila de hojas en falso 3D: la hoja de arriba es la portada de la disciplina y las de abajo,
 // desplazadas, hacen el grosor. Se inclina con --rx/--ry (puntero) sobre una pose por defecto.
-function PaperStack({ discipline, from, to }: { discipline: string; from: string; to: string }) {
+export function PaperStack({ discipline, from, to }: { discipline: string; from: string; to: string }) {
   const sheets = [6, 5, 4, 3, 2, 1]
   return (
     <div className="[perspective:900px]" aria-hidden>

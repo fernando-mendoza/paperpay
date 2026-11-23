@@ -7,25 +7,13 @@ import { DisciplineRail, type RailDiscipline } from '@/components/landing/Discip
 import { Manifesto } from '@/components/landing/Manifesto'
 import { PaymentStory } from '@/components/landing/PaymentStory'
 import type { StoryPaper } from '@/components/landing/StoryWindow'
+import { LandingFooter } from '@/components/landing/LandingFooter'
 import { Reveal } from '@/components/landing/Reveal'
+import { CATALOG, DISCIPLINE_COUNT, PAPER_COUNT } from '@/lib/catalog'
 import { COPY } from '@/lib/copy'
-import papers from '@/mocks/papers.json'
 
 const L = COPY.landing
 const LEE = L.lee
-
-// Conteos del catálogo al compilar: no se escriben a mano para que no se desfasen.
-const CATALOG = papers as {
-  id: string
-  discipline?: string
-  title: string
-  authors: string[]
-  abstract: string
-  publishedDate: string
-  fullContentMarkdown: string
-}[]
-const PAPER_COUNT = CATALOG.length
-const DISCIPLINE_COUNT = new Set(CATALOG.map((p) => p.discipline).filter(Boolean)).size
 
 // Disciplinas del carrusel: conteo y el título más reciente de cada una, de mayor a menor.
 const RAIL_DISCIPLINES: RailDiscipline[] = [...new Set(CATALOG.map((p) => p.discipline).filter((d): d is string => Boolean(d)))]
@@ -128,12 +116,7 @@ export default function LeeLandingPage() {
           </Reveal>
         </section>
       </main>
-      <footer className="border-t border-border px-4 py-8 sm:px-6">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 text-xs text-muted-foreground">
-          <p>{L.footer}</p>
-          <p>© 2026 {COPY.brand.name}</p>
-        </div>
-      </footer>
+      <LandingFooter />
     </>
   )
 }
