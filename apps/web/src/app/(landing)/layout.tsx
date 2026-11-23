@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 }
 
 const NO_JS_CSS =
-  '[data-reveal],[data-manifesto-word]{opacity:1!important;transform:none!important;filter:none!important}'
+  '[data-reveal],[data-manifesto-word]{opacity:1!important;transform:none!important;filter:none!important}[data-step]{display:block!important}'
 
 export default function LandingLayout({ children }: { children: React.ReactNode }) {
   return (

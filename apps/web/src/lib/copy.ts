@@ -231,13 +231,44 @@ export const COPY = {
         { text: 'Sin cuenta: tu wallet paga, Stellar liquida en unos 5 segundos y el artículo es tuyo durante' },
         { text: '24 horas.', tone: 'accent' as const },
       ],
-      stepsTitle: 'Así se desbloquea',
-      stepsSubtitle: 'Tres pasos, sin registro',
-      steps: [
-        { number: '01', title: 'Eliges un artículo', description: 'Lees el resumen gratis y decides si lo quieres completo.' },
-        { number: '02', title: 'Firmas $0.50 USDC', description: 'Tu wallet aprueba el pago. No hay cuenta ni contraseña.' },
-        { number: '03', title: 'Lo lees al instante', description: 'Stellar liquida en unos 5 segundos y tienes 24 horas de acceso.' },
-      ],
+      story: {
+        eyebrow: 'Cómo funciona',
+        title: 'Cuatro pasos. Unos cinco segundos.',
+        steps: [
+          {
+            title: 'Encuentra tu artículo',
+            description: 'Lee el resumen gratis y decide si lo quieres completo.',
+            chips: [
+              { label: 'Resumen', value: 'Gratis' },
+              { label: 'Artículo completo', value: '0.50 USDC' },
+            ],
+          },
+          {
+            title: 'Firma $0.50 con Freighter',
+            description: 'La API responde 402 con el precio y tu wallet firma el pago. Sin cuenta ni contraseña.',
+            chips: [
+              { label: 'HTTP 402', value: 'Payment Required' },
+              { label: 'Red', value: 'Stellar testnet' },
+            ],
+          },
+          {
+            title: 'Stellar lo liquida',
+            description: 'El pago se confirma en la red en unos 5 segundos y queda verificable on-chain.',
+            chips: [
+              { label: 'Liquidado en', value: '~5 s' },
+              { label: 'Comisión de red', value: '< $0.01' },
+            ],
+          },
+          {
+            title: 'Léelo durante 24 horas',
+            description: 'El artículo se abre completo y tu acceso dura 24 horas en este navegador.',
+            chips: [
+              { label: 'HTTP 200', value: 'Acceso concedido' },
+              { label: 'Acceso', value: '24 horas' },
+            ],
+          },
+        ],
+      },
       closingSubtitle: 'Todos a $0.50 USDC por artículo.',
     },
   },

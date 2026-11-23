@@ -4,6 +4,8 @@ import { HeroPreview } from '@/components/HeroPreview'
 import { HeroStats } from '@/components/HeroStats'
 import { LandingHeader } from '@/components/landing/LandingHeader'
 import { Manifesto } from '@/components/landing/Manifesto'
+import { PaymentStory } from '@/components/landing/PaymentStory'
+import type { StoryPaper } from '@/components/landing/StoryWindow'
 import { Reveal } from '@/components/landing/Reveal'
 import { COPY } from '@/lib/copy'
 import papers from '@/mocks/papers.json'
@@ -12,9 +14,23 @@ const L = COPY.landing
 const LEE = L.lee
 
 // Conteos del catálogo al compilar: no se escriben a mano para que no se desfasen.
-const CATALOG = papers as { discipline?: string }[]
+const CATALOG = papers as { id: string; discipline?: string; title: string; authors: string[]; abstract: string; fullContentMarkdown: string }[]
 const PAPER_COUNT = CATALOG.length
 const DISCIPLINE_COUNT = new Set(CATALOG.map((p) => p.discipline).filter(Boolean)).size
+
+// El artículo que recorre la historia del pago. Solo se mandan al cliente los textos que usa.
+const STORY_SOURCE = CATALOG.find((p) => p.id === 'autonomous-ai-micropayments') ?? CATALOG[0]
+const STORY_PAPER: StoryPaper = {
+  discipline: STORY_SOURCE.discipline ?? '',
+  title: STORY_SOURCE.title,
+  authors: STORY_SOURCE.authors.join(', '),
+  abstract: STORY_SOURCE.abstract,
+  body: STORY_SOURCE.fullContentMarkdown
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'))
+    .slice(0, 3),
+}
 
 export const metadata: Metadata = {
   title: LEE.metaTitle,
@@ -23,7 +39,7 @@ export const metadata: Metadata = {
   twitter: { title: LEE.metaTitle, description: LEE.metaDescription },
 }
 
-// Landing A ("la historia del pago") para campañas. Fase 1: hero estático, manifiesto y pasos.
+// Landing A ("la historia del pago") para campañas: hero estático, manifiesto y la historia del pago contada con scroll.
 export default function LeeLandingPage() {
   return (
     <>
@@ -76,27 +92,7 @@ export default function LeeLandingPage() {
           </div>
         </section>
 
-        <section id="como-funciona" className="scroll-mt-20 bg-foreground px-4 py-24 sm:px-6">
-          <div className="mx-auto max-w-7xl">
-            <Reveal>
-              <h2 className="mb-2 text-center font-display text-3xl font-semibold text-white sm:text-4xl">{LEE.stepsTitle}</h2>
-              <p className="mb-14 text-center text-subtle">{LEE.stepsSubtitle}</p>
-            </Reveal>
-            <ol className="grid grid-cols-1 gap-8 md:grid-cols-3">
-              {LEE.steps.map((step, i) => (
-                <li key={step.number}>
-                  <Reveal delay={i * 0.12}>
-                    <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/15">
-                      <span className="font-mono text-lg font-semibold text-primary">{step.number}</span>
-                    </div>
-                    <h3 className="mb-3 font-display text-xl font-semibold text-white">{step.title}</h3>
-                    <p className="text-sm leading-relaxed text-subtle">{step.description}</p>
-                  </Reveal>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </section>
+        <PaymentStory eyebrow={LEE.story.eyebrow} title={LEE.story.title} steps={LEE.story.steps} paper={STORY_PAPER} />
 
         <section className="px-4 py-24 sm:px-6 sm:py-32">
           <Reveal className="mx-auto max-w-3xl text-center">
