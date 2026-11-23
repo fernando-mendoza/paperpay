@@ -269,6 +269,11 @@ export const COPY = {
           },
         ],
       },
+      rail: {
+        eyebrow: 'Disciplinas',
+        title: 'Toda la ciencia, a $0.50.',
+        subtitle: 'Lee el resumen gratis de cualquier artículo y paga solo el que quieras completo.',
+      },
       closingSubtitle: 'Todos a $0.50 USDC por artículo.',
     },
   },

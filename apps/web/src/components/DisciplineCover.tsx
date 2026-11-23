@@ -16,13 +16,18 @@ const THEMES: Record<string, { from: string; to: string; ink: string }> = {
 
 const FALLBACK = { from: '#475569', to: '#1E293B', ink: '#E2E8F0' }
 
+/** Colores de la portada de una disciplina (degradado `from` → `to` y tinta del texto). */
+export function disciplineTheme(discipline?: string) {
+  return (discipline && THEMES[discipline]) || FALLBACK
+}
+
 interface Props {
   discipline?: string
   className?: string
 }
 
 export function DisciplineCover({ discipline, className }: Props) {
-  const theme = (discipline && THEMES[discipline]) || FALLBACK
+  const theme = disciplineTheme(discipline)
   const gid = `g-${(discipline ?? 'x').replace(/[^a-zA-Z]/g, '')}`
 
   return (

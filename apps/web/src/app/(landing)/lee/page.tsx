@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { HeroPreview } from '@/components/HeroPreview'
 import { HeroStats } from '@/components/HeroStats'
 import { LandingHeader } from '@/components/landing/LandingHeader'
+import { DisciplineRail, type RailDiscipline } from '@/components/landing/DisciplineRail'
 import { Manifesto } from '@/components/landing/Manifesto'
 import { PaymentStory } from '@/components/landing/PaymentStory'
 import type { StoryPaper } from '@/components/landing/StoryWindow'
@@ -14,9 +15,25 @@ const L = COPY.landing
 const LEE = L.lee
 
 // Conteos del catálogo al compilar: no se escriben a mano para que no se desfasen.
-const CATALOG = papers as { id: string; discipline?: string; title: string; authors: string[]; abstract: string; fullContentMarkdown: string }[]
+const CATALOG = papers as {
+  id: string
+  discipline?: string
+  title: string
+  authors: string[]
+  abstract: string
+  publishedDate: string
+  fullContentMarkdown: string
+}[]
 const PAPER_COUNT = CATALOG.length
 const DISCIPLINE_COUNT = new Set(CATALOG.map((p) => p.discipline).filter(Boolean)).size
+
+// Disciplinas del carrusel: conteo y el título más reciente de cada una, de mayor a menor.
+const RAIL_DISCIPLINES: RailDiscipline[] = [...new Set(CATALOG.map((p) => p.discipline).filter((d): d is string => Boolean(d)))]
+  .map((name) => {
+    const inDiscipline = CATALOG.filter((p) => p.discipline === name).sort((a, b) => b.publishedDate.localeCompare(a.publishedDate))
+    return { name, count: inDiscipline.length, sample: inDiscipline[0].title }
+  })
+  .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'es'))
 
 // El artículo que recorre la historia del pago. Solo se mandan al cliente los textos que usa.
 const STORY_SOURCE = CATALOG.find((p) => p.id === 'autonomous-ai-micropayments') ?? CATALOG[0]
@@ -93,6 +110,8 @@ export default function LeeLandingPage() {
         </section>
 
         <PaymentStory eyebrow={LEE.story.eyebrow} title={LEE.story.title} steps={LEE.story.steps} paper={STORY_PAPER} />
+
+        <DisciplineRail eyebrow={LEE.rail.eyebrow} title={LEE.rail.title} subtitle={LEE.rail.subtitle} disciplines={RAIL_DISCIPLINES} />
 
         <section className="px-4 py-24 sm:px-6 sm:py-32">
           <Reveal className="mx-auto max-w-3xl text-center">

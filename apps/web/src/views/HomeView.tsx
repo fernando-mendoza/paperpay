@@ -36,6 +36,13 @@ export function HomeView() {
     }
   }, [])
 
+  // `?disciplina=<nombre>` llega desde las landings: preselecciona esa disciplina si existe.
+  useEffect(() => {
+    if (papers.length === 0) return
+    const wanted = new URLSearchParams(window.location.search).get('disciplina')
+    if (wanted && papers.some((p) => p.discipline === wanted)) setDiscipline(wanted)
+  }, [papers])
+
   const purchasedCount = useMemo(() => papers.filter((p) => access.has(p.id)).length, [papers, access])
   const showOnlyPurchased = onlyPurchased && purchasedCount > 0
 
