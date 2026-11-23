@@ -221,7 +221,16 @@ export const COPY = {
       headline: 'Lee ciencia por',
       price: '$0.50',
       subhead: 'Sin cuenta. Sin suscripción.',
-      description: 'Pagas un artículo con tu wallet y se abre en unos 5 segundos. Solo pagas lo que lees.',
+      // Hero con el símbolo en 3D: el texto bajo el titular cambia mientras las capas se abren y se juntan.
+      hero3d: {
+        captions: [
+          'Pagas un artículo con tu wallet y se abre en unos 5 segundos. Solo pagas lo que lees.',
+          'Un pago, tres pasos: tu wallet firma, Stellar liquida y el artículo se abre.',
+          'Liquidado en ~5 s en Stellar y verificable en la red. Sin cuenta ni suscripción.',
+        ],
+        labels: ['Tu wallet firma $0.50', 'Stellar liquida en ~5 s', 'El artículo se abre 24 h'] as const,
+        scrollHint: 'Desliza',
+      },
       // Cada tramo se enciende palabra por palabra con el scroll. Solo afirmaciones que el producto cumple.
       manifesto: [
         { text: 'Un artículo cuesta' },

@@ -1,8 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { HeroPreview } from '@/components/HeroPreview'
-import { HeroStats } from '@/components/HeroStats'
 import { LandingHeader } from '@/components/landing/LandingHeader'
+import { LeeHero } from '@/components/landing/LeeHero'
 import { DisciplineRail, type RailDiscipline } from '@/components/landing/DisciplineRail'
 import { Manifesto } from '@/components/landing/Manifesto'
 import { PaymentStory } from '@/components/landing/PaymentStory'
@@ -51,46 +50,7 @@ export default function LeeLandingPage() {
     <>
       <LandingHeader />
       <main>
-        <section className="relative overflow-hidden">
-          <div
-            className="pointer-events-none absolute top-0 right-0 h-[640px] w-[640px] translate-x-[30%] -translate-y-[25%] rounded-full opacity-10"
-            style={{ background: 'radial-gradient(circle, #2F5BFF 0%, transparent 70%)' }}
-            aria-hidden
-          />
-          <div className="relative mx-auto grid min-h-[100svh] max-w-7xl grid-cols-1 items-center gap-12 px-4 pt-28 pb-16 sm:px-6 lg:grid-cols-[1.05fr_0.95fr]">
-            <div className="max-w-xl">
-              <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-primary-soft px-3 py-1.5 text-xs font-semibold text-primary">
-                <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                {L.badge}
-              </div>
-              <h1 className="mb-5 font-display text-[clamp(2.5rem,6vw,4.75rem)] leading-[1.05] font-semibold tracking-tight text-foreground">
-                {LEE.headline} <span className="text-primary">{LEE.price}</span>
-                <span className="block">{LEE.subhead}</span>
-              </h1>
-              <p className="mb-8 text-lg leading-relaxed text-muted-foreground">{LEE.description}</p>
-              <div className="flex flex-wrap items-center gap-3">
-                <Link
-                  href="/"
-                  className="inline-flex min-h-[52px] items-center rounded-xl bg-primary px-6 text-base font-semibold text-primary-foreground shadow-[var(--shadow-card)] transition-colors hover:bg-primary-hover"
-                >
-                  {L.ctaPrimary}
-                </Link>
-                <a
-                  href="#como-funciona"
-                  className="inline-flex min-h-[52px] items-center rounded-xl border border-border bg-card px-6 text-base font-semibold text-foreground transition-colors hover:border-border-strong"
-                >
-                  {L.ctaSecondary}
-                </a>
-              </div>
-              <div className="mt-6">
-                <HeroStats />
-              </div>
-            </div>
-            <div className="animate-fade-in lg:pl-6">
-              <HeroPreview />
-            </div>
-          </div>
-        </section>
+        <LeeHero />
 
         <section className="px-4 py-28 sm:px-6 sm:py-40">
           <div className="mx-auto max-w-5xl">

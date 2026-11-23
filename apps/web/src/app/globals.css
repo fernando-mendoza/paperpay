@@ -180,3 +180,9 @@ body {
     animation: none;
   }
 }
+
+/* Indicador "Desliza" del hero de /lee. */
+@keyframes scrollCue {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(300%); }
+}
