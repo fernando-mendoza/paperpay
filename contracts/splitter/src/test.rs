@@ -1,11 +1,13 @@
 #![cfg(test)]
 extern crate std;
 
-use super::{Config, Error, Paid, Split, Splitter, SplitterClient, MAX_FEE_BPS};
+use super::{
+    Config, Error, Item, Paid, Split, Splitter, SplitterClient, MAX_BATCH_ITEMS, MAX_FEE_BPS,
+};
 use soroban_sdk::{
     testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Events as _},
     token::{StellarAssetClient, TokenClient},
-    Address, Env, Event, IntoVal, String, Symbol,
+    vec, Address, Env, Event, IntoVal, String, Symbol, Vec,
 };
 
 /// $0.50 USDC con 7 decimales.
@@ -43,9 +45,43 @@ fn setup() -> Setup<'static> {
     }
 }
 
+impl Setup<'_> {
+    fn fund(&self, who: &Address, amount: i128) {
+        StellarAssetClient::new(&self.env, &self.usdc.address).mint(who, &amount);
+    }
+
+    fn transfer_auth(&self, from: &Address, to: &Address, amount: i128) -> AuthorizedInvocation {
+        AuthorizedInvocation {
+            function: AuthorizedFunction::Contract((
+                self.usdc.address.clone(),
+                Symbol::new(&self.env, "transfer"),
+                (from.clone(), to.clone(), amount).into_val(&self.env),
+            )),
+            sub_invocations: std::vec![],
+        }
+    }
+
+    fn receipts(&self) -> soroban_sdk::testutils::ContractEvents {
+        self.env
+            .events()
+            .all()
+            .filter_by_contract(&self.splitter.address)
+    }
+}
+
 fn paper(env: &Env) -> String {
     String::from_str(env, "crispr-nanomedicine-biotech")
 }
+
+fn item(env: &Env, paper_id: &str, publisher: &Address, amount: i128) -> Item {
+    Item {
+        paper_id: String::from_str(env, paper_id),
+        publisher: publisher.clone(),
+        amount,
+    }
+}
+
+// ---------- pay ----------
 
 #[test]
 fn una_lectura_reparte_98_a_la_editorial_y_2_a_la_tesoreria() {
@@ -77,14 +113,6 @@ fn la_firma_del_lector_cubre_la_llamada_y_las_dos_transferencias() {
     let paper_id = paper(&s.env);
     s.splitter.pay(&s.payer, &paper_id, &s.publisher, &PRICE);
 
-    let transfer = |to: &Address, amount: i128| AuthorizedInvocation {
-        function: AuthorizedFunction::Contract((
-            s.usdc.address.clone(),
-            Symbol::new(&s.env, "transfer"),
-            (s.payer.clone(), to.clone(), amount).into_val(&s.env),
-        )),
-        sub_invocations: std::vec![],
-    };
     assert_eq!(
         s.env.auths(),
         std::vec![(
@@ -96,8 +124,8 @@ fn la_firma_del_lector_cubre_la_llamada_y_las_dos_transferencias() {
                     (s.payer.clone(), paper_id, s.publisher.clone(), PRICE).into_val(&s.env),
                 )),
                 sub_invocations: std::vec![
-                    transfer(&s.publisher, 4_900_000),
-                    transfer(&s.treasury, 100_000)
+                    s.transfer_auth(&s.payer, &s.publisher, 4_900_000),
+                    s.transfer_auth(&s.payer, &s.treasury, 100_000),
                 ],
             }
         )]
@@ -118,22 +146,20 @@ fn sin_la_firma_del_lector_no_se_cobra() {
 }
 
 #[test]
-fn cada_pago_deja_un_comprobante_con_el_articulo() {
+fn cada_pago_deja_un_comprobante_con_el_articulo_y_quien_lo_lee() {
     let s = setup();
     let paper_id = paper(&s.env);
     s.splitter.pay(&s.payer, &paper_id, &s.publisher, &PRICE);
 
     let expected = Paid {
         publisher: s.publisher.clone(),
+        reader: s.payer.clone(),
         paper_id,
         payer: s.payer.clone(),
         amount: PRICE,
         fee: 100_000,
     };
-    assert_eq!(
-        s.env.events().all().filter_by_contract(&s.splitter.address),
-        [expected.to_xdr(&s.env, &s.splitter.address)]
-    );
+    assert_eq!(s.receipts(), [expected.to_xdr(&s.env, &s.splitter.address)]);
 }
 
 #[test]
@@ -233,4 +259,297 @@ fn no_se_despliega_con_una_comision_mayor_al_10_por_ciento() {
     let usdc = Address::generate(&env);
     let treasury = Address::generate(&env);
     env.register(Splitter, (usdc, treasury, MAX_FEE_BPS + 1));
+}
+
+// ---------- pay_batch ----------
+
+#[test]
+fn un_paquete_cobra_varios_articulos_con_una_firma_y_agrupa_por_editorial() {
+    let s = setup();
+    let other = Address::generate(&s.env);
+    let items = vec![
+        &s.env,
+        item(&s.env, "crispr-nanomedicine-biotech", &s.publisher, PRICE),
+        item(&s.env, "gravitational-lensing-dark-matter", &other, PRICE),
+        item(&s.env, "autonomous-ai-micropayments", &s.publisher, PRICE),
+    ];
+    let total = s.splitter.pay_batch(&s.payer, &items);
+    // auths() y events() solo guardan la última invocación: se leen antes de consultar saldos.
+    let auths = s.env.auths();
+
+    assert_eq!(
+        total,
+        Split {
+            publisher: 14_700_000,
+            fee: 300_000
+        }
+    );
+    assert_eq!(s.usdc.balance(&s.publisher), 9_800_000);
+    assert_eq!(s.usdc.balance(&other), 4_900_000);
+    assert_eq!(s.usdc.balance(&s.treasury), 300_000);
+    assert_eq!(s.usdc.balance(&s.payer), 7 * PRICE);
+    assert_eq!(
+        s.usdc.balance(&s.splitter.address),
+        0,
+        "el contrato no guarda fondos"
+    );
+
+    // Una sola firma del lector, sobre la llamada con la lista completa.
+    assert_eq!(auths.len(), 1);
+    assert_eq!(auths[0].0, s.payer);
+    assert_eq!(
+        auths[0].1.function,
+        AuthorizedFunction::Contract((
+            s.splitter.address.clone(),
+            Symbol::new(&s.env, "pay_batch"),
+            (s.payer.clone(), items).into_val(&s.env),
+        ))
+    );
+    // Tres artículos, dos editoriales: dos transferencias a editoriales + una a la tesorería.
+    assert_eq!(auths[0].1.sub_invocations.len(), 3);
+}
+
+#[test]
+fn un_paquete_deja_un_comprobante_por_articulo_en_orden() {
+    let s = setup();
+    let other = Address::generate(&s.env);
+    let items = vec![
+        &s.env,
+        item(&s.env, "crispr-nanomedicine-biotech", &s.publisher, PRICE),
+        item(
+            &s.env,
+            "gravitational-lensing-dark-matter",
+            &other,
+            2 * PRICE,
+        ),
+    ];
+    s.splitter.pay_batch(&s.payer, &items);
+
+    let receipt = |it: &Item, fee: i128| {
+        Paid {
+            publisher: it.publisher.clone(),
+            reader: s.payer.clone(),
+            paper_id: it.paper_id.clone(),
+            payer: s.payer.clone(),
+            amount: it.amount,
+            fee,
+        }
+        .to_xdr(&s.env, &s.splitter.address)
+    };
+    assert_eq!(
+        s.receipts(),
+        [
+            receipt(&items.get(0).unwrap(), 100_000),
+            receipt(&items.get(1).unwrap(), 200_000)
+        ]
+    );
+}
+
+#[test]
+fn un_paquete_es_todo_o_nada() {
+    let s = setup();
+    let short = Address::generate(&s.env);
+    s.fund(&short, 2 * PRICE);
+    let items = vec![
+        &s.env,
+        item(&s.env, "a", &s.publisher, PRICE),
+        item(&s.env, "b", &s.publisher, PRICE),
+        item(&s.env, "c", &s.publisher, PRICE),
+    ];
+
+    assert!(s.splitter.try_pay_batch(&short, &items).is_err());
+    assert_eq!(s.usdc.balance(&short), 2 * PRICE);
+    assert_eq!(s.usdc.balance(&s.publisher), 0);
+    assert_eq!(s.usdc.balance(&s.treasury), 0);
+}
+
+#[test]
+fn un_paquete_rechaza_listas_vacias_demasiado_grandes_o_con_repetidos() {
+    let s = setup();
+    let empty: Vec<Item> = Vec::new(&s.env);
+    assert_eq!(
+        s.splitter.try_pay_batch(&s.payer, &empty),
+        Err(Ok(Error::EmptyBatch.into()))
+    );
+
+    let mut too_many: Vec<Item> = Vec::new(&s.env);
+    for i in 0..=MAX_BATCH_ITEMS {
+        too_many.push_back(item(&s.env, &std::format!("paper-{i}"), &s.publisher, 1));
+    }
+    assert_eq!(
+        s.splitter.try_pay_batch(&s.payer, &too_many),
+        Err(Ok(Error::BatchTooLarge.into()))
+    );
+
+    let repeated = vec![
+        &s.env,
+        item(&s.env, "a", &s.publisher, PRICE),
+        item(&s.env, "a", &s.publisher, PRICE),
+    ];
+    assert_eq!(
+        s.splitter.try_pay_batch(&s.payer, &repeated),
+        Err(Ok(Error::DuplicatePaper.into()))
+    );
+
+    let bad_amount = vec![
+        &s.env,
+        item(&s.env, "a", &s.publisher, PRICE),
+        item(&s.env, "b", &s.publisher, 0),
+    ];
+    assert_eq!(
+        s.splitter.try_pay_batch(&s.payer, &bad_amount),
+        Err(Ok(Error::InvalidAmount.into()))
+    );
+
+    let bad_id = vec![
+        &s.env,
+        item(&s.env, "a", &s.publisher, PRICE),
+        item(&s.env, "", &s.publisher, PRICE),
+    ];
+    assert_eq!(
+        s.splitter.try_pay_batch(&s.payer, &bad_id),
+        Err(Ok(Error::InvalidPaperId.into()))
+    );
+
+    assert_eq!(s.usdc.balance(&s.payer), 10 * PRICE, "ningún intento cobró");
+}
+
+#[test]
+fn un_paquete_acepta_el_maximo_de_articulos() {
+    let s = setup();
+    let mut items: Vec<Item> = Vec::new(&s.env);
+    for i in 0..MAX_BATCH_ITEMS {
+        items.push_back(item(
+            &s.env,
+            &std::format!("paper-{i}"),
+            &s.publisher,
+            PRICE,
+        ));
+    }
+    let total = s.splitter.pay_batch(&s.payer, &items);
+    assert_eq!(
+        total,
+        Split {
+            publisher: 49_000_000,
+            fee: 1_000_000
+        }
+    );
+    assert_eq!(s.receipts().events().len(), MAX_BATCH_ITEMS as usize);
+}
+
+#[test]
+fn la_comision_del_paquete_se_redondea_por_articulo() {
+    let s = setup();
+    // 49 stroops: 2% = 0.98 → 0 por artículo. Sobre la suma (147) serían 2.94 → 2: el paquete
+    // cobra lo mismo que tres `pay` separados, y cada comprobante lleva la comisión de su artículo.
+    let items = vec![
+        &s.env,
+        item(&s.env, "a", &s.publisher, 49),
+        item(&s.env, "b", &s.publisher, 49),
+        item(&s.env, "c", &s.publisher, 49),
+    ];
+    let total = s.splitter.pay_batch(&s.payer, &items);
+    assert_eq!(
+        total,
+        Split {
+            publisher: 147,
+            fee: 0
+        }
+    );
+    assert_eq!(s.usdc.balance(&s.treasury), 0);
+    assert_eq!(s.usdc.balance(&s.publisher), 147);
+}
+
+#[test]
+fn sin_la_firma_del_lector_no_hay_paquete() {
+    let s = setup();
+    s.env.set_auths(&[]);
+    let items = vec![&s.env, item(&s.env, "a", &s.publisher, PRICE)];
+    assert!(s.splitter.try_pay_batch(&s.payer, &items).is_err());
+    assert_eq!(s.usdc.balance(&s.payer), 10 * PRICE);
+}
+
+// ---------- gift ----------
+
+#[test]
+fn un_regalo_cobra_a_quien_paga_y_da_el_acceso_a_otra_cuenta() {
+    let s = setup();
+    let student = Address::generate(&s.env);
+    let paper_id = paper(&s.env);
+    let split = s
+        .splitter
+        .gift(&s.payer, &student, &paper_id, &s.publisher, &PRICE);
+    let receipts = s.receipts();
+
+    assert_eq!(
+        split,
+        Split {
+            publisher: 4_900_000,
+            fee: 100_000
+        }
+    );
+    assert_eq!(s.usdc.balance(&s.payer), 9 * PRICE);
+    assert_eq!(s.usdc.balance(&s.publisher), 4_900_000);
+    assert_eq!(s.usdc.balance(&s.treasury), 100_000);
+    assert_eq!(
+        s.usdc.balance(&student),
+        0,
+        "el lector no recibe dinero, recibe el acceso"
+    );
+
+    let expected = Paid {
+        publisher: s.publisher.clone(),
+        reader: student,
+        paper_id,
+        payer: s.payer.clone(),
+        amount: PRICE,
+        fee: 100_000,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.splitter.address)]);
+}
+
+#[test]
+fn el_regalo_solo_pide_la_firma_de_quien_paga() {
+    let s = setup();
+    let student = Address::generate(&s.env);
+    let paper_id = paper(&s.env);
+    s.splitter
+        .gift(&s.payer, &student, &paper_id, &s.publisher, &PRICE);
+
+    assert_eq!(
+        s.env.auths(),
+        std::vec![(
+            s.payer.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.splitter.address.clone(),
+                    Symbol::new(&s.env, "gift"),
+                    (
+                        s.payer.clone(),
+                        student,
+                        paper_id,
+                        s.publisher.clone(),
+                        PRICE
+                    )
+                        .into_val(&s.env),
+                )),
+                sub_invocations: std::vec![
+                    s.transfer_auth(&s.payer, &s.publisher, 4_900_000),
+                    s.transfer_auth(&s.payer, &s.treasury, 100_000),
+                ],
+            }
+        )]
+    );
+}
+
+#[test]
+fn sin_la_firma_de_quien_paga_no_hay_regalo() {
+    let s = setup();
+    let student = Address::generate(&s.env);
+    s.env.set_auths(&[]);
+    assert!(s
+        .splitter
+        .try_gift(&s.payer, &student, &paper(&s.env), &s.publisher, &PRICE)
+        .is_err());
+    assert_eq!(s.usdc.balance(&s.payer), 10 * PRICE);
 }
