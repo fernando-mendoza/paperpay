@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@paperpay/shared": "workspace:*",
-    "@stellar/stellar-sdk": "^13.1.0",
+    "@stellar/stellar-sdk": "^17.4.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
