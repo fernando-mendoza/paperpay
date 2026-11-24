@@ -21,11 +21,12 @@ pnpm build:api
 pnpm --filter @paperpay/api deploy --prod --legacy "$OUT/api" >/dev/null
 rm -rf "$OUT/api/node_modules/.pnpm/node_modules/@paperpay/api" # self-link a este checkout, roto en la VPS
 echo "$REV" > "$OUT/REVISION"
+cp deploy/vps/paperpay-api.service "$OUT/paperpay-api.service"
 
 # bsdtar (macOS) agrega archivos AppleDouble y cabeceras xattr que GNU tar no entiende
 MAC=(); tar --version | grep -q bsdtar && MAC=(--no-mac-metadata --no-xattrs)
 COPYFILE_DISABLE=1 tar -C "$OUT" ${MAC[@]+"${MAC[@]}"} -czf - \
-  REVISION api/dist api/data api/package.json api/node_modules |
+  REVISION paperpay-api.service api/dist api/data api/package.json api/node_modules |
   ssh "$HOST" 'set -e
     sudo rm -rf /opt/paperpay.new && sudo mkdir /opt/paperpay.new
     sudo tar -xzf - -C /opt/paperpay.new --no-same-owner
@@ -37,6 +38,12 @@ COPYFILE_DISABLE=1 tar -C "$OUT" ${MAC[@]+"${MAC[@]}"} -czf - \
 
 [ "${1:-}" = --no-restart ] && exit 0
 ssh "$HOST" "set -e
+  # La unidad viaja con el release; solo se reinstala si cambió (rollback no la toca: es compatible).
+  if ! sudo cmp -s /opt/paperpay/paperpay-api.service /etc/systemd/system/paperpay-api.service; then
+    sudo install -m 644 /opt/paperpay/paperpay-api.service /etc/systemd/system/paperpay-api.service
+    sudo systemctl daemon-reload
+    echo 'unidad systemd actualizada'
+  fi
   sudo systemctl restart paperpay-api.service
   for i in \$(seq 1 20); do
     if curl -fsS 127.0.0.1:$PORT/api/health; then echo; exit 0; fi

@@ -4,6 +4,7 @@ import {
   USDC_TESTNET_ISSUER,
 } from '@paperpay/shared';
 import { config } from '../config';
+import { ReceiptStore, receiptStore, sameReceipt, type Receipt } from './receipt.store';
 
 interface HorizonTransaction {
   successful?: boolean;
@@ -42,19 +43,20 @@ export class PaymentVerificationError extends Error {
 }
 
 /**
- * Verifies payments submitted by Pollar. Receipts live in memory because this
- * MVP has no database; deploying more than one instance or restarting it loses
- * replay protection. A persistent receipt store is required before production.
+ * Verifica los pagos que envía Pollar. El recibo (hash → artículo y wallet) queda en SQLite
+ * (`ReceiptStore`), así que un reinicio no permite usar el mismo hash para otro artículo.
+ * Varias instancias necesitarían compartir el archivo o pasar a un almacén de red.
  */
 export class PaymentVerificationService {
-  private readonly receipts = new Map<string, VerifiedPayment>();
   private readonly pending = new Map<string, Promise<VerifiedPayment>>();
+
+  public constructor(private readonly store: ReceiptStore = receiptStore) {}
 
   public async verifyByHash(input: VerifiedPayment): Promise<VerifiedPayment> {
     this.validateInput(input);
 
-    const receipt = this.receipts.get(input.txHash);
-    if (receipt) return this.requireSameReceipt(receipt, input);
+    const stored = this.store.get(input.txHash);
+    if (stored) return this.reuseReceipt(stored, input);
 
     const inFlight = this.pending.get(input.txHash);
     if (inFlight) {
@@ -62,8 +64,16 @@ export class PaymentVerificationService {
     }
 
     const verification = this.verifyOnHorizon(input)
-      .then(() => {
-        this.receipts.set(input.txHash, input);
+      .then((settledAt) => {
+        const saved = this.store.record({
+          txHash: input.txHash,
+          paperId: input.paperId,
+          payer: input.signerPublicKey,
+          method: 'pollar',
+          amountStroops: String(DEFAULT_PAPER_PRICE_STROOPS),
+          settledAt,
+        });
+        if (!sameReceipt(saved, input.paperId, input.signerPublicKey)) throw this.alreadyUsed();
         return input;
       })
       .finally(() => this.pending.delete(input.txHash));
@@ -73,8 +83,28 @@ export class PaymentVerificationService {
   }
 
   public clearReceiptsForTests(): void {
-    this.receipts.clear();
+    this.store.clearForTests();
     this.pending.clear();
+  }
+
+  /**
+   * Reintento con un hash ya verificado: solo para el mismo artículo y wallet, y solo dentro de
+   * la misma ventana que la primera verificación. El hash y la wallet son públicos en la red:
+   * sin este límite, cualquiera que los copie tendría acceso para siempre.
+   */
+  private reuseReceipt(stored: Receipt, input: VerifiedPayment): VerifiedPayment {
+    if (stored.method !== 'pollar' || !sameReceipt(stored, input.paperId, input.signerPublicKey)) {
+      throw this.alreadyUsed();
+    }
+    const age = Date.now() - Date.parse(stored.settledAt);
+    if (age > config.paymentVerificationMaxAgeSeconds * 1000) {
+      throw new PaymentVerificationError(409, 'Este pago ya se verificó y su ventana de verificación terminó. Si perdiste el acceso, revisa tu wallet antes de pagar de nuevo.');
+    }
+    return input;
+  }
+
+  private alreadyUsed(): PaymentVerificationError {
+    return new PaymentVerificationError(409, 'Esta transacción ya fue usada para desbloquear otro artículo o firmante.');
   }
 
   private validateInput(input: VerifiedPayment): void {
@@ -90,10 +120,11 @@ export class PaymentVerificationService {
     if (receipt.paperId === input.paperId && receipt.signerPublicKey === input.signerPublicKey) {
       return receipt;
     }
-    throw new PaymentVerificationError(409, 'Esta transacción ya fue usada para desbloquear otro artículo o firmante.');
+    throw this.alreadyUsed();
   }
 
-  private async verifyOnHorizon(input: VerifiedPayment): Promise<void> {
+  /** Devuelve la hora del ledger (ISO) del pago verificado. */
+  private async verifyOnHorizon(input: VerifiedPayment): Promise<string> {
     const transaction = await this.fetchJson<HorizonTransaction>(`/transactions/${input.txHash}`);
     if (transaction.successful !== true) {
       throw new PaymentVerificationError(402, 'La transacción no fue confirmada correctamente en Stellar.');
@@ -119,6 +150,7 @@ export class PaymentVerificationService {
     if (!hasExactPayment) {
       throw new PaymentVerificationError(402, 'La transacción no contiene un pago exacto de 0.50 USDC a la tesorería.');
     }
+    return new Date(Date.parse(transaction.created_at as string)).toISOString();
   }
 
   private requireRecent(createdAt: string | undefined): void {

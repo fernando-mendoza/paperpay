@@ -1,5 +1,17 @@
 # Estado de QA
 
+## Revisión del 24 de noviembre de 2026: recibos persistentes (sin desplegar)
+
+Cada pago aceptado deja un recibo en SQLite (`node:sqlite`): hash → artículo, wallet, método, monto y hora del ledger.
+
+**Comprobado:**
+
+- `pnpm test`: 98 pruebas de la API y 28 de la web. Las nuevas cubren el recibo de Pollar con la hora de Horizon, el mismo hash para otro artículo después de un reinicio (409 sin consultar Horizon), el reintento fuera de la ventana de 5 minutos (409), un hash del contrato usado en `/verify` (409), cerrar y reabrir el archivo, el endpoint `GET /api/receipts/:txHash` y que un fallo al escribir no le quite el artículo al lector.
+- Mutaciones: quitar la ventana, pisar recibos, no consultar el almacén o aceptar un hash del contrato en `/verify` rompen 1, 1, 5 y 1 pruebas.
+- Testnet con una API local escribiendo a un archivo: pago por contrato [`00e4300b…`](https://stellar.expert/explorer/testnet/tx/00e4300bbd639d2886c67147cb344aeacd4a77b2329f031ac5de7e8208ecea4c) (0.49 / 0.01). Otra API arrancada después sobre el mismo archivo devolvió el recibo con su artículo, wallet, método `splitter` y hora del ledger.
+
+**No comprobado:** un pago real de Pollar con el recibo en disco, y el comportamiento en la VPS con `StateDirectory=`.
+
 ## Revisión del 23 de noviembre de 2026: contrato de reparto en producción
 
 Desde esta fecha la API de la VPS (`paperpay-api.blockchains.tf`, fork `6f63857`) tiene el contrato de reparto `CAIMQY…HOR5` (v0.2.0, testnet), y [paperpay.blockchains.tf](https://paperpay.blockchains.tf/) paga con él cuando el lector usa Freighter.

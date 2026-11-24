@@ -18,6 +18,7 @@ El catálogo contiene **52 artículos ficticios de demostración** en 10 discipl
 | Pago con **Pollar** (v2) | Implementado. Login con Google o email; Pollar firma y envía el pago y la API lo verifica por hash en Horizon (`POST /api/papers/:id/verify`). Requiere la publishable key de Pollar. |
 | Selector de wallet | Implementado. Con la key de Pollar configurada, el paywall ofrece Pollar y Freighter. |
 | Acceso tras el pago | JWT de 24 horas por artículo, guardado en el navegador. El catálogo marca los artículos con acceso vigente. |
+| Recibos persistentes | Implementado. Cada pago aceptado (Pollar, contrato o clásico) queda en SQLite ligado a su artículo y wallet, sobrevive a reinicios y se consulta en `GET /api/receipts/:txHash` con enlace a la transacción. |
 | Panel editorial (`/editorial`) | Lee de Horizon los pagos que llegan a la tesorería. En los pagos por contrato muestra el reparto 98/2 que se hizo en la red; en las transferencias directas (pago clásico y Pollar) el 98/2 es un cálculo visual. |
 | Pagos simulados (`mock`) | Disponibles para demos locales; no mueven fondos. |
 | Facilitador OpenZeppelin | Integración presente, sin liquidación real verificada. |
@@ -37,7 +38,7 @@ El frontend usa el secreto del repositorio `VERCEL_TOKEN`; los IDs de proyecto q
 
 ## Requisitos y arranque local
 
-Node.js 20 o superior y pnpm 9 o superior (CI usa Node 22 y pnpm 10).
+Node.js 22.13 o superior (la API usa `node:sqlite`) y pnpm 9 o superior (CI usa Node 22 y pnpm 10).
 
 ```bash
 pnpm install
@@ -61,7 +62,7 @@ curl -i http://localhost:4000/api/papers/autonomous-ai-micropayments
 ## Verificación
 
 ```bash
-pnpm test                               # 87 pruebas de la API y 28 de la web
+pnpm test                               # 98 pruebas de la API y 28 de la web
 pnpm build:shared && pnpm build:api
 pnpm --filter @paperpay/web typecheck
 pnpm build
@@ -73,7 +74,7 @@ Las pruebas cubren el catálogo, el 402, JWT, el modo demo y la verificación po
 
 La API se niega a arrancar en `NODE_ENV=production` sin un `JWT_SECRET` de al menos 32 caracteres, una `STELLAR_TREASURY_PUBLIC_KEY` válida y, si no usa `SELF_SETTLE`, una `OPENZEPPELIN_API_KEY`. Genera el `JWT_SECRET` de forma aleatoria; los valores de los archivos de ejemplo y de la historia del repositorio son públicos y no deben usarse. La clave de tesorería de ejemplo no es una cuenta real. `DEMO_PAYMENTS` se desactiva siempre en producción.
 
-La protección contra reutilizar un hash de Pollar vive en memoria: un reinicio o varias instancias la pierden. Antes de mainnet debe pasar a un almacén persistente.
+Cada pago aceptado deja un recibo en SQLite (hash → artículo y wallet) que sobrevive a reinicios; es el anti-replay de Pollar y se consulta en `GET /api/receipts/:txHash`. Es una sola instancia sin respaldo fuera de la VPS: antes de mainnet hace falta respaldo y, para escalar, un almacén compartido.
 
 ## Documentación
 

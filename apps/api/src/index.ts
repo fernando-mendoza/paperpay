@@ -1,11 +1,17 @@
 import app from './app';
 import { config } from './config';
 import { StrKey } from '@stellar/stellar-sdk';
+import { receiptStore } from './services/receipt.store';
 
 if (config.nodeEnv === 'production' &&
     (config.jwtSecret.length < 32 || !StrKey.isValidEd25519PublicKey(config.stellarTreasuryPublicKey) ||
      (!config.selfSettle && !process.env.OPENZEPPELIN_API_KEY))) {
   throw new Error('Producción requiere JWT_SECRET seguro, tesorería Stellar válida y API key del facilitador si aplica.');
+}
+
+// Los recibos son el anti-replay de Pollar: en producción tienen que ir a disco.
+if (config.nodeEnv === 'production' && config.receiptsDbPath === ':memory:') {
+  throw new Error('Producción requiere RECEIPTS_DB_PATH en disco (o StateDirectory= en systemd), no :memory:.');
 }
 
 // Pagos por contrato: si se configura el contrato, la editorial que cobra tiene que ser válida.
@@ -15,7 +21,7 @@ if (config.splitterContractId &&
 }
 
 export const server = app.listen(config.port, config.host, () => {
-  console.log(`PaperPay API escuchando en ${config.host}:${config.port}; modo ${config.selfSettle ? 'SELF_SETTLE' : 'FACILITATOR'}; reparto por contrato ${config.splitterContractId || 'deshabilitado'}.`);
+  console.log(`PaperPay API escuchando en ${config.host}:${config.port}; modo ${config.selfSettle ? 'SELF_SETTLE' : 'FACILITATOR'}; reparto por contrato ${config.splitterContractId || 'deshabilitado'}; recibos en ${receiptStore.location} (${receiptStore.count()}).`);
 });
 
 // systemd (y la mayoría de los orquestadores) detienen con SIGTERM: se cierran las
@@ -23,7 +29,10 @@ export const server = app.listen(config.port, config.host, () => {
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     console.log(`PaperPay API: ${signal} recibido, cerrando.`);
-    server.close(() => process.exit(0));
+    server.close(() => {
+      receiptStore.close();
+      process.exit(0);
+    });
     setTimeout(() => process.exit(1), 10_000).unref();
   });
 }

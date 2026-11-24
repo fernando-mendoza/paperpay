@@ -240,6 +240,7 @@ describe('SplitterService.settle', () => {
     const result = await service(client).settle(tx(), FIXTURE_PAYER, PAPER);
     expect(result.txHash).toBe(fixtures.pay_batch.txHash);
     expect(result.receipt.paperId).toBe(PAPER);
+    expect(result.settledAt).toBe(new Date(CONFIRMED_AT * 1000).toISOString());
     expect(client.pollTransaction).toHaveBeenCalledWith(fixtures.pay_batch.txHash, { attempts: 30 });
   });
 

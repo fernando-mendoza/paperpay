@@ -21,8 +21,22 @@ export interface AppConfig {
   /** Cuenta que recibe la parte de la editorial en los pagos por contrato. */
   splitterPublisher: string;
   paymentVerificationMaxAgeSeconds: number;
+  /** Archivo SQLite de recibos. `:memory:` no persiste (solo pruebas). */
+  receiptsDbPath: string;
   jwtSecret: string;
   corsOrigins: string[];
+}
+
+/**
+ * Dónde vive la base de recibos: `RECEIPTS_DB_PATH`; si no, el `StateDirectory=` de systemd
+ * (`/var/lib/paperpay`); en pruebas, en memoria; en local, `.data/receipts.db`.
+ */
+function receiptsDbPath(): string {
+  if (process.env.RECEIPTS_DB_PATH) return process.env.RECEIPTS_DB_PATH;
+  if (process.env.VITEST) return ':memory:';
+  const stateDirectory = process.env.STATE_DIRECTORY?.split(':')[0];
+  if (stateDirectory) return path.join(stateDirectory, 'receipts.db');
+  return path.resolve(process.cwd(), '.data/receipts.db');
 }
 
 const defaultTreasuryKey = 'GB6X402TREASURYDEMOUNAM2026GOYAHACKPAPERPAYTESTNET';
@@ -43,6 +57,7 @@ export const config: AppConfig = {
   splitterContractId: (process.env.SPLITTER_CONTRACT_ID || '').trim(),
   splitterPublisher: (process.env.SPLITTER_PUBLISHER_ADDRESS || '').trim(),
   paymentVerificationMaxAgeSeconds: parseInt(process.env.PAYMENT_VERIFICATION_MAX_AGE_SECONDS || '300', 10),
+  receiptsDbPath: receiptsDbPath(),
   jwtSecret: process.env.JWT_SECRET || 'paperpay_hackathon_goya_2026_default_secret_key',
   corsOrigins: process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',').map((s) => s.trim())

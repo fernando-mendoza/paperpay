@@ -29,6 +29,7 @@ La API corre en una VPS con systemd y Caddy, detrás de Cloudflare: `https://pap
 | `GET /api/papers/:id` con `Authorization: Bearer <jwt>` válido para ese artículo | `200`: `{ paper }` |
 | `POST /api/papers/:id/verify` | Verifica un pago Pollar enviado previamente y devuelve `{ paper, accessToken, txHash }` |
 | `POST /api/papers/:id/prepare` con `{ payer }` | Solo con el contrato de reparto activo. `200`: `{ transactionXdr, networkPassphrase, terms }` con la invocación `pay` ya simulada, lista para firmar. `404 SPLITTER_DISABLED` si no está activo |
+| `GET /api/receipts/:txHash` | `200`: el recibo guardado de ese pago, con `paperId`, título, wallet, método (`pollar`, `splitter`, `classic`), monto en stroops, hora del ledger y enlace a stellar.expert. `404 RECEIPT_NOT_FOUND` si PaperPay no lo registró; `400` si el hash no es válido |
 | ID inexistente | `404`: `PAPER_NOT_FOUND` |
 
 El requisito de pago declara `exact`, `stellar:testnet`, USDC SAC, `5000000` unidades de 7 decimales y la tesorería. `payment-signature` se decodifica como Base64 JSON (también acepta JSON directo). Una respuesta fallida devuelve `402 PAYMENT_FAILED`.
@@ -48,9 +49,17 @@ Pollar firma y envía la transacción desde su propia wallet. Después, el front
 }
 ```
 
-La API consulta Horizon y exige que la transacción haya tenido éxito, sea reciente (300 segundos por defecto), pertenezca al firmante y contenga un pago exacto de 0.50 USDC Testnet a la tesorería configurada. Un mismo hash puede reintentarse para el mismo artículo y firmante, de modo que una respuesta de red perdida no obliga a pagar de nuevo; no puede desbloquear otro artículo.
+La API consulta Horizon y exige que la transacción haya tenido éxito, sea reciente (300 segundos por defecto), pertenezca al firmante y contenga un pago exacto de 0.50 USDC Testnet a la tesorería configurada. Un mismo hash puede reintentarse para el mismo artículo y firmante dentro de esa misma ventana de 300 segundos (contada desde la hora del ledger), de modo que una respuesta de red perdida no obliga a pagar de nuevo. Nunca puede desbloquear otro artículo. Pasada la ventana responde `409`: el hash y la wallet son públicos en la red, y sin ese límite cualquiera que los copie tendría acceso.
 
-La protección contra repetición se conserva solo en memoria porque la API aún no tiene una base de datos. Un reinicio o varias instancias pierden ese registro. Antes de producción debe sustituirse por un almacén persistente con una restricción única sobre el hash.
+### Recibos persistentes
+
+Cada pago aceptado deja un recibo en SQLite (`node:sqlite`, incluido en Node 22.13+; sin dependencias ni servidor aparte): hash de la transacción como clave primaria, artículo, wallet, método, monto y hora del ledger. Eso liga el pago a un artículo de forma permanente y sobrevive a reinicios y despliegues:
+
+- **Pollar:** es el anti-replay. Un hash ya registrado para otro artículo o wallet responde `409` sin consultar Horizon.
+- **Contrato y pago clásico:** se registran al liquidar. La prueba pública sigue en la red (en el contrato, el evento `paid` con el id del artículo).
+- Si escribir el recibo falla después de cobrar, se registra el error y el lector recibe su artículo igual.
+
+El archivo es `RECEIPTS_DB_PATH`; si no se define, `$STATE_DIRECTORY/receipts.db` (systemd lo fija con `StateDirectory=`) y, en local, `apps/api/.data/receipts.db`. En pruebas vive en memoria. En producción la API no arranca con `:memory:`. Node 24 imprime al arrancar `ExperimentalWarning: SQLite is an experimental feature`: es un aviso, no un error. Una sola instancia: varias necesitarían un almacén compartido.
 
 ### Pago por el contrato de reparto 98/2
 
@@ -96,7 +105,7 @@ En producción son obligatorios un `JWT_SECRET` aleatorio de al menos 32 caracte
 
 ## Pruebas
 
-`pnpm test` ejecuta 87 pruebas locales. Incluyen la validación simulada de respuestas de Horizon para el flujo Pollar (monto exacto e intento de reutilizar un hash) y el pago por contrato. Para el contrato, la validación del sobre firmado, el envío y el cobro con un RPC simulado, el endpoint `/prepare` y la lectura de eventos `paid` usan eventos reales de testnet (`test/fixtures`). Ninguna de estas pruebas hace un pago externo.
+`pnpm test` ejecuta 98 pruebas locales. Incluyen la validación simulada de respuestas de Horizon para el flujo Pollar (monto exacto, intento de reutilizar un hash, también después de un reinicio y fuera de la ventana), los recibos en SQLite (incluido cerrar y reabrir el archivo) y el pago por contrato. Para el contrato, la validación del sobre firmado, el envío y el cobro con un RPC simulado, el endpoint `/prepare` y la lectura de eventos `paid` usan eventos reales de testnet (`test/fixtures`). Ninguna de estas pruebas hace un pago externo.
 
 `pnpm --filter @paperpay/api test:splitter` (con `SPLITTER_CONTRACT_ID`, `SPLITTER_PUBLISHER_ADDRESS` y `STELLAR_TREASURY_PUBLIC_KEY`) **sí paga en testnet**:
 - crea un lector desechable con Friendbot y 1 USDC comprado en el DEX;

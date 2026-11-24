@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import {
   HealthCheckResponse,
+  PaymentReceiptResponse,
   SplitterPrepareResponse,
   STELLAR_NETWORK,
   STELLAR_NETWORK_PASSPHRASE,
@@ -13,6 +14,7 @@ import { jwtService } from '../services/jwt.service';
 import { papersService } from '../services/papers.service';
 import { x402Service } from '../services/x402.service';
 import { paymentVerificationService, PaymentVerificationError } from '../services/payment-verification.service';
+import { receiptStore } from '../services/receipt.store';
 import { SplitterError, splitterService } from '../services/splitter.service';
 import { decodeBase64Json, encodeBase64Json } from '../utils/base64';
 
@@ -126,6 +128,33 @@ export class PapersController {
     res.status(402).json({
       preview,
     });
+  }
+
+  /** Recibo público de un pago: qué artículo desbloqueó, quién pagó y el enlace a la red. */
+  public getReceipt(req: Request, res: Response): void {
+    const { txHash } = req.params;
+    if (!/^[0-9a-f]{64}$/i.test(txHash)) {
+      res.status(400).json({ error: 'INVALID_TX_HASH', message: 'txHash debe ser un hash Stellar hexadecimal de 64 caracteres.' });
+      return;
+    }
+    const receipt = receiptStore.get(txHash);
+    if (!receipt) {
+      res.status(404).json({ error: 'RECEIPT_NOT_FOUND', message: 'No hay un recibo de PaperPay para esa transacción.' });
+      return;
+    }
+    const body: PaymentReceiptResponse = {
+      txHash: receipt.txHash,
+      paperId: receipt.paperId,
+      paperTitle: papersService.getPaperById(receipt.paperId)?.title ?? null,
+      payer: receipt.payer,
+      method: receipt.method,
+      amountStroops: receipt.amountStroops,
+      settledAt: receipt.settledAt,
+      explorerUrl: `https://stellar.expert/explorer/testnet/tx/${receipt.txHash}`,
+    };
+    // Un recibo no cambia una vez guardado.
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.status(200).json(body);
   }
 
   /** Arma y simula el pago por el contrato de reparto para que la wallet del lector lo firme. */

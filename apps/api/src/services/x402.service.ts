@@ -7,9 +7,12 @@ import {
 } from '@paperpay/shared';
 import { config } from '../config';
 import { decodeBase64Json } from '../utils/base64';
+import { ReceiptStore, receiptStore, sameReceipt, type Receipt } from './receipt.store';
 import { SPLITTER_PAY_FUNCTION, splitterService } from './splitter.service';
 
 export class X402Service {
+  public constructor(private readonly receipts: ReceiptStore = receiptStore) {}
+
   public createPaymentRequirement(paperId: string, title: string): X402PaymentRequiredHeader {
     return {
       accepts: [
@@ -73,18 +76,32 @@ export class X402Service {
     // Pago por el contrato de reparto 98/2: no depende del modo (lo envía la API, lo paga el lector).
     if (splitterService.enabled && splitterService.isContractPayment(signaturePayload.signature)) {
       const tx = splitterService.validateSignedPayment(signaturePayload.signature, signaturePayload.signerPublicKey, paperId);
-      const { txHash } = await splitterService.settle(tx, signaturePayload.signerPublicKey, paperId, signaturePayload.claim);
+      const { txHash, receipt, settledAt } = await splitterService.settle(tx, signaturePayload.signerPublicKey, paperId, signaturePayload.claim);
+      this.recordReceipt({
+        txHash, paperId, payer: signaturePayload.signerPublicKey, method: 'splitter',
+        amountStroops: receipt.amount.toString(), settledAt,
+      });
       return { success: true, txHash };
     }
 
     // Modo 1: SELF_SETTLE (Fallback con cuenta operativa del backend)
     if (config.selfSettle) {
-      return this.selfSettle(signaturePayload, paperId);
+      const settled = await this.selfSettle(signaturePayload, paperId);
+      this.recordReceipt({
+        txHash: settled.txHash, paperId, payer: signaturePayload.signerPublicKey, method: 'classic',
+        amountStroops: String(DEFAULT_PAPER_PRICE_STROOPS), settledAt: settled.settledAt,
+      });
+      return { success: true, txHash: settled.txHash };
     }
 
     // Modo 2: Facilitador OpenZeppelin Channels
     try {
-      return await this.settleViaOpenZeppelin(signaturePayload, paperId);
+      const settled = await this.settleViaOpenZeppelin(signaturePayload, paperId);
+      this.recordReceipt({
+        txHash: settled.txHash, paperId, payer: signaturePayload.signerPublicKey, method: 'facilitator',
+        amountStroops: String(DEFAULT_PAPER_PRICE_STROOPS), settledAt: new Date().toISOString(),
+      });
+      return settled;
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       console.warn(`[x402Service] Facilitador de OpenZeppelin falló o no disponible: ${errorMsg}`);
@@ -130,10 +147,25 @@ export class X402Service {
     };
   }
 
+  /**
+   * Guarda el recibo del pago ya liquidado. El cobro ya ocurrió en la red: si la escritura falla,
+   * se registra el error y el lector recibe su acceso igual.
+   */
+  private recordReceipt(receipt: Receipt): void {
+    try {
+      const saved = this.receipts.record(receipt);
+      if (!sameReceipt(saved, receipt.paperId, receipt.payer)) {
+        console.error(`[x402Service] El hash ${receipt.txHash} ya tenía recibo de otro artículo o wallet.`);
+      }
+    } catch (err: unknown) {
+      console.error(`[x402Service] No se pudo guardar el recibo ${receipt.txHash}:`, err);
+    }
+  }
+
   private async selfSettle(
     payload: X402PaymentSignatureHeader,
     _paperId: string
-  ): Promise<{ success: boolean; txHash: string }> {
+  ): Promise<{ txHash: string; settledAt: string }> {
     console.log('[x402Service] Evaluando liquidación en modo SELF_SETTLE...');
     
     const { Transaction, Networks, Horizon } = await import('@stellar/stellar-sdk');
@@ -176,8 +208,9 @@ export class X402Service {
       const response = await server.submitTransaction(tx);
       console.log(`✅ Transacción confirmada en Testnet! Hash: ${response.hash}`);
       return {
-        success: true,
         txHash: response.hash,
+        // Horizon responde cuando el ledger ya cerró: la hora de la respuesta es la del pago.
+        settledAt: new Date().toISOString(),
       };
     } catch (err: any) {
       console.error('❌ Error enviando transacción a Horizon:', err.response?.data || err.message);

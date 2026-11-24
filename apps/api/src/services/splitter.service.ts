@@ -233,7 +233,7 @@ export class SplitterService {
     signer: string,
     paperId: string,
     claim?: string,
-  ): Promise<{ txHash: string; receipt: PaidReceipt }> {
+  ): Promise<{ txHash: string; receipt: PaidReceipt; settledAt: string }> {
     this.requireEnabled();
     const server = this.rpc();
 
@@ -248,7 +248,7 @@ export class SplitterService {
           throw new SplitterError(409, 'Ese pago tiene más de 24 horas: el acceso que daba ya venció.', existing.txHash);
         }
       }
-      return { txHash: existing.txHash, receipt: this.requireReceipt(existing, signer, paperId) };
+      return { txHash: existing.txHash, receipt: this.requireReceipt(existing, signer, paperId), settledAt: ledgerTime(existing.createdAt) };
     }
     if (existing.status === rpc.Api.GetTransactionStatus.FAILED) {
       throw new SplitterError(402, 'Ese pago ya falló en la red: revisa tu saldo de USDC y vuelve a pagar.', existing.txHash);
@@ -274,7 +274,7 @@ export class SplitterService {
       throw new SplitterError(402, 'La red rechazó el pago: revisa tu saldo de USDC.', txHash);
     }
 
-    return { txHash, receipt: this.requireReceipt(result, signer, paperId) };
+    return { txHash, receipt: this.requireReceipt(result, signer, paperId), settledAt: ledgerTime(result.createdAt) };
   }
 
   /** HMAC del hash del sobre: la red nunca lo ve, solo quien recibió la respuesta de `/prepare`. */
@@ -391,3 +391,8 @@ export const splitterService = new SplitterService({
   // Derivada del JWT_SECRET: rotarlo invalida los comprobantes, igual que los accesos.
   claimSecret: createHmac('sha256', config.jwtSecret).update('paperpay:splitter-claim-key').digest('hex'),
 });
+
+/** Hora del ledger (segundos Unix de RPC) en ISO 8601. */
+function ledgerTime(createdAt: number): string {
+  return new Date(createdAt * 1000).toISOString();
+}

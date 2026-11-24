@@ -25,6 +25,20 @@ describe('Papers Controller & x402 Endpoints', () => {
     });
   });
 
+  describe('GET /api/receipts/:txHash', () => {
+    it('400 si el hash no es de 64 caracteres hexadecimales', async () => {
+      const res = await request(app).get('/api/receipts/no-es-un-hash');
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('INVALID_TX_HASH');
+    });
+
+    it('404 si PaperPay no tiene recibo de esa transacción', async () => {
+      const res = await request(app).get(`/api/receipts/${'0'.repeat(64)}`);
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('RECEIPT_NOT_FOUND');
+    });
+  });
+
   describe('GET /api/papers', () => {
     it('should return 200 OK and list of paper previews', async () => {
       const res = await request(app).get('/api/papers');

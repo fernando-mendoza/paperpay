@@ -15,6 +15,7 @@ app.get('/api/papers', (req, res) => papersController.getPaperList(req, res));
 app.post('/api/papers/:id/verify', (req, res) => papersController.verifyPaperByHash(req, res));
 app.post('/api/papers/:id/prepare', (req, res) => papersController.preparePaperPayment(req, res));
 app.get('/api/papers/:id', (req, res) => papersController.getPaperById(req, res));
+app.get('/api/receipts/:txHash', (req, res) => papersController.getReceipt(req, res));
 app.use((_req, res) => {
   res.status(404).json({ error: 'NOT_FOUND', message: 'Ruta no encontrada.' });
 });

@@ -3,6 +3,7 @@ import request from 'supertest';
 import { Keypair, Networks, Transaction, TransactionBuilder, Account, BASE_FEE, Operation, Asset } from '@stellar/stellar-sdk';
 import app from '../../src/app';
 import { SplitterError, splitterService } from '../../src/services/splitter.service';
+import { receiptStore } from '../../src/services/receipt.store';
 import { decodeBase64Json, encodeBase64Json } from '../../src/utils/base64';
 import { jwtService } from '../../src/services/jwt.service';
 import { SplitterPrepareResponse, X402PaymentRequiredHeader, X402PaymentSignatureHeader } from '@paperpay/shared';
@@ -131,6 +132,7 @@ describe('Pagos por el contrato de reparto', () => {
           amount: 5_000_000n,
           fee: 100_000n,
         },
+        settledAt: '2026-11-24T21:56:42.000Z',
       });
       vi.spyOn(console, 'log').mockImplementation(() => {});
 
@@ -144,6 +146,44 @@ describe('Pagos por el contrato de reparto', () => {
       const claims = jwtService.verifyAccessToken(res.body.accessToken);
       expect(claims?.sub).toBe(reader.publicKey());
       expect(claims?.paperId).toBe(PAPER);
+
+      // El recibo queda guardado y se puede consultar.
+      const receipt = await request(app).get(`/api/receipts/${'e'.repeat(64)}`);
+      expect(receipt.status).toBe(200);
+      expect(receipt.body).toMatchObject({
+        txHash: 'e'.repeat(64),
+        paperId: PAPER,
+        payer: reader.publicKey(),
+        method: 'splitter',
+        amountStroops: '5000000',
+        settledAt: '2026-11-24T21:56:42.000Z',
+        explorerUrl: `https://stellar.expert/explorer/testnet/tx/${'e'.repeat(64)}`,
+      });
+      expect(receipt.body.paperTitle).toEqual(expect.any(String));
+    });
+
+    it('si no se puede guardar el recibo, el lector igual recibe su artículo (el cobro ya ocurrió)', async () => {
+      enableSplitter();
+      const xdr = anySignedXdr();
+      vi.spyOn(splitterService, 'isContractPayment').mockReturnValue(true);
+      vi.spyOn(splitterService, 'validateSignedPayment').mockReturnValue(TransactionBuilder.fromXDR(xdr, Networks.TESTNET) as Transaction);
+      vi.spyOn(splitterService, 'settle').mockResolvedValue({
+        txHash: 'd'.repeat(64),
+        receipt: {
+          contractId: CONTRACT, publisher: PUBLISHER, reader: reader.publicKey(), paperId: PAPER,
+          payer: reader.publicKey(), amount: 5_000_000n, fee: 100_000n,
+        },
+        settledAt: '2026-11-24T21:56:42.000Z',
+      });
+      vi.spyOn(receiptStore, 'record').mockImplementation(() => { throw new Error('disco lleno'); });
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const res = await request(app).get(`/api/papers/${PAPER}`).set('payment-signature', signatureHeader(xdr, 'comprobante'));
+
+      expect(res.status).toBe(200);
+      expect(res.body.txHash).toBe('d'.repeat(64));
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining('No se pudo guardar el recibo'), expect.any(Error));
     });
 
     it('504 PAYMENT_PENDING con el hash si la red no confirmó a tiempo', async () => {

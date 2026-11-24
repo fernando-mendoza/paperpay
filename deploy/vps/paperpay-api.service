@@ -1,6 +1,7 @@
 # /etc/systemd/system/paperpay-api.service
-# API de PaperPay (apps/api/dist/index.js). No guarda datos en disco: el catálogo viene en el
-# release y los recibos anti-replay viven en memoria (un reinicio los pierde; ver README).
+# API de PaperPay (apps/api/dist/index.js). El catálogo viene en el release; los recibos de pago
+# van a SQLite en /var/lib/paperpay/receipts.db (StateDirectory: sobrevive a reinicios y despliegues).
+# scripts/deploy-vps.sh instala este archivo si cambió.
 # Escucha solo en 127.0.0.1; el lado público es Caddy (detrás de Cloudflare).
 [Unit]
 Description=PaperPay API
@@ -9,6 +10,8 @@ After=network-online.target
 
 [Service]
 DynamicUser=yes
+StateDirectory=paperpay
+StateDirectoryMode=0700
 EnvironmentFile=/etc/paperpay/api.env
 Environment=HOST=127.0.0.1 PORT=8110 NODE_ENV=production
 ExecStart=/opt/node/bin/node /opt/paperpay/api/dist/index.js

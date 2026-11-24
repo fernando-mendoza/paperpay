@@ -39,6 +39,8 @@ navegador ─► paperpay.press (Next en Vercel) ─ rewrite /api/* ─► https
 VPS_HOST=usuario@host bash scripts/deploy-vps.sh
 ```
 
+La unidad `paperpay-api.service` viaja con el release: si difiere de la instalada, el script la copia a `/etc/systemd/system/` y hace `daemon-reload` antes de reiniciar.
+
 Se niega a correr si `apps/api`, `packages/shared` o el lockfile tienen cambios sin commitear. Corre `pnpm test` antes de subir nada. Tras reiniciar espera hasta 20 s a que `/api/health` responda; si no, restaura `/opt/paperpay.old` y sale con error.
 
 ## Rollback manual
@@ -50,5 +52,5 @@ sudo systemctl restart paperpay-api
 
 ## Límites conocidos
 
-- Los recibos anti-replay de los pagos por hash (Pollar) viven en memoria: un reinicio o un deploy los borra y un hash ya usado podría volver a aceptarse dentro de la ventana de `PAYMENT_VERIFICATION_MAX_AGE_SECONDS` (300 s). El almacén persistente es un pendiente antes de mainnet.
-- Una sola instancia. Para escalar hace falta ese almacén compartido.
+- Los recibos viven en `/var/lib/paperpay/receipts.db` (SQLite; con `DynamicUser` el directorio real es `/var/lib/private/paperpay`). Sobreviven a reinicios, despliegues y rollbacks. **No hay respaldo fuera de la VPS:** si el disco se pierde, se pierden los recibos de Pollar; los del contrato se pueden reconstruir desde la red (evento `paid`).
+- Una sola instancia. Para escalar hace falta un almacén compartido.

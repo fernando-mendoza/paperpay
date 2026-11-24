@@ -46,6 +46,21 @@ export interface X402SplitterTerms {
   prepareUrl: string;
 }
 
+/** `GET /api/receipts/:txHash`: el recibo que la API guardó para ese pago. */
+export interface PaymentReceiptResponse {
+  txHash: string;
+  paperId: string;
+  paperTitle: string | null;
+  payer: string;
+  method: 'pollar' | 'splitter' | 'classic' | 'facilitator';
+  /** Total pagado en stroops de USDC (7 decimales): '5000000' = 0.50 USDC. */
+  amountStroops: string;
+  /** Hora del ledger en que se confirmó. */
+  settledAt: string;
+  /** La prueba pública: la transacción en stellar.expert. */
+  explorerUrl: string;
+}
+
 export interface SplitterPrepareResponse {
   transactionXdr: string;
   // Comprobante de quien pidió este sobre. Viaja de vuelta en `claim` de PAYMENT-SIGNATURE: con él,
