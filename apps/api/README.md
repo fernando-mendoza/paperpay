@@ -57,8 +57,8 @@ La protección contra repetición se conserva solo en memoria porque la API aún
 Se activa con `SPLITTER_CONTRACT_ID` (el contrato de [`contracts/splitter`](../../contracts/README.md)) y `SPLITTER_PUBLISHER_ADDRESS` (la cuenta que recibe la parte de la editorial; hoy, una editorial demo para todo el catálogo). La API no arranca si uno de los dos es inválido. No depende del modo de liquidación: el lector firma y paga la comisión de red.
 
 1. El `402` agrega `extra.splitter = { contractId, function: "pay", publisher, prepareUrl }`.
-2. El cliente pide `POST prepareUrl` con `{ payer }`. La API arma `pay(payer, paperId, publisher, 5000000)` y la simula por RPC (`STELLAR_RPC_URL`). Si la wallet no existe o no tiene USDC con trustline, responde `402`.
-3. La wallet firma el XDR y el cliente lo manda como `signature` en `payment-signature`, igual que el pago clásico.
+2. El cliente pide `POST prepareUrl` con `{ payer }`. La API arma `pay(payer, paperId, publisher, 5000000)` y la simula por RPC (`STELLAR_RPC_URL`). Si la wallet no existe o no tiene USDC con trustline, responde `402`. Además del XDR devuelve `claim`, un comprobante de ese sobre (HMAC del hash con una llave derivada de `JWT_SECRET`) que nunca llega a la red.
+3. La wallet firma el XDR y el cliente lo manda como `signature` en `payment-signature`, con `claim` al lado.
 4. La API revisa lo firmado antes de enviarlo:
    - una sola operación: `pay` de ese contrato;
    - el artículo, la editorial y el monto que fija la API;
@@ -71,11 +71,16 @@ Respuestas de error:
 | --- | --- | --- |
 | `400` | `PAYMENT_FAILED` | El sobre no es el pago esperado. No se envía a la red. |
 | `402` | `PAYMENT_FAILED` | La red lo rechazó. |
-| `409` | `PAYMENT_ALREADY_USED` | Es un sobre ya confirmado hace más de 300 s. |
+| `409` | `PAYMENT_ALREADY_USED` | Es un sobre ya confirmado hace más de 300 s sin su `claim`, o hace más de 24 h. |
 | `503` | `PAYMENT_FAILED` | La red pide reintentar. |
 | `504` | `PAYMENT_PENDING` | Sigue sin confirmarse. La respuesta trae el `txHash`. |
 
-**Respuesta perdida:** si el mismo sobre ya está confirmado y tiene menos de 300 s, la API no lo reenvía y vuelve a entregar el acceso. Es la misma ventana que la verificación por hash de Pollar: un sobre viejo es público en la red y no debe abrir el artículo a otros.
+**Respuesta perdida:** si el mismo sobre ya está confirmado, la API no lo reenvía y vuelve a entregar el acceso, pero el sobre confirmado es público en la red y cualquiera puede copiarlo. Por eso:
+
+- Sin `claim`, el acceso se entrega solo si el pago tiene menos de 300 s, la misma ventana que la verificación por hash de Pollar.
+- Con el `claim` que `/prepare` le dio a quien pidió ese sobre, se entrega hasta 24 h después, lo que dura el acceso.
+
+La comisión de inclusión lleva hasta 999 stroops al azar, así que dos pedidos iguales en el mismo segundo no dan el mismo sobre ni el mismo `claim`. Rotar `JWT_SECRET` invalida los comprobantes, igual que los accesos.
 
 ## Modos de liquidación
 
@@ -97,4 +102,7 @@ En producción son obligatorios un `JWT_SECRET` aleatorio de al menos 32 caracte
 - crea un lector desechable con Friendbot y 1 USDC comprado en el DEX;
 - recorre `402 → /prepare → firma → payment-signature` contra una API local;
 - comprueba en Horizon que el lector pagó 0.50, la editorial recibió 0.49 y la tesorería 0.01;
-- comprueba que el JWT reabre el artículo y que reenviar el mismo sobre no cobra dos veces. `pnpm --filter @paperpay/api test:testnet` verifica Friendbot, Horizon y el paywall de una API local, sin comprar artículos. `pnpm --filter @paperpay/api test:settle` usa una firma de prueba y solo puede desbloquear con `DEMO_PAYMENTS=true`.
+- comprueba que el JWT reabre el artículo y que reenviar el mismo sobre no cobra dos veces;
+- con `LATE_RESEND_SECONDS=310`, espera y reenvía el sobre ya confirmado fuera de la ventana de 5 min: con `claim` da `200`, y sin él, `409`.
+
+`pnpm --filter @paperpay/api test:testnet` verifica Friendbot, Horizon y el paywall de una API local, sin comprar artículos. `pnpm --filter @paperpay/api test:settle` usa una firma de prueba y solo puede desbloquear con `DEMO_PAYMENTS=true`.

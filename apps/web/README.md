@@ -40,7 +40,7 @@ El modo de wallet también se puede elegir con `?wallet=freighter`, `?wallet=pol
 
 El JWT y el recibo se guardan en `localStorage` por artículo. El servidor valida el JWT en cada lectura y caduca a las 24 horas. El catálogo lee esos accesos y marca como "Comprado" los artículos con acceso vigente en ese navegador. Si después de firmar la API responde `504` (la red no confirmó a tiempo), sigue en `503` tras dos reenvíos o no responde, el sitio guarda el sobre firmado en `sessionStorage` y muestra «Tu pago sigue en camino». «Reintentar» reenvía ese mismo sobre: la red lo aplica una sola vez, así que no hay doble cobro. Si la red lo rechaza, se olvida y el siguiente intento firma uno nuevo. Dos límites:
 
-- Por contrato, la API entrega el acceso por un sobre ya confirmado solo durante 5 minutos.
+- Por contrato, el sobre pendiente viaja con el comprobante que devolvió `/prepare` (`claim`). Con él, la API entrega el acceso hasta 24 h después de confirmado; sin él, solo 5 minutos. El comprobante vive en `sessionStorage`: si se cierra la pestaña, se pierde.
 - En el pago clásico, reenviar un sobre ya aplicado responde con error aunque el pago se haya hecho. Revisa el historial de la wallet antes de pagar otra vez.
 
 ## Estado verificado y límites

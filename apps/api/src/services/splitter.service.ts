@@ -11,6 +11,7 @@ import {
   scValToNative,
   xdr,
 } from '@stellar/stellar-sdk';
+import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import { DEFAULT_PAPER_PRICE_STROOPS, STELLAR_NETWORK_PASSPHRASE } from '@paperpay/shared';
 import { config } from '../config';
 
@@ -68,10 +69,23 @@ export interface SplitterOptions {
   networkPassphrase: string;
   amount?: string;
   pollAttempts?: number;
-  /** Un pago ya confirmado solo se acepta otra vez (respuesta perdida) si tiene menos de esto. */
+  /** Un pago ya confirmado se acepta otra vez sin comprobante (respuesta perdida) si tiene menos de esto. */
   recoveryMaxAgeSeconds?: number;
+  /**
+   * Llave del comprobante que `/prepare` entrega junto al sobre. Vacía = sin comprobantes: un pago
+   * confirmado hace más de `recoveryMaxAgeSeconds` ya no da acceso.
+   */
+  claimSecret?: string;
+  /** Con comprobante, un pago confirmado se acepta otra vez hasta esta edad (lo que dura el acceso). */
+  claimMaxAgeSeconds?: number;
   rpc?: SplitterRpc;
   now?: () => number;
+}
+
+/** Lo que devuelve `/prepare`: el sobre para firmar y el comprobante que solo recibe quien lo pidió. */
+export interface PreparedPayment {
+  transactionXdr: string;
+  claim?: string;
 }
 
 export class SplitterService {
@@ -79,6 +93,7 @@ export class SplitterService {
   private readonly amount: string;
   private readonly pollAttempts: number;
   private readonly recoveryMaxAgeSeconds: number;
+  private readonly claimMaxAgeSeconds: number;
   private readonly now: () => number;
 
   public constructor(private readonly opts: SplitterOptions) {
@@ -86,6 +101,7 @@ export class SplitterService {
     this.amount = opts.amount ?? DEFAULT_PAPER_PRICE_STROOPS;
     this.pollAttempts = opts.pollAttempts ?? 30;
     this.recoveryMaxAgeSeconds = opts.recoveryMaxAgeSeconds ?? 300;
+    this.claimMaxAgeSeconds = opts.claimMaxAgeSeconds ?? 24 * 60 * 60;
     this.now = opts.now ?? Date.now;
   }
 
@@ -97,8 +113,11 @@ export class SplitterService {
     return { contractId: this.opts.contractId, publisher: this.opts.publisher, amount: this.amount };
   }
 
-  /** Arma y simula `pay(payer, paperId, publisher, amount)`; devuelve el XDR listo para firmar. */
-  public async preparePayment(paperId: string, payer: string): Promise<string> {
+  /**
+   * Arma y simula `pay(payer, paperId, publisher, amount)`. Devuelve el XDR listo para firmar y su
+   * comprobante (ver `settle`).
+   */
+  public async preparePayment(paperId: string, payer: string): Promise<PreparedPayment> {
     this.requireEnabled();
     if (!StrKey.isValidEd25519PublicKey(payer)) {
       throw new SplitterError(400, 'La wallet del lector no es una dirección Stellar válida (G...).');
@@ -112,8 +131,11 @@ export class SplitterService {
       throw new SplitterError(402, 'Esa wallet todavía no existe en Stellar testnet: fondéala con XLM antes de pagar.');
     }
 
+    // La comisión de inclusión lleva hasta 999 stroops (0.0001 XLM) al azar: así dos pedidos de
+    // /prepare con la misma wallet en el mismo segundo no producen el mismo sobre (ni el mismo
+    // comprobante).
     const tx = new TransactionBuilder(account, {
-      fee: BASE_FEE,
+      fee: String(Number(BASE_FEE) + randomInt(0, 1000)),
       networkPassphrase: this.opts.networkPassphrase,
     })
       .addOperation(new Contract(this.opts.contractId).call(SPLITTER_PAY_FUNCTION, ...this.payArgs(payer, paperId)))
@@ -122,7 +144,7 @@ export class SplitterService {
 
     try {
       const prepared = await server.prepareTransaction(tx);
-      return prepared.toXDR();
+      return { transactionXdr: prepared.toXDR(), claim: this.claimFor(prepared.hash()) };
     } catch (err: unknown) {
       console.warn('[splitter] La simulación de pay falló:', err instanceof Error ? err.message : err);
       throw new SplitterError(
@@ -202,10 +224,16 @@ export class SplitterService {
   /**
    * Envía el pago y espera la confirmación con su comprobante `paid`.
    * Si ese mismo sobre ya está confirmado (el lector reintenta porque perdió la respuesta), no se
-   * reenvía: se da el acceso solo si el pago es reciente (misma ventana que la verificación por hash
-   * de Pollar); el sobre de un pago viejo es público en la red y no debe abrir el artículo a otros.
+   * reenvía. El sobre confirmado es público en la red, así que no basta para abrir el artículo:
+   * - sin comprobante, solo si el pago es reciente (misma ventana que la verificación por hash de Pollar);
+   * - con el comprobante que `/prepare` le dio a quien pidió ese sobre, hasta lo que dura el acceso.
    */
-  public async settle(tx: Transaction, signer: string, paperId: string): Promise<{ txHash: string; receipt: PaidReceipt }> {
+  public async settle(
+    tx: Transaction,
+    signer: string,
+    paperId: string,
+    claim?: string,
+  ): Promise<{ txHash: string; receipt: PaidReceipt }> {
     this.requireEnabled();
     const server = this.rpc();
 
@@ -213,7 +241,12 @@ export class SplitterService {
     if (existing.status === rpc.Api.GetTransactionStatus.SUCCESS) {
       const ageSeconds = this.now() / 1000 - existing.createdAt;
       if (ageSeconds > this.recoveryMaxAgeSeconds) {
-        throw new SplitterError(409, 'Ese pago ya se usó. Para leer el artículo otra vez, usa el acceso que se guardó al pagar.', existing.txHash);
+        if (!this.isValidClaim(tx.hash(), claim)) {
+          throw new SplitterError(409, 'Ese pago ya se usó. Para leer el artículo otra vez, usa el acceso que se guardó al pagar.', existing.txHash);
+        }
+        if (ageSeconds > this.claimMaxAgeSeconds) {
+          throw new SplitterError(409, 'Ese pago tiene más de 24 horas: el acceso que daba ya venció.', existing.txHash);
+        }
       }
       return { txHash: existing.txHash, receipt: this.requireReceipt(existing, signer, paperId) };
     }
@@ -242,6 +275,23 @@ export class SplitterService {
     }
 
     return { txHash, receipt: this.requireReceipt(result, signer, paperId) };
+  }
+
+  /** HMAC del hash del sobre: la red nunca lo ve, solo quien recibió la respuesta de `/prepare`. */
+  private claimFor(txHash: Uint8Array): string | undefined {
+    if (!this.opts.claimSecret) return undefined;
+    return createHmac('sha256', this.opts.claimSecret)
+      .update(`paperpay:splitter-claim:${this.opts.contractId}:`)
+      .update(txHash)
+      .digest('base64url');
+  }
+
+  private isValidClaim(txHash: Uint8Array, claim: string | undefined): boolean {
+    const expected = this.claimFor(txHash);
+    if (!expected || typeof claim !== 'string') return false;
+    const given = Buffer.from(claim);
+    const wanted = Buffer.from(expected);
+    return given.length === wanted.length && timingSafeEqual(given, wanted);
   }
 
   private requireReceipt(result: rpc.Api.GetSuccessfulTransactionResponse, signer: string, paperId: string): PaidReceipt {
@@ -338,4 +388,6 @@ export const splitterService = new SplitterService({
   publisher: config.splitterPublisher,
   rpcUrl: config.stellarRpcUrl,
   networkPassphrase: STELLAR_NETWORK_PASSPHRASE,
+  // Derivada del JWT_SECRET: rotarlo invalida los comprobantes, igual que los accesos.
+  claimSecret: createHmac('sha256', config.jwtSecret).update('paperpay:splitter-claim-key').digest('hex'),
 });

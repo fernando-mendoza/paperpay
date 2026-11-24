@@ -145,9 +145,10 @@ export class PapersController {
       return;
     }
     try {
-      const transactionXdr = await splitterService.preparePayment(id, payer);
+      const { transactionXdr, claim } = await splitterService.preparePayment(id, payer);
       const body: SplitterPrepareResponse = {
         transactionXdr,
+        claim,
         networkPassphrase: STELLAR_NETWORK_PASSPHRASE,
         terms: splitterService.terms(),
       };

@@ -73,7 +73,7 @@ export class X402Service {
     // Pago por el contrato de reparto 98/2: no depende del modo (lo envía la API, lo paga el lector).
     if (splitterService.enabled && splitterService.isContractPayment(signaturePayload.signature)) {
       const tx = splitterService.validateSignedPayment(signaturePayload.signature, signaturePayload.signerPublicKey, paperId);
-      const { txHash } = await splitterService.settle(tx, signaturePayload.signerPublicKey, paperId);
+      const { txHash } = await splitterService.settle(tx, signaturePayload.signerPublicKey, paperId, signaturePayload.claim);
       return { success: true, txHash };
     }
 

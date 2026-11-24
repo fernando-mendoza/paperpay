@@ -99,11 +99,13 @@ function writePending(id: string, pending: PendingPayment | null): void {
 
 type Terms = X402PaymentRequiredHeader['accepts'][number]
 
-// Devuelve el XDR firmado (o la firma de relleno en modo simulado). Abre Freighter si aplica.
-async function signPayment(id: string, address: string, terms: Terms): Promise<string> {
+// Devuelve el XDR firmado (o la firma de relleno en modo simulado). Abre Freighter si aplica. En el
+// pago por contrato trae además el comprobante de /prepare: viaja en la cabecera y queda guardado con
+// el pago pendiente, para que reenviar el sobre dé acceso aunque la confirmación tarde más de 5 min.
+async function signPayment(id: string, address: string, terms: Terms): Promise<{ signature: string; claim?: string }> {
   if (!isFreighter()) {
     await delay(800)
-    return PLACEHOLDER_SIGNATURE
+    return { signature: PLACEHOLDER_SIGNATURE }
   }
   const splitter = terms.extra?.splitter
   if (splitter) {
@@ -117,11 +119,11 @@ async function signPayment(id: string, address: string, terms: Terms): Promise<s
       paperId: id,
       amountStroops: terms.amount,
     })
-    return signTxXdr(prepared.transactionXdr, address)
+    return { signature: await signTxXdr(prepared.transactionXdr, address), claim: prepared.claim }
   }
   // Pago clásico: transferencia de USDC a la tesorería.
   const unsignedXdr = await buildPaymentXdr(address, { payTo: terms.payTo, amountStroops: terms.amount })
-  return signTxXdr(unsignedXdr, address)
+  return { signature: await signTxXdr(unsignedXdr, address) }
 }
 
 async function sendSignedPayment(path: string, header: string): Promise<Response> {
@@ -176,11 +178,13 @@ export const apiBackend: Backend = {
 
     let pending = readPending(id, address)
     if (!pending) {
+      const { signature: signed, claim } = await signPayment(id, address, terms)
       const signature: X402PaymentSignatureHeader = {
         scheme: 'exact',
         network: terms.network,
         signerPublicKey: address,
-        signature: await signPayment(id, address, terms),
+        signature: signed,
+        ...(claim && { claim }),
       }
       pending = { header: encodeBase64Json(signature), signer: address }
     }

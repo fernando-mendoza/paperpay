@@ -48,6 +48,9 @@ export interface X402SplitterTerms {
 
 export interface SplitterPrepareResponse {
   transactionXdr: string;
+  // Comprobante de quien pidió este sobre. Viaja de vuelta en `claim` de PAYMENT-SIGNATURE: con él,
+  // reenviar el sobre ya confirmado da acceso hasta 24 h después (sin él, solo 5 min).
+  claim?: string;
   networkPassphrase: string;
   terms: { contractId: string; publisher: string; amount: string };
 }
@@ -61,6 +64,7 @@ export interface X402PaymentSignatureHeader {
   network: typeof STELLAR_NETWORK;
   signature: string;      // Facilitador: autorización; SELF_SETTLE: sobre de transacción XDR
   signerPublicKey: string;// G...
+  claim?: string;         // Pago por contrato: el comprobante que devolvió /prepare
 }
 
 // Pago ya enviado por una wallet custodial, como Pollar. El backend verifica el

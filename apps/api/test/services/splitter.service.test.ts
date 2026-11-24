@@ -56,6 +56,7 @@ function service(client: SplitterRpc = fakeRpc(), nowSeconds = CONFIRMED_AT + 10
     networkPassphrase: Networks.TESTNET,
     rpc: client,
     now: () => nowSeconds * 1000,
+    claimSecret: 'clave-de-prueba',
   });
 }
 
@@ -290,6 +291,54 @@ describe('SplitterService.settle', () => {
     expect(client.sendTransaction).not.toHaveBeenCalled();
   });
 
+  describe('reenvío del mismo sobre después de 5 minutos', () => {
+    // Pide /prepare con un RPC que devuelve este sobre sin firmar, como lo recibe el lector.
+    async function claimOf(unsignedXdr: string, claimSecret = 'clave-de-prueba') {
+      const client = fakeRpc({
+        getAccount: vi.fn().mockResolvedValue(new Account(reader.publicKey(), '99')),
+        prepareTransaction: vi.fn(async () => TransactionBuilder.fromXDR(unsignedXdr, Networks.TESTNET)),
+      });
+      const svc = new SplitterService({ contractId: CONTRACT, publisher: PUBLISHER, rpcUrl: 'http://rpc.invalid', networkPassphrase: Networks.TESTNET, rpc: client, claimSecret });
+      return (await svc.preparePayment(PAPER, reader.publicKey())).claim;
+    }
+    const unsigned = () => build({ signer: null });
+    const confirmedRpc = () => fakeRpc({ getTransaction: vi.fn().mockResolvedValue(confirmed()) });
+
+    it('con el comprobante de /prepare da el acceso aunque hayan pasado horas', async () => {
+      const client = confirmedRpc();
+      const claim = await claimOf(unsigned());
+      const result = await service(client, CONFIRMED_AT + 3 * 3600).settle(tx(), FIXTURE_PAYER, PAPER, claim);
+      expect(result.txHash).toBe(fixtures.pay_batch.txHash);
+      expect(client.sendTransaction).not.toHaveBeenCalled();
+    });
+
+    it('409 con el comprobante de otro sobre o uno inventado (el sobre público de la red no lo trae)', async () => {
+      const client = confirmedRpc();
+      const otherClaim = await claimOf(build({ signer: null, args: payArgs(reader.publicKey(), 'otro-articulo') }));
+      await expect(service(client, CONFIRMED_AT + 3600).settle(tx(), FIXTURE_PAYER, PAPER, otherClaim)).rejects.toMatchObject({ status: 409 });
+      await expect(service(client, CONFIRMED_AT + 3600).settle(tx(), FIXTURE_PAYER, PAPER, 'x'.repeat(43))).rejects.toMatchObject({ status: 409 });
+      await expect(service(client, CONFIRMED_AT + 3600).settle(tx(), FIXTURE_PAYER, PAPER)).rejects.toMatchObject({ status: 409 });
+    });
+
+    it('409 con un comprobante hecho con otra llave (otro JWT_SECRET)', async () => {
+      const claim = await claimOf(unsigned(), 'otra-llave');
+      await expect(service(confirmedRpc(), CONFIRMED_AT + 3600).settle(tx(), FIXTURE_PAYER, PAPER, claim)).rejects.toMatchObject({ status: 409 });
+    });
+
+    it('409 si el pago tiene más de 24 horas, aunque traiga el comprobante', async () => {
+      const claim = await claimOf(unsigned());
+      await expect(service(confirmedRpc(), CONFIRMED_AT + 24 * 3600 + 1).settle(tx(), FIXTURE_PAYER, PAPER, claim)).rejects.toMatchObject({
+        status: 409,
+        message: expect.stringMatching(/24 horas/),
+      });
+    });
+
+    it('el comprobante no salta las demás revisiones: sigue exigiendo el `paid` de este artículo y lector', async () => {
+      const claim = await claimOf(unsigned());
+      await expect(service(confirmedRpc(), CONFIRMED_AT + 3600).settle(tx(), FIXTURE_PAYER, 'no-esta-en-el-paquete', claim)).rejects.toMatchObject({ status: 502 });
+    });
+  });
+
   it('402 si ese mismo pago ya falló en la red', async () => {
     const client = fakeRpc({ getTransaction: vi.fn().mockResolvedValue({ status: rpc.Api.GetTransactionStatus.FAILED, txHash: 'ab'.repeat(32) }) });
     await expect(service(client).settle(tx(), FIXTURE_PAYER, PAPER)).rejects.toMatchObject({ status: 402 });
@@ -312,12 +361,38 @@ describe('SplitterService.preparePayment', () => {
     const prepared = await service(client).preparePayment(PAPER, reader.publicKey());
 
     expect(prepareTransaction).toHaveBeenCalledOnce();
+    expect(prepared.claim).toMatch(/^[\w-]{43}$/);
     // Lo que se devuelve, firmado por el lector, pasa la validación de cobro.
-    const tx = TransactionBuilder.fromXDR(prepared, Networks.TESTNET) as Transaction;
+    const tx = TransactionBuilder.fromXDR(prepared.transactionXdr, Networks.TESTNET) as Transaction;
     expect(tx.source).toBe(reader.publicKey());
     expect(tx.sequence).toBe('42');
     tx.sign(reader);
     expect(() => service().validateSignedPayment(tx.toXDR(), reader.publicKey(), PAPER)).not.toThrow();
+  });
+
+  it('dos pedidos iguales en el mismo segundo dan sobres y comprobantes distintos', async () => {
+    const client = fakeRpc({
+      getAccount: vi.fn(async () => new Account(reader.publicKey(), '41')),
+      prepareTransaction: vi.fn(async (t: Transaction) => t),
+    });
+    const svc = service(client);
+    const results = await Promise.all(Array.from({ length: 5 }, () => svc.preparePayment(PAPER, reader.publicKey())));
+    // 1000 comisiones posibles: que los 5 coincidan es prácticamente imposible.
+    expect(new Set(results.map((r) => r.claim)).size).toBeGreaterThan(1);
+    for (const r of results) {
+      const fee = Number((TransactionBuilder.fromXDR(r.transactionXdr, Networks.TESTNET) as Transaction).fee);
+      expect(fee).toBeGreaterThanOrEqual(100);
+      expect(fee).toBeLessThan(1100);
+    }
+  });
+
+  it('sin llave configurada no entrega comprobante', async () => {
+    const client = fakeRpc({
+      getAccount: vi.fn().mockResolvedValue(new Account(reader.publicKey(), '41')),
+      prepareTransaction: vi.fn(async (t: Transaction) => t),
+    });
+    const svc = new SplitterService({ contractId: CONTRACT, publisher: PUBLISHER, rpcUrl: 'http://rpc.invalid', networkPassphrase: Networks.TESTNET, rpc: client });
+    expect((await svc.preparePayment(PAPER, reader.publicKey())).claim).toBeUndefined();
   });
 
   it('400 si la wallet no es una dirección G válida', async () => {

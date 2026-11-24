@@ -12,7 +12,7 @@ Desde esta fecha la API de la VPS (`paperpay-api.blockchains.tf`, fork `6f63857`
 
 **No comprobado:** una firma real en la extensión Freighter dentro de un navegador.
 
-**Límites conocidos:** si la confirmación tarda y el lector reenvía el mismo sobre después de 5 minutos, la API ya no entrega el acceso aunque el pago se haya hecho. Pollar y el sitio de Vercel siguen con transferencias completas a la tesorería.
+**Límites conocidos:** Pollar y el sitio de Vercel siguen con transferencias completas a la tesorería. Hasta el 24 de noviembre, si la confirmación tardaba y el lector reenviaba el mismo sobre después de 5 minutos, la API ya no entregaba el acceso; ahora lo entrega con el comprobante de `/prepare` (ver `apps/api/README.md`, "Respuesta perdida").
 
 ## Revisión del 27 de septiembre de 2026 (v2.0.0)
 

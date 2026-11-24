@@ -144,7 +144,7 @@ function installApi(api: FakeApi) {
         const body = JSON.parse(String(init.body)) as { payer: string }
         calls.prepare.push(body)
         const transactionXdr = api.prepared?.(body.payer, id) ?? payXdr({ payer: body.payer, paperId: id })
-        return json(200, { transactionXdr, networkPassphrase: Networks.TESTNET, terms: { contractId: CONTRACT, publisher: PUBLISHER, amount: PRICE } })
+        return json(200, { transactionXdr, claim: `comprobante-${id}`, networkPassphrase: Networks.TESTNET, terms: { contractId: CONTRACT, publisher: PUBLISHER, amount: PRICE } })
       }
 
       const signature = new Headers(init.headers).get(X402_HEADERS.PAYMENT_SIGNATURE)
@@ -210,7 +210,7 @@ describe('pago por el contrato de reparto', () => {
     expect(signTxXdr).toHaveBeenCalledWith(prepared, reader)
     expect(buildPaymentXdr).not.toHaveBeenCalled()
     expect(onSigned).toHaveBeenCalledOnce()
-    expect(signed(calls.settle[0])).toMatchObject({ signerPublicKey: reader, signature: `SIGNED:${prepared}` })
+    expect(signed(calls.settle[0])).toMatchObject({ signerPublicKey: reader, signature: `SIGNED:${prepared}`, claim: `comprobante-${paper}` })
     expect(result.receipt).toMatchObject({ txHash: TX_HASH, amount: 0.5 })
     expect(window.localStorage.getItem(`paperpay:access:${paper}`)).toContain(ACCESS_TOKEN)
   })
@@ -221,6 +221,7 @@ describe('pago por el contrato de reparto', () => {
     expect(calls.prepare).toEqual([])
     expect(buildPaymentXdr).toHaveBeenCalledWith(reader, { payTo: TREASURY, amountStroops: PRICE })
     expect(signed(calls.settle[0]).signature).toBe('SIGNED:CLASSIC_XDR')
+    expect(signed(calls.settle[0])).not.toHaveProperty('claim')
   })
 
   it.each<[string, Partial<PayCall>]>([
@@ -281,6 +282,8 @@ describe('pago firmado sin confirmar', () => {
     expect(calls.prepare).toHaveLength(1)
     expect(calls.settle).toHaveLength(2)
     expect(calls.settle[1]).toBe(calls.settle[0])
+    // El reenvío lleva el comprobante de /prepare: la API da el acceso aunque pasen más de 5 min.
+    expect(signed(calls.settle[1])).toMatchObject({ claim: `comprobante-${paper}` })
     expect(window.sessionStorage.getItem(`paperpay:pending:${paper}`)).toBeNull()
   })
 

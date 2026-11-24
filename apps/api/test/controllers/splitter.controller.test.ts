@@ -17,12 +17,13 @@ function enableSplitter() {
   vi.spyOn(splitterService, 'terms').mockReturnValue({ contractId: CONTRACT, publisher: PUBLISHER, amount: '5000000' });
 }
 
-function signatureHeader(signature: string): string {
+function signatureHeader(signature: string, claim?: string): string {
   const payload: X402PaymentSignatureHeader = {
     scheme: 'exact',
     network: 'stellar:testnet',
     signature,
     signerPublicKey: reader.publicKey(),
+    ...(claim && { claim }),
   };
   return encodeBase64Json(payload);
 }
@@ -90,12 +91,13 @@ describe('Pagos por el contrato de reparto', () => {
 
     it('200 con el XDR simulado, la red y los términos', async () => {
       enableSplitter();
-      const prepare = vi.spyOn(splitterService, 'preparePayment').mockResolvedValueOnce('AAAA-xdr');
+      const prepare = vi.spyOn(splitterService, 'preparePayment').mockResolvedValueOnce({ transactionXdr: 'AAAA-xdr', claim: 'comprobante' });
       const res = await request(app).post(`/api/papers/${PAPER}/prepare`).send({ payer: reader.publicKey() });
       expect(res.status).toBe(200);
       const body = res.body as SplitterPrepareResponse;
       expect(body).toEqual({
         transactionXdr: 'AAAA-xdr',
+        claim: 'comprobante',
         networkPassphrase: Networks.TESTNET,
         terms: { contractId: CONTRACT, publisher: PUBLISHER, amount: '5000000' },
       });
@@ -132,13 +134,13 @@ describe('Pagos por el contrato de reparto', () => {
       });
       vi.spyOn(console, 'log').mockImplementation(() => {});
 
-      const res = await request(app).get(`/api/papers/${PAPER}`).set('payment-signature', signatureHeader(xdr));
+      const res = await request(app).get(`/api/papers/${PAPER}`).set('payment-signature', signatureHeader(xdr, 'comprobante'));
 
       expect(res.status).toBe(200);
       expect(res.body.paper.id).toBe(PAPER);
       expect(res.body.txHash).toBe('e'.repeat(64));
       expect(validate).toHaveBeenCalledWith(xdr, reader.publicKey(), PAPER);
-      expect(settle).toHaveBeenCalledWith(parsed, reader.publicKey(), PAPER);
+      expect(settle).toHaveBeenCalledWith(parsed, reader.publicKey(), PAPER, 'comprobante');
       const claims = jwtService.verifyAccessToken(res.body.accessToken);
       expect(claims?.sub).toBe(reader.publicKey());
       expect(claims?.paperId).toBe(PAPER);

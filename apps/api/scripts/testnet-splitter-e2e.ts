@@ -7,6 +7,10 @@
  *
  * Levanta la API en este proceso y recorre el flujo del navegador: 402 → /prepare → firma →
  * PAYMENT-SIGNATURE → 200 con JWT. Después compara los saldos en Horizon (98% / 2%).
+ *
+ * Con LATE_RESEND_SECONDS=310 espera ese tiempo y reenvía el mismo sobre ya confirmado (fuera de la
+ * ventana de 5 min): con el comprobante de /prepare debe dar 200; sin él (el sobre público que
+ * cualquiera puede copiar de la red), 409.
  */
 import { Asset, BASE_FEE, Horizon, Keypair, Networks, Operation, TransactionBuilder } from '@stellar/stellar-sdk';
 import {
@@ -77,7 +81,8 @@ async function run() {
   });
   const preparedText = await prepared.text();
   assert(prepared.status === 200, `/prepare respondió ${prepared.status}: ${preparedText}`);
-  const { transactionXdr, networkPassphrase } = JSON.parse(preparedText) as SplitterPrepareResponse;
+  const { transactionXdr, networkPassphrase, claim } = JSON.parse(preparedText) as SplitterPrepareResponse;
+  assert(claim, '/prepare no devolvió el comprobante');
 
   // Lo que haría Freighter: firmar el sobre ya simulado.
   const tx = TransactionBuilder.fromXDR(transactionXdr, networkPassphrase);
@@ -88,7 +93,9 @@ async function run() {
     signature: tx.toXDR(),
     signerPublicKey: reader.publicKey(),
   };
-  const header = Buffer.from(JSON.stringify(signature)).toString('base64');
+  const encode = (h: X402PaymentSignatureHeader) => Buffer.from(JSON.stringify(h)).toString('base64');
+  const header = encode({ ...signature, claim });
+  const headerWithoutClaim = encode(signature);
 
   const started = Date.now();
   const paid = await fetch(path, { headers: { 'payment-signature': header } });
@@ -124,10 +131,29 @@ async function run() {
   };
   console.log(JSON.stringify(summary, null, 2));
 
+  const lateSeconds = Number(process.env.LATE_RESEND_SECONDS || 0);
+  let late: { withClaim: number; withoutClaim: number; withoutClaimMessage?: string } | null = null;
+  if (lateSeconds > 0) {
+    console.log(`Esperando ${lateSeconds} s para reenviar el mismo sobre fuera de la ventana de 5 min…`);
+    await sleep(lateSeconds * 1000);
+    const withClaim = await fetch(path, { headers: { 'payment-signature': header } });
+    const withClaimBody = (await withClaim.json()) as { accessToken?: string; txHash?: string };
+    const withoutClaim = await fetch(path, { headers: { 'payment-signature': headerWithoutClaim } });
+    const withoutClaimBody = (await withoutClaim.json()) as { message?: string };
+    late = { withClaim: withClaim.status, withoutClaim: withoutClaim.status, withoutClaimMessage: withoutClaimBody.message };
+    console.log(JSON.stringify({ lateResend: { seconds: lateSeconds, ...late, txHash: withClaimBody.txHash } }, null, 2));
+    assert(withClaimBody.txHash === paidBody.txHash && withClaimBody.accessToken, 'El reenvío tardío no devolvió el mismo pago con JWT');
+  }
+
   assert(withJwt.status === 200, 'El JWT no reabre el artículo');
   assert(summary.deltas.reader === -0.5, `El lector debía pagar 0.50 y pagó ${-summary.deltas.reader}`);
   assert(summary.deltas.publisher === 0.49, `La editorial debía recibir 0.49 y recibió ${summary.deltas.publisher}`);
   assert(summary.deltas.treasury === 0.01, `La tesorería debía recibir 0.01 y recibió ${summary.deltas.treasury}`);
+  if (late) {
+    assert(late.withClaim === 200, `Con comprobante, el reenvío tardío debía dar 200 y dio ${late.withClaim}`);
+    assert(late.withoutClaim === 409, `Sin comprobante, el reenvío tardío debía dar 409 y dio ${late.withoutClaim}`);
+    console.log('✅ Reenvío tardío: con comprobante da acceso; el sobre público sin comprobante, no.');
+  }
   console.log('✅ Pago por contrato verificado en testnet: 0.49 a la editorial, 0.01 a la tesorería, artículo entregado.');
 }
 
