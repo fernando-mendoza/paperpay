@@ -180,6 +180,12 @@ export const COPY = {
       description: 'Hubo un problema al procesar el pago. Revisa tu wallet antes de reintentar para evitar un segundo cobro.',
       action: 'Intentar de nuevo',
     },
+    PAYMENT_PENDING: {
+      title: 'Tu pago sigue en camino',
+      description:
+        'La red todavía no lo confirma. Reintenta en unos segundos: se reenvía el mismo pago que ya firmaste, así que no se cobra dos veces.',
+      action: 'Reintentar',
+    },
   },
   dashboard: {
     title: 'Panel editorial',
@@ -187,26 +193,34 @@ export const COPY = {
     liveBadge: 'En vivo · testnet',
     loadError: 'No pudimos leer los pagos en la red. Intenta de nuevo.',
     retry: 'Reintentar',
-    txEmpty: 'Aún no hay transferencias USDC recibidas en esta tesorería.',
+    txEmpty: 'Aún no hay lecturas pagadas en esta tesorería.',
     kpis: {
-      reads: 'Transferencias recibidas',
-      readsSub: 'historial reciente (hasta 200)',
-      earnings: 'Editorial estimada (98%)',
-      earningsSub: 'USDC · cálculo, sin reparto automático',
-      fee: 'PaperPay estimado (2%)',
-      feeSub: 'USDC · cálculo, sin cobro separado',
+      reads: 'Lecturas pagadas',
+      // {contract} y {direct} se reemplazan en el panel.
+      readsSub: '{contract} por contrato · {direct} por transferencia directa',
+      earnings: 'Editorial (98%)',
+      earningsSub: 'USDC · real en pagos por contrato, estimado en transferencias directas',
+      fee: 'PaperPay (2%)',
+      feeSub: 'USDC · real en pagos por contrato, estimado en transferencias directas',
     },
-    chartTitle: 'Transferencias en los últimos 14 días',
-    readsUnit: 'transferencias',
-    distributionTitle: 'Reparto estimado',
+    chartTitle: 'Lecturas en los últimos 14 días',
+    readsUnit: 'lecturas',
+    distributionTitle: 'Reparto por lectura',
     distributionPublisher: 'Editorial',
     distributionPlatform: 'PaperPay',
     txTitle: 'Transacciones recientes',
     txHeaders: {
       date: 'Fecha',
       amount: 'Monto',
-      reader: 'Lector',
+      payer: 'Pagó',
+      kind: 'Reparto',
       tx: 'Transacción',
+    },
+    kinds: {
+      contract: 'Contrato 98/2',
+      // {n} se reemplaza por la cantidad de artículos de un pay_batch.
+      contractBatch: 'Contrato 98/2 · {n} lecturas',
+      direct: 'Directo · estimado',
     },
   },
   landing: {

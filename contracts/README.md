@@ -55,4 +55,4 @@ La v0.1.0 ([`CDOUF6…BPOZ`](https://stellar.expert/explorer/testnet/contract/CD
 
 ### Estado
 
-Desplegado en testnet. **Todavía no está conectado** a la API ni a la web: los pagos del sitio siguen yendo completos a la tesorería.
+Desplegado en testnet. La API y la web ya saben cobrar a través de él, probado en testnet con una API local. **Todavía no está activo** en la API desplegada: los pagos del sitio publicado siguen yendo completos a la tesorería.

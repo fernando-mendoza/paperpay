@@ -23,6 +23,7 @@ export type PaywallErrorCode =
   | 'USER_REJECTED'
   | 'EXPIRED'
   | 'PAYMENT_FAILED'
+  | 'PAYMENT_PENDING'
 
 export interface TxReceipt {
   txHash: string

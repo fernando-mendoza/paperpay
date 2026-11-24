@@ -7,22 +7,27 @@ import {
   type X402PaymentResponseHeader,
   type X402PaymentSignatureHeader,
 } from '@paperpay/shared'
+import { API_URL } from '@/lib/api'
 import { decodeBase64Json, encodeBase64Json } from '@/lib/base64'
 import { PaywallError } from '@/lib/errors'
 import type { PaperFull, PaperPreview, PaywallErrorCode, TxReceipt } from '@/lib/types'
 import { clearAccess, isAccessValid, readAccess, writeAccess } from './accessStore'
 import type { Backend, PaperResult } from './backend'
+import { assertPreparedPayment, checkReaderFunds, prepareSplitterPayment } from './splitterPayment'
 import { buildPaymentXdr } from './stellarPayment'
 import { isFreighter, signTxXdr } from './wallet'
-
-// Vacío = mismo dominio: next.config.ts reenvía /api/* al backend (API_PROXY_TARGET).
-const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '')
 
 // Wallet simulada (NEXT_PUBLIC_WALLET != freighter): firma de relleno; el backend responde
 // con un hash simulado. Con Freighter se construye y firma una transacción real.
 const PLACEHOLDER_SIGNATURE = 'unsigned-demo-signature'
 
 const STROOPS_PER_UNIT = 10_000_000
+
+// La API espera hasta ~30 s la confirmación de un pago por contrato antes de responder 504.
+const SETTLE_TIMEOUT_MS = 45_000
+// 503 = la red no aceptó el envío por ahora: se reenvía el mismo sobre un par de veces.
+const BUSY_RETRIES = 2
+const BUSY_RETRY_MS = 3_000
 
 // Condiciones de pago del último 402 por artículo, para no pedirlas dos veces.
 const requirements = new Map<string, X402PaymentRequiredHeader>()
@@ -62,6 +67,69 @@ function errorCodeFor(message = ''): PaywallErrorCode {
   if (/insufficient|saldo|fondos|balance/i.test(message)) return 'INSUFFICIENT_FUNDS'
   if (/trustline|l[ií]nea de confianza/i.test(message)) return 'NO_TRUSTLINE'
   return 'PAYMENT_FAILED'
+}
+
+// Pago firmado que quedó sin confirmar (504, 503 persistente o sin respuesta). El siguiente intento
+// reenvía ESE sobre en vez de firmar otro: la red aplica un sobre una sola vez, así que no hay doble
+// cobro. Vive en sessionStorage para sobrevivir a una recarga de la pestaña.
+interface PendingPayment {
+  header: string
+  signer: string
+}
+const PENDING_PREFIX = 'paperpay:pending:'
+
+function readPending(id: string, signer: string): PendingPayment | null {
+  try {
+    const raw = window.sessionStorage.getItem(PENDING_PREFIX + id)
+    const pending = raw ? (JSON.parse(raw) as PendingPayment) : null
+    return pending?.signer === signer ? pending : null
+  } catch {
+    return null
+  }
+}
+
+function writePending(id: string, pending: PendingPayment | null): void {
+  try {
+    if (pending) window.sessionStorage.setItem(PENDING_PREFIX + id, JSON.stringify(pending))
+    else window.sessionStorage.removeItem(PENDING_PREFIX + id)
+  } catch {
+    // Sin almacenamiento: el reintento firmará un pago nuevo.
+  }
+}
+
+type Terms = X402PaymentRequiredHeader['accepts'][number]
+
+// Devuelve el XDR firmado (o la firma de relleno en modo simulado). Abre Freighter si aplica.
+async function signPayment(id: string, address: string, terms: Terms): Promise<string> {
+  if (!isFreighter()) {
+    await delay(800)
+    return PLACEHOLDER_SIGNATURE
+  }
+  const splitter = terms.extra?.splitter
+  if (splitter) {
+    // Contrato de reparto: la API arma y simula pay(...); aquí se verifica y se firma.
+    await checkReaderFunds(address, terms.amount)
+    const prepared = await prepareSplitterPayment(splitter, address)
+    await assertPreparedPayment(prepared, {
+      contractId: splitter.contractId,
+      publisher: splitter.publisher,
+      payer: address,
+      paperId: id,
+      amountStroops: terms.amount,
+    })
+    return signTxXdr(prepared.transactionXdr, address)
+  }
+  // Pago clásico: transferencia de USDC a la tesorería.
+  const unsignedXdr = await buildPaymentXdr(address, { payTo: terms.payTo, amountStroops: terms.amount })
+  return signTxXdr(unsignedXdr, address)
+}
+
+async function sendSignedPayment(path: string, header: string): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await request(path, { headers: { [X402_HEADERS.PAYMENT_SIGNATURE]: header } }, SETTLE_TIMEOUT_MS)
+    if (res.status !== 503 || attempt >= BUSY_RETRIES) return res
+    await delay(BUSY_RETRY_MS)
+  }
 }
 
 async function paymentRequirement(id: string): Promise<X402PaymentRequiredHeader> {
@@ -106,31 +174,33 @@ export const apiBackend: Backend = {
   async payForPaper(id, address, onSigned) {
     const terms = (await paymentRequirement(id)).accepts[0]
 
-    let signaturePayload: string
-    if (isFreighter()) {
-      // Real: construir el pago de USDC, firmarlo con Freighter (el backend lo envía).
-      const unsignedXdr = await buildPaymentXdr(address, { payTo: terms.payTo, amountStroops: terms.amount })
-      signaturePayload = await signTxXdr(unsignedXdr, address) // abre la ventana de Freighter
-      onSigned()
-    } else {
-      // Simulado: firma de relleno; el backend responde con un hash simulado.
-      signaturePayload = PLACEHOLDER_SIGNATURE
-      await delay(800)
-      onSigned()
+    let pending = readPending(id, address)
+    if (!pending) {
+      const signature: X402PaymentSignatureHeader = {
+        scheme: 'exact',
+        network: terms.network,
+        signerPublicKey: address,
+        signature: await signPayment(id, address, terms),
+      }
+      pending = { header: encodeBase64Json(signature), signer: address }
+    }
+    onSigned()
+
+    let res: Response
+    try {
+      res = await sendSignedPayment(`/api/papers/${encodeURIComponent(id)}`, pending.header)
+    } catch {
+      // Sin respuesta: el pago firmado pudo llegar a la red. Se reenvía, no se firma otro.
+      writePending(id, pending)
+      throw new PaywallError('PAYMENT_PENDING', 'Sin respuesta de la API')
     }
 
-    const signature: X402PaymentSignatureHeader = {
-      scheme: 'exact',
-      network: terms.network,
-      signerPublicKey: address,
-      signature: signaturePayload,
+    if (res.status === 503 || res.status === 504) {
+      writePending(id, pending)
+      const body = (await res.json().catch(() => ({}))) as Partial<ApiErrorResponse>
+      throw new PaywallError('PAYMENT_PENDING', body.message)
     }
-
-    const res = await request(
-      `/api/papers/${encodeURIComponent(id)}`,
-      { headers: { [X402_HEADERS.PAYMENT_SIGNATURE]: encodeBase64Json(signature) } },
-      30_000,
-    )
+    writePending(id, null)
 
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as Partial<ApiErrorResponse>

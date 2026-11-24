@@ -10,7 +10,7 @@
     "dev:web": "pnpm --filter @paperpay/web dev",
     "build:api": "pnpm --filter @paperpay/api build",
     "build:shared": "pnpm --filter @paperpay/shared build",
-    "test": "pnpm --filter @paperpay/api test",
+    "test": "pnpm --filter @paperpay/api test && pnpm --filter @paperpay/web test",
     "test:contracts": "cargo test --manifest-path contracts/Cargo.toml"
   },
   "devDependencies": {

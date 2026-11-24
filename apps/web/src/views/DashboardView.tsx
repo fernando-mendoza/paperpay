@@ -3,10 +3,16 @@
 import { useEffect, useState } from 'react'
 import { COPY } from '@/lib/copy'
 import { formatDateTime, shortHash } from '@/lib/format'
-import { getEditorialStats, type EditorialStats } from '@/services/editorial'
+import { getEditorialStats, type EditorialStats, type EditorialTx } from '@/services/editorial'
 
 const cardClass = 'rounded-2xl border border-border bg-card shadow-[var(--shadow-card)]'
 const usd = (n: number) => `$${n.toFixed(2)}`
+
+function kindLabel(tx: EditorialTx): string {
+  const { kinds } = COPY.dashboard
+  if (tx.kind === 'direct') return kinds.direct
+  return tx.reads > 1 ? kinds.contractBatch.replace('{n}', String(tx.reads)) : kinds.contract
+}
 
 function ReadsChart({ perDay }: { perDay: EditorialStats['perDay'] }) {
   const max = Math.max(1, ...perDay.map((d) => d.count))
@@ -137,7 +143,13 @@ export function DashboardView() {
       ) : (
         <>
           <div className="mb-8 grid grid-cols-1 gap-5 sm:grid-cols-3">
-            <KpiCard label={dashboard.kpis.reads} value={String(stats.reads)} sub={dashboard.kpis.readsSub} />
+            <KpiCard
+              label={dashboard.kpis.reads}
+              value={String(stats.reads)}
+              sub={dashboard.kpis.readsSub
+                .replace('{contract}', String(stats.contractReads))
+                .replace('{direct}', String(stats.reads - stats.contractReads))}
+            />
             <KpiCard label={dashboard.kpis.earnings} value={usd(stats.publisherUsdc)} sub={dashboard.kpis.earningsSub} valueClass="text-success" />
             <KpiCard label={dashboard.kpis.fee} value={usd(stats.feeUsdc)} sub={dashboard.kpis.feeSub} valueClass="text-primary" />
           </div>
@@ -171,6 +183,15 @@ export function DashboardView() {
                         <td className="px-6 py-4 whitespace-nowrap text-muted-foreground">{formatDateTime(tx.date)}</td>
                         <td className="px-6 py-4 font-semibold text-success">{usd(tx.amount)}</td>
                         <td className="px-6 py-4 font-mono text-xs text-muted-foreground">{shortHash(tx.from, 4)}</td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                              tx.kind === 'contract' ? 'bg-success-bg text-success-strong' : 'bg-muted text-muted-foreground'
+                            }`}
+                          >
+                            {kindLabel(tx)}
+                          </span>
+                        </td>
                         <td className="px-6 py-4">
                           <a
                             href={`https://stellar.expert/explorer/testnet/tx/${tx.hash}`}
