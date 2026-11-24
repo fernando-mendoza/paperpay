@@ -10,7 +10,7 @@ Desde esta fecha la API de la VPS (`paperpay-api.blockchains.tf`, fork `6f63857`
 - `/api/health` publicado anuncia `splitterContractId`. El `402` trae `extra.splitter`, y `POST /api/papers/:id/prepare` llega a la API a través de la Pages Function.
 - `test:e2e` de la web contra el sitio publicado, con un lector desechable de Friendbot y Freighter simulado con su llave: 402 → `/prepare` → firma → artículo en 5.0 s, y el JWT reabre el artículo. En la tx [`96dd614e…`](https://stellar.expert/explorer/testnet/tx/96dd614e5a3b13c2e0d7dfc58d1e5b6457f554dc22754e25ce89a719293e74d9), Horizon muestra 0.49 USDC a la editorial demo y 0.01 a la tesorería. El panel la cuenta como lectura por contrato.
 
-**No comprobado:** una firma real en la extensión Freighter dentro de un navegador.
+- 24 de noviembre: pago firmado en la extensión Freighter (LibreWolf, Testnet) en el sitio publicado. Tx [`3d7b2c56…`](https://stellar.expert/explorer/testnet/tx/3d7b2c5625e5869a174925aa8ca1d221c5edb9e54843f6638eaf25060b9c88f4): una llamada al contrato, 0.49 USDC a la editorial demo y 0.01 a la tesorería; comisión de red 0.0012421 XLM. El sitio mostró el recibo y el artículo completo.
 
 **Límites conocidos:** Pollar y el sitio de Vercel siguen con transferencias completas a la tesorería. Hasta el 24 de noviembre, si la confirmación tardaba y el lector reenviaba el mismo sobre después de 5 minutos, la API ya no entregaba el acceso; ahora lo entrega con el comprobante de `/prepare` (ver `apps/api/README.md`, "Respuesta perdida").
 
