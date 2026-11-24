@@ -61,7 +61,7 @@ curl -i http://localhost:4000/api/papers/autonomous-ai-micropayments
 ## Verificación
 
 ```bash
-pnpm test                               # 80 pruebas de la API y 28 de la web
+pnpm test                               # 87 pruebas de la API y 28 de la web
 pnpm build:shared && pnpm build:api
 pnpm --filter @paperpay/web typecheck
 pnpm build
