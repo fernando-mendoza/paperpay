@@ -12,7 +12,7 @@ Desde esta fecha la API de la VPS (`paperpay-api.blockchains.tf`, fork `6f63857`
 
 - 24 de noviembre: pago firmado en la extensión Freighter (LibreWolf, Testnet) en el sitio publicado. Tx [`3d7b2c56…`](https://stellar.expert/explorer/testnet/tx/3d7b2c5625e5869a174925aa8ca1d221c5edb9e54843f6638eaf25060b9c88f4): una llamada al contrato, 0.49 USDC a la editorial demo y 0.01 a la tesorería; comisión de red 0.0012421 XLM. El sitio mostró el recibo y el artículo completo.
 
-**Límites conocidos:** Pollar y el sitio de Vercel siguen con transferencias completas a la tesorería. Hasta el 24 de noviembre, si la confirmación tardaba y el lector reenviaba el mismo sobre después de 5 minutos, la API ya no entregaba el acceso; ahora lo entrega con el comprobante de `/prepare` (ver `apps/api/README.md`, "Respuesta perdida").
+**Límites conocidos:** Pollar y el sitio de Vercel siguen con transferencias completas a la tesorería. Hasta el 24 de noviembre, si la confirmación tardaba y el lector reenviaba el mismo sobre después de 5 minutos, la API ya no entregaba el acceso; ahora lo entrega con el comprobante de `/prepare` (ver `apps/api/README.md`, "Respuesta perdida"). Ese arreglo está en producción desde el 24 de noviembre (API `fefe306` en la VPS y el sitio de Pages): `/prepare` publicado devuelve `claim` y `test:e2e` contra el sitio pagó de nuevo ([`b8806395…`](https://stellar.expert/explorer/testnet/tx/b88063951a901e88a3daaf75d680cf24b121fd5eb786cfb3559d35a692408cc3), 4.5 s). El reenvío tardío con comprobante se probó en testnet contra una API local, no contra la publicada.
 
 ## Revisión del 27 de septiembre de 2026 (v2.0.0)
 
