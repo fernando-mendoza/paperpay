@@ -9,7 +9,8 @@
     "test": "vitest run",
     "test:settle": "tsx scripts/test-settle.ts",
     "test:testnet": "tsx scripts/testnet-e2e.ts",
-    "generate:treasury": "tsx scripts/generate-treasury.ts"
+    "generate:treasury": "tsx scripts/generate-treasury.ts",
+    "test:splitter": "tsx scripts/testnet-splitter-e2e.ts"
   },
   "dependencies": {
     "@paperpay/shared": "workspace:*",

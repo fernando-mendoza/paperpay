@@ -7,6 +7,7 @@ import {
 } from '@paperpay/shared';
 import { config } from '../config';
 import { decodeBase64Json } from '../utils/base64';
+import { SPLITTER_PAY_FUNCTION, splitterService } from './splitter.service';
 
 export class X402Service {
   public createPaymentRequirement(paperId: string, title: string): X402PaymentRequiredHeader {
@@ -22,6 +23,14 @@ export class X402Service {
           extra: {
             paperId,
             title,
+            ...(splitterService.enabled && {
+              splitter: {
+                contractId: splitterService.terms().contractId,
+                function: SPLITTER_PAY_FUNCTION,
+                publisher: splitterService.terms().publisher,
+                prepareUrl: `/api/papers/${encodeURIComponent(paperId)}/prepare`,
+              },
+            }),
           },
         },
       ],
@@ -60,6 +69,13 @@ export class X402Service {
     }
 
     console.log(`[x402Service] Iniciando liquidación para paper ${paperId} desde wallet ${signaturePayload.signerPublicKey}`);
+
+    // Pago por el contrato de reparto 98/2: no depende del modo (lo envía la API, lo paga el lector).
+    if (splitterService.enabled && splitterService.isContractPayment(signaturePayload.signature)) {
+      const tx = splitterService.validateSignedPayment(signaturePayload.signature, signaturePayload.signerPublicKey, paperId);
+      const { txHash } = await splitterService.settle(tx, signaturePayload.signerPublicKey, paperId);
+      return { success: true, txHash };
+    }
 
     // Modo 1: SELF_SETTLE (Fallback con cuenta operativa del backend)
     if (config.selfSettle) {

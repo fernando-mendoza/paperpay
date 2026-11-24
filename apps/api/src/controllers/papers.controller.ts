@@ -1,7 +1,9 @@
 import { Request, Response } from 'express';
 import {
   HealthCheckResponse,
+  SplitterPrepareResponse,
   STELLAR_NETWORK,
+  STELLAR_NETWORK_PASSPHRASE,
   X402_HEADERS,
   X402PaymentResponseHeader,
   X402PaymentVerificationHeader,
@@ -11,6 +13,7 @@ import { jwtService } from '../services/jwt.service';
 import { papersService } from '../services/papers.service';
 import { x402Service } from '../services/x402.service';
 import { paymentVerificationService, PaymentVerificationError } from '../services/payment-verification.service';
+import { SplitterError, splitterService } from '../services/splitter.service';
 import { decodeBase64Json, encodeBase64Json } from '../utils/base64';
 
 export class PapersController {
@@ -20,6 +23,7 @@ export class PapersController {
       network: STELLAR_NETWORK,
       mode: config.selfSettle ? 'SELF_SETTLE' : 'FACILITATOR',
       treasuryPublicKey: config.stellarTreasuryPublicKey,
+      splitterContractId: splitterService.enabled ? splitterService.terms().contractId : null,
       timestamp: new Date().toISOString(),
     };
     res.status(200).json(health);
@@ -94,6 +98,14 @@ export class PapersController {
         const errorMsg = err instanceof Error ? err.message : String(err);
         console.error('[PapersController] Error durante la liquidación:', errorMsg);
 
+        if (err instanceof SplitterError) {
+          res.status(err.status).json({
+            error: err.status === 504 ? 'PAYMENT_PENDING' : err.status === 409 ? 'PAYMENT_ALREADY_USED' : 'PAYMENT_FAILED',
+            message: err.message,
+            ...(err.txHash && { txHash: err.txHash }),
+          });
+          return;
+        }
         res.status(402).json({
           error: 'PAYMENT_FAILED',
           message: errorMsg,
@@ -114,6 +126,37 @@ export class PapersController {
     res.status(402).json({
       preview,
     });
+  }
+
+  /** Arma y simula el pago por el contrato de reparto para que la wallet del lector lo firme. */
+  public async preparePaperPayment(req: Request, res: Response): Promise<void> {
+    const { id } = req.params;
+    if (!papersService.getPaperById(id)) {
+      res.status(404).json({ error: 'PAPER_NOT_FOUND', message: `El artículo con ID '${id}' no existe en el catálogo.` });
+      return;
+    }
+    if (!splitterService.enabled) {
+      res.status(404).json({ error: 'SPLITTER_DISABLED', message: 'Esta API no cobra a través del contrato de reparto.' });
+      return;
+    }
+    const payer = (req.body as { payer?: unknown } | undefined)?.payer;
+    if (typeof payer !== 'string') {
+      res.status(400).json({ error: 'PREPARE_FAILED', message: 'El cuerpo debe incluir payer (la wallet del lector).' });
+      return;
+    }
+    try {
+      const transactionXdr = await splitterService.preparePayment(id, payer);
+      const body: SplitterPrepareResponse = {
+        transactionXdr,
+        networkPassphrase: STELLAR_NETWORK_PASSPHRASE,
+        terms: splitterService.terms(),
+      };
+      res.status(200).json(body);
+    } catch (err: unknown) {
+      const error = err instanceof SplitterError ? err : new SplitterError(502, 'No fue posible preparar el pago.');
+      if (!(err instanceof SplitterError)) console.error('[PapersController] Error inesperado al preparar el pago:', err);
+      res.status(error.status).json({ error: 'PREPARE_FAILED', message: error.message });
+    }
   }
 
   public async verifyPaperByHash(req: Request, res: Response): Promise<void> {

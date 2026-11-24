@@ -29,7 +29,27 @@ export interface X402PaymentRequirement {
   extra?: {
     paperId: string;
     title: string;
+    /** Presente si la API cobra a través del contrato de reparto 98/2. */
+    splitter?: X402SplitterTerms;
   };
+}
+
+/**
+ * Pago a través del contrato de reparto: el cliente pide a `prepareUrl` (POST { payer }) la
+ * invocación `pay(payer, paperId, publisher, amount)` ya simulada, la firma con la wallet y la manda
+ * como `signature` en PAYMENT-SIGNATURE, igual que el pago clásico.
+ */
+export interface X402SplitterTerms {
+  contractId: string;
+  function: 'pay';
+  publisher: string;
+  prepareUrl: string;
+}
+
+export interface SplitterPrepareResponse {
+  transactionXdr: string;
+  networkPassphrase: string;
+  terms: { contractId: string; publisher: string; amount: string };
 }
 
 export interface X402PaymentRequiredHeader {
@@ -71,6 +91,8 @@ export interface HealthCheckResponse {
   network: typeof STELLAR_NETWORK;
   mode: 'FACILITATOR' | 'SELF_SETTLE';
   treasuryPublicKey: string;
+  /** Contrato de reparto 98/2 activo, o null si la API solo acepta pagos clásicos. */
+  splitterContractId: string | null;
   timestamp: string;
 }
 

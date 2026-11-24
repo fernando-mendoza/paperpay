@@ -21,7 +21,7 @@ El catálogo contiene **52 artículos ficticios de demostración** en 10 discipl
 | Panel editorial (`/editorial`) | Lee de Horizon los pagos entrantes a la tesorería. El reparto 98/2 es un cálculo visual, no se ejecuta en la red. |
 | Pagos simulados (`mock`) | Disponibles para demos locales; no mueven fondos. |
 | Facilitador OpenZeppelin | Integración presente, sin liquidación real verificada. |
-| Contrato Soroban de reparto | En desarrollo: [`contracts/splitter`](contracts/README.md) reparte 98/2 en la misma transacción y deja un comprobante con el id del artículo. Desplegado en testnet (`CAIMQY…HOR5`, v0.2.0, con `pay`, `pay_batch` y `gift`) y usado con pagos reales de prueba; todavía no está conectado al pago del sitio. |
+| Contrato Soroban de reparto | En desarrollo: [`contracts/splitter`](contracts/README.md) reparte 98/2 en la misma transacción y deja un comprobante con el id del artículo. Desplegado en testnet (`CAIMQY…HOR5`, v0.2.0, con `pay`, `pay_batch` y `gift`). La API ya cobra a través de él si se configura `SPLITTER_CONTRACT_ID`: arma y simula `pay`, revisa el sobre firmado y da acceso solo con el evento `paid` del artículo (probado de punta a punta en testnet con una API local). Falta que la web lo use y activarlo en la API desplegada. |
 
 Las cabeceras `payment-required`, `payment-signature` y `payment-response` siguen el esquema de x402, pero el payload es propio y el proyecto no usa los paquetes oficiales de x402: no debe presentarse como interoperabilidad certificada con x402. El estado comprobado y sus límites están en [docs/QA.md](docs/QA.md).
 
@@ -61,7 +61,7 @@ curl -i http://localhost:4000/api/papers/autonomous-ai-micropayments
 ## Verificación
 
 ```bash
-pnpm test                               # 37 pruebas de la API
+pnpm test                               # 80 pruebas de la API
 pnpm build:shared && pnpm build:api
 pnpm --filter @paperpay/web typecheck
 pnpm build
