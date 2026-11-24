@@ -61,7 +61,7 @@ Verificación estática: `pnpm --filter @paperpay/web typecheck`. Compilación: 
 Pruebas:
 
 - `pnpm --filter @paperpay/web test`: 28 pruebas sin red, del pago por contrato (sobre que no coincide, saldo, reenvío del pendiente) y del panel. El panel se prueba con registros reales de la tesorería en Horizon (`test/fixtures`).
-- `PAPERPAY_E2E_API_URL=http://127.0.0.1:4011 pnpm --filter @paperpay/web test:e2e` **sí paga 0.50 USDC de prueba en testnet**. Corre el código del sitio contra una API local con el contrato activo; Freighter se simula con la llave de un lector desechable. Recorre 402 → `/prepare` → firma → artículo, reabre el artículo con el JWT y comprueba en Horizon y en el panel la lectura por contrato.
+- `PAPERPAY_E2E_API_URL=http://127.0.0.1:4011 pnpm --filter @paperpay/web test:e2e` **sí paga 0.50 USDC de prueba en testnet**. Corre el código del sitio contra una API con el contrato activo; Freighter se simula con la llave de un lector desechable. Recorre 402 → `/prepare` → firma → artículo, reabre el artículo con el JWT y comprueba en Horizon y en el panel la lectura por contrato. Con `PAPERPAY_E2E_API_URL=https://paperpay.blockchains.tf` pasa por la Pages Function y la API publicadas.
 
 ## Pollar (v2)
 

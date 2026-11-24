@@ -55,4 +55,4 @@ La v0.1.0 ([`CDOUF6…BPOZ`](https://stellar.expert/explorer/testnet/contract/CD
 
 ### Estado
 
-Desplegado en testnet. La API y la web ya saben cobrar a través de él, probado en testnet con una API local. **Todavía no está activo** en la API desplegada: los pagos del sitio publicado siguen yendo completos a la tesorería.
+Desplegado en testnet y **activo** desde el 23 de noviembre de 2026 en la API de la VPS y en [paperpay.blockchains.tf](https://paperpay.blockchains.tf/): con Freighter, cada lectura paga por `pay`. Prueba de punta a punta contra el sitio publicado: [`96dd614e…`](https://stellar.expert/explorer/testnet/tx/96dd614e5a3b13c2e0d7dfc58d1e5b6457f554dc22754e25ce89a719293e74d9), 0.49 a la editorial y 0.01 a la tesorería. Pollar y el sitio de Vercel siguen con transferencias completas a la tesorería. `pay_batch` y `gift` funcionan en la red, pero el sitio todavía no los ofrece.
