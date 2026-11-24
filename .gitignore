@@ -30,3 +30,6 @@ Thumbs.db
 
 # Estado local de wrangler (pages dev)
 .wrangler/
+
+# Rust (contracts/)
+contracts/target/

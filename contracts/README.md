@@ -1,0 +1,41 @@
+# Contratos Soroban
+
+## `splitter`: reparto 98% editorial / 2% PaperPay
+
+Cobra una lectura y la reparte en la misma transacción. El USDC va directo de la cuenta del lector a la editorial (monto − comisión) y a la tesorería de PaperPay (comisión). El contrato nunca guarda fondos.
+
+| Función | Qué hace |
+| --- | --- |
+| `__constructor(token, treasury, fee_bps)` | Fija el token (SAC de USDC), la tesorería y la comisión en puntos base (`200` = 2%, máximo `1000`). No cambia después: no hay admin. |
+| `pay(payer, paper_id, publisher, amount) -> Split` | Pide la firma de `payer` sobre la llamada con sus argumentos, mueve `amount − fee` a `publisher` y `fee` a la tesorería, y emite el evento `paid`. |
+| `split(amount) -> Split` | El reparto que aplicaría `pay`, sin mover fondos. |
+| `config() -> Config` | La configuración fijada al desplegar. |
+
+- **Comisión:** `fee = amount × fee_bps / 10 000`, redondeada hacia abajo. La fracción de stroop queda para la editorial: de $0.50 (`5 000 000`) salen `4 900 000` para la editorial y `100 000` para la tesorería.
+- **Evento `paid`:**
+  - topics: `["paid", publisher]`;
+  - datos: `{ paper_id, payer, amount, fee }`.
+  
+  Es el comprobante en la red de qué artículo se pagó.
+- **Quién valida qué:** el contrato garantiza el reparto. La API sigue decidiendo el precio y la editorial de cada artículo, y valida que el evento coincida antes de dar acceso.
+- **Errores:** `FeeTooHigh` (1), `InvalidAmount` (2), `InvalidPaperId` (3; vacío o de más de 64 bytes), `AmountOverflow` (4).
+
+### Probar
+
+Requiere Rust estable y el target `wasm32v1-none` (`rustup target add wasm32v1-none`).
+
+```bash
+pnpm test:contracts            # cargo test: 11 pruebas con un SAC de USDC simulado
+```
+
+### Compilar el WASM
+
+`soroban-sdk` 29 solo compila el WASM a través de `stellar-cli` v25.2.0 o posterior (no con `cargo build`):
+
+```bash
+cd contracts && stellar contract build
+```
+
+### Estado
+
+Probado en local; **todavía no está desplegado** en testnet ni conectado a la API o a la web.

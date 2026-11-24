@@ -21,7 +21,7 @@ El catálogo contiene **52 artículos ficticios de demostración** en 10 discipl
 | Panel editorial (`/editorial`) | Lee de Horizon los pagos entrantes a la tesorería. El reparto 98/2 es un cálculo visual, no se ejecuta en la red. |
 | Pagos simulados (`mock`) | Disponibles para demos locales; no mueven fondos. |
 | Facilitador OpenZeppelin | Integración presente, sin liquidación real verificada. |
-| Contrato Soroban de reparto | No existe; está en el roadmap. |
+| Contrato Soroban de reparto | En desarrollo: [`contracts/splitter`](contracts/README.md) reparte 98/2 en la misma transacción y deja un comprobante con el id del artículo. Probado en local; todavía sin desplegar ni conectar al pago. |
 
 Las cabeceras `payment-required`, `payment-signature` y `payment-response` siguen el esquema de x402, pero el payload es propio y el proyecto no usa los paquetes oficiales de x402: no debe presentarse como interoperabilidad certificada con x402. El estado comprobado y sus límites están en [docs/QA.md](docs/QA.md).
 
@@ -80,6 +80,7 @@ La protección contra reutilizar un hash de Pollar vive en memoria: un reinicio 
 - [API](apps/api/README.md): variables, endpoints y modos de liquidación.
 - [Frontend](apps/web/README.md): modos de datos y de wallet, Pollar y panel editorial.
 - [QA](docs/QA.md): qué está comprobado y qué falta.
+- [Contratos](contracts/README.md): contrato Soroban de reparto 98/2.
 - [Resumen ejecutivo](docs/RESUMEN_EJECUTIVO.md), [plan](docs/PLAN.md), [flujo de usuario](docs/FLUJO_USUARIO.md), [PRD](docs/PRD_BACKEND.md), [TDD](docs/TDD_BACKEND.md) y [panorama competitivo](<docs/PaperPay  panorama competitivo DeSci, Web3 y micropagos científicos.md>): documentos de planeación del 23 y 24 de septiembre. Describen la intención original; cada uno indica al inicio en qué difiere de lo implementado.
 
 No hay licencia definida para este repositorio: el código es público, pero sin una licencia no se concede permiso de reutilización.
