@@ -96,7 +96,7 @@ En producción son obligatorios un `JWT_SECRET` aleatorio de al menos 32 caracte
 
 ## Pruebas
 
-`pnpm test` ejecuta 80 pruebas locales. Incluyen la validación simulada de respuestas de Horizon para el flujo Pollar (monto exacto e intento de reutilizar un hash) y el pago por contrato. Para el contrato, la validación del sobre firmado, el envío y el cobro con un RPC simulado, el endpoint `/prepare` y la lectura de eventos `paid` usan eventos reales de testnet (`test/fixtures`). Ninguna de estas pruebas hace un pago externo.
+`pnpm test` ejecuta 87 pruebas locales. Incluyen la validación simulada de respuestas de Horizon para el flujo Pollar (monto exacto e intento de reutilizar un hash) y el pago por contrato. Para el contrato, la validación del sobre firmado, el envío y el cobro con un RPC simulado, el endpoint `/prepare` y la lectura de eventos `paid` usan eventos reales de testnet (`test/fixtures`). Ninguna de estas pruebas hace un pago externo.
 
 `pnpm --filter @paperpay/api test:splitter` (con `SPLITTER_CONTRACT_ID`, `SPLITTER_PUBLISHER_ADDRESS` y `STELLAR_TREASURY_PUBLIC_KEY`) **sí paga en testnet**:
 - crea un lector desechable con Friendbot y 1 USDC comprado en el DEX;
