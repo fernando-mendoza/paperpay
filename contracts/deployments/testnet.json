@@ -1,0 +1,27 @@
+{
+  "network": "stellar:testnet",
+  "networkPassphrase": "Test SDF Network ; September 2015",
+  "rpcUrl": "https://soroban-testnet.stellar.org",
+  "splitter": {
+    "contractId": "CDOUF6BBLKAXPT6EJAF2SOAUMKX3RASZFNHD7ORMIQZUTH4G6V66BPOZ",
+    "wasmSha256": "0dce9d06e2c76b75d15bd57d277073e24eaa76f0c384973f72ef5e8522b40642",
+    "source": "contracts/splitter @ fdcdca0, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+    "constructor": {
+      "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+      "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+      "fee_bps": 200
+    },
+    "deployTx": "10954450d23d0054d80bec8f9e88a14fc54486fe73e03f66bbda2437b2b9c3aa",
+    "deployedAt": "2026-11-24T00:30:47Z"
+  },
+  "demoPublisher": {
+    "address": "GA3MOPOJ374G4APKR4RE7VPXF5CEQKER3FA3LZ2XSAARIRSZEF6QXUZI",
+    "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."
+  },
+  "smokeTest": {
+    "tx": "cdda69b15feb5767ddb3b8b436386a953c869e2ed30476a72028234ad130c489",
+    "paperId": "crispr-nanomedicine-biotech",
+    "amount": "5000000",
+    "result": "4900000 a la editorial demo, 100000 a la tesorería, evento paid emitido"
+  }
+}

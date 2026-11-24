@@ -36,6 +36,20 @@ pnpm test:contracts            # cargo test: 11 pruebas con un SAC de USDC simul
 cd contracts && stellar contract build
 ```
 
+### Despliegue en testnet
+
+Datos completos en [`deployments/testnet.json`](deployments/testnet.json).
+
+| Dato | Valor |
+| --- | --- |
+| Contrato | [`CDOUF6BBLKAXPT6EJAF2SOAUMKX3RASZFNHD7ORMIQZUTH4G6V66BPOZ`](https://stellar.expert/explorer/testnet/contract/CDOUF6BBLKAXPT6EJAF2SOAUMKX3RASZFNHD7ORMIQZUTH4G6V66BPOZ) |
+| Constructor | token = SAC de USDC testnet (`CBIELTK6…`), treasury = tesorería de PaperPay (`GAB2…CWRV`), `fee_bps` = 200 |
+| WASM (sha256) | `0dce9d06e2c76b75d15bd57d277073e24eaa76f0c384973f72ef5e8522b40642`, igual al que se baja de la red con `stellar contract fetch` |
+| Editorial demo | `GA3MOPOJ374G4APKR4RE7VPXF5CEQKER3FA3LZ2XSAARIRSZEF6QXUZI`: una sola cuenta recibe el 98% de las editoriales ficticias del catálogo |
+| Pago de prueba | [`cdda69b1…`](https://stellar.expert/explorer/testnet/tx/cdda69b15feb5767ddb3b8b436386a953c869e2ed30476a72028234ad130c489): 0.50 USDC por `crispr-nanomedicine-biotech` → 0.49 a la editorial y 0.01 a la tesorería, con el evento `paid` |
+
+La cuenta que desplegó era desechable: el contrato no tiene admin, así que esa cuenta no conserva ningún poder sobre él.
+
 ### Estado
 
-Probado en local; **todavía no está desplegado** en testnet ni conectado a la API o a la web.
+Desplegado en testnet. **Todavía no está conectado** a la API ni a la web: los pagos del sitio siguen yendo completos a la tesorería.
