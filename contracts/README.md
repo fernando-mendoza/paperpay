@@ -44,13 +44,14 @@ Datos completos en [`deployments/testnet.json`](deployments/testnet.json).
 
 | Dato | Valor |
 | --- | --- |
-| Contrato | [`CDOUF6BBLKAXPT6EJAF2SOAUMKX3RASZFNHD7ORMIQZUTH4G6V66BPOZ`](https://stellar.expert/explorer/testnet/contract/CDOUF6BBLKAXPT6EJAF2SOAUMKX3RASZFNHD7ORMIQZUTH4G6V66BPOZ) |
+| Contrato (v0.2.0) | [`CAIMQYXIXNYSAXIRQRAAG5ZTWP26476JX4SVAMDAOXRKLRCADUDKHOR5`](https://stellar.expert/explorer/testnet/contract/CAIMQYXIXNYSAXIRQRAAG5ZTWP26476JX4SVAMDAOXRKLRCADUDKHOR5) |
 | Constructor | token = SAC de USDC testnet (`CBIELTK6…`), treasury = tesorería de PaperPay (`GAB2…CWRV`), `fee_bps` = 200 |
-| WASM (sha256) | `0dce9d06e2c76b75d15bd57d277073e24eaa76f0c384973f72ef5e8522b40642`, igual al que se baja de la red con `stellar contract fetch` |
+| WASM (sha256) | `4868dd0233d3153fcd128c5e4f8ba97c7d0c544fc49a6a1174bdb68cfcf2cfa3`, igual al que se baja de la red con `stellar contract fetch` |
 | Editorial demo | `GA3MOPOJ374G4APKR4RE7VPXF5CEQKER3FA3LZ2XSAARIRSZEF6QXUZI`: una sola cuenta recibe el 98% de las editoriales ficticias del catálogo |
-| Pago de prueba | [`cdda69b1…`](https://stellar.expert/explorer/testnet/tx/cdda69b15feb5767ddb3b8b436386a953c869e2ed30476a72028234ad130c489): 0.50 USDC por `crispr-nanomedicine-biotech` → 0.49 a la editorial y 0.01 a la tesorería, con el evento `paid` |
+| `pay_batch` | [`551ae39b…`](https://stellar.expert/explorer/testnet/tx/551ae39b2fd42f247cbbfc355e5dfffbb0d2fbbec2514e5a9756b92ef4b21dff): los 6 artículos de `/top` con una firma (3.00 USDC). Resultado: 2.94 a la editorial y 0.06 a la tesorería en 2 transferencias, con 6 eventos `paid` |
+| `gift` | [`8dac0f7e…`](https://stellar.expert/explorer/testnet/tx/8dac0f7e574f6980da0baf49e2db3cc53191e84457e5fb38018d732dcd092753): 0.50 USDC por `stablecoins-emerging-markets` para otra cuenta, que ni siquiera existe en la red. El evento `paid` lleva a esa cuenta como `reader` |
 
-La cuenta que desplegó era desechable: el contrato no tiene admin, así que esa cuenta no conserva ningún poder sobre él.
+La v0.1.0 ([`CDOUF6…BPOZ`](https://stellar.expert/explorer/testnet/contract/CDOUF6BBLKAXPT6EJAF2SOAUMKX3RASZFNHD7ORMIQZUTH4G6V66BPOZ), solo `pay`, con el [pago de prueba `cdda69b1…`](https://stellar.expert/explorer/testnet/tx/cdda69b15feb5767ddb3b8b436386a953c869e2ed30476a72028234ad130c489)) sigue en la red, pero queda reemplazada. Ninguna versión tiene admin: la cuenta que despliega es desechable y no conserva ningún poder sobre el contrato.
 
 ### Estado
 

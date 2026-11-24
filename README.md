@@ -21,7 +21,7 @@ El catálogo contiene **52 artículos ficticios de demostración** en 10 discipl
 | Panel editorial (`/editorial`) | Lee de Horizon los pagos entrantes a la tesorería. El reparto 98/2 es un cálculo visual, no se ejecuta en la red. |
 | Pagos simulados (`mock`) | Disponibles para demos locales; no mueven fondos. |
 | Facilitador OpenZeppelin | Integración presente, sin liquidación real verificada. |
-| Contrato Soroban de reparto | En desarrollo: [`contracts/splitter`](contracts/README.md) reparte 98/2 en la misma transacción y deja un comprobante con el id del artículo. Desplegado en testnet (`CDOUF6…BPOZ`) con un pago de prueba verificado; todavía no está conectado al pago del sitio. |
+| Contrato Soroban de reparto | En desarrollo: [`contracts/splitter`](contracts/README.md) reparte 98/2 en la misma transacción y deja un comprobante con el id del artículo. Desplegado en testnet (`CAIMQY…HOR5`, v0.2.0, con `pay`, `pay_batch` y `gift`) y usado con pagos reales de prueba; todavía no está conectado al pago del sitio. |
 
 Las cabeceras `payment-required`, `payment-signature` y `payment-response` siguen el esquema de x402, pero el payload es propio y el proyecto no usa los paquetes oficiales de x402: no debe presentarse como interoperabilidad certificada con x402. El estado comprobado y sus límites están en [docs/QA.md](docs/QA.md).
 

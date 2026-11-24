@@ -3,25 +3,55 @@
   "networkPassphrase": "Test SDF Network ; September 2015",
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "splitter": {
-    "contractId": "CDOUF6BBLKAXPT6EJAF2SOAUMKX3RASZFNHD7ORMIQZUTH4G6V66BPOZ",
-    "wasmSha256": "0dce9d06e2c76b75d15bd57d277073e24eaa76f0c384973f72ef5e8522b40642",
-    "source": "contracts/splitter @ fdcdca0, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+    "version": "0.2.0",
+    "contractId": "CAIMQYXIXNYSAXIRQRAAG5ZTWP26476JX4SVAMDAOXRKLRCADUDKHOR5",
+    "wasmSha256": "4868dd0233d3153fcd128c5e4f8ba97c7d0c544fc49a6a1174bdb68cfcf2cfa3",
+    "source": "contracts/splitter @ c4c33df, soroban-sdk 29.0.1, stellar-cli 30.0.1",
     "constructor": {
       "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
       "fee_bps": 200
     },
-    "deployTx": "10954450d23d0054d80bec8f9e88a14fc54486fe73e03f66bbda2437b2b9c3aa",
-    "deployedAt": "2026-11-24T00:30:47Z"
+    "uploadTx": "848e030865b665c73ab0a3edf5fdc14faa0497e6f375d1f8449383aae3e69125",
+    "deployTx": "5e196d8ef9994f96efb56159386d723377ad590c81468c1d16c0b477a856e111",
+    "deployedAt": "2026-11-24T01:21:07Z",
+    "usage": {
+      "pay_batch": {
+        "tx": "551ae39b2fd42f247cbbfc355e5dfffbb0d2fbbec2514e5a9756b92ef4b21dff",
+        "what": "Los 6 artículos de /top (6 × 5000000) con una firma",
+        "result": "29400000 a la editorial demo y 600000 a la tesorería en 2 transferencias; 6 eventos paid"
+      },
+      "gift": {
+        "tx": "8dac0f7e574f6980da0baf49e2db3cc53191e84457e5fb38018d732dcd092753",
+        "what": "stablecoins-emerging-markets pagado para GCA6JEMN7Z4XVPXG6IEA5H7VKMUTQUBTH4SB2Z7A445UZIFDIHCLH2J6 (cuenta sin crear en la red)",
+        "result": "4900000 a la editorial demo y 100000 a la tesorería; evento paid con reader = el estudiante"
+      }
+    }
   },
   "demoPublisher": {
     "address": "GA3MOPOJ374G4APKR4RE7VPXF5CEQKER3FA3LZ2XSAARIRSZEF6QXUZI",
     "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."
   },
-  "smokeTest": {
-    "tx": "cdda69b15feb5767ddb3b8b436386a953c869e2ed30476a72028234ad130c489",
-    "paperId": "crispr-nanomedicine-biotech",
-    "amount": "5000000",
-    "result": "4900000 a la editorial demo, 100000 a la tesorería, evento paid emitido"
-  }
+  "previous": [
+    {
+      "contractId": "CDOUF6BBLKAXPT6EJAF2SOAUMKX3RASZFNHD7ORMIQZUTH4G6V66BPOZ",
+      "wasmSha256": "0dce9d06e2c76b75d15bd57d277073e24eaa76f0c384973f72ef5e8522b40642",
+      "source": "contracts/splitter @ fdcdca0, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200
+      },
+      "deployTx": "10954450d23d0054d80bec8f9e88a14fc54486fe73e03f66bbda2437b2b9c3aa",
+      "deployedAt": "2026-11-24T00:30:47Z",
+      "version": "0.1.0",
+      "status": "reemplazado por v2 (sin pay_batch ni gift; evento paid sin reader)",
+      "smokeTest": {
+        "tx": "cdda69b15feb5767ddb3b8b436386a953c869e2ed30476a72028234ad130c489",
+        "paperId": "crispr-nanomedicine-biotech",
+        "amount": "5000000",
+        "result": "4900000 a la editorial demo, 100000 a la tesorería, evento paid emitido"
+      }
+    }
+  ]
 }
