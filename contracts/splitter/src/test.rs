@@ -2,8 +2,8 @@
 extern crate std;
 
 use super::{
-    Config, Error, Item, Paid, Refunded, Share, Split, Splitter, SplitterClient, Tipped,
-    MAX_AUTHORS, MAX_BATCH_ITEMS, MAX_FEE_BPS,
+    Config, Error, Item, Paid, RefSplit, Referred, Refunded, Share, Split, Splitter,
+    SplitterClient, Tipped, MAX_AUTHORS, MAX_BATCH_ITEMS, MAX_FEE_BPS,
 };
 use soroban_sdk::{
     testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Events as _},
@@ -1082,4 +1082,171 @@ fn sin_la_firma_de_quien_paga_no_hay_lectura_con_coautores() {
         .is_err());
     assert_eq!(s.usdc.balance(&s.payer), 10 * PRICE);
     assert_eq!(s.usdc.balance(&ana), 0);
+}
+
+// ---------- pay_ref ----------
+
+#[test]
+fn una_lectura_recomendada_le_da_la_mitad_de_la_comision_a_quien_la_recomendo() {
+    let s = setup();
+    let paper_id = paper(&s.env);
+    let referrer = Address::generate(&s.env);
+    let split = s
+        .splitter
+        .pay_ref(&s.payer, &paper_id, &s.publisher, &PRICE, &referrer);
+    let receipts = s.receipts();
+
+    assert_eq!(
+        split,
+        RefSplit {
+            publisher: 4_900_000,
+            fee: 50_000,
+            referral: 50_000
+        }
+    );
+    assert_eq!(
+        s.usdc.balance(&s.publisher),
+        4_900_000,
+        "la editorial recibe lo mismo que en pay"
+    );
+    assert_eq!(s.usdc.balance(&referrer), 50_000);
+    assert_eq!(s.usdc.balance(&s.treasury), 50_000);
+    assert_eq!(s.usdc.balance(&s.payer), 9 * PRICE);
+    assert_eq!(
+        s.usdc.balance(&s.splitter.address),
+        0,
+        "el contrato no guarda fondos"
+    );
+
+    // `paid` (da acceso a quien paga, con la comisión total) y después `referred`.
+    let paid = Paid {
+        publisher: s.publisher.clone(),
+        reader: s.payer.clone(),
+        paper_id: paper_id.clone(),
+        payer: s.payer.clone(),
+        amount: PRICE,
+        fee: 100_000,
+    };
+    let referred = Referred {
+        referrer,
+        payer: s.payer.clone(),
+        paper_id,
+        publisher: s.publisher.clone(),
+        amount: PRICE,
+        reward: 50_000,
+    };
+    assert_eq!(
+        receipts,
+        [
+            paid.to_xdr(&s.env, &s.splitter.address),
+            referred.to_xdr(&s.env, &s.splitter.address)
+        ]
+    );
+}
+
+#[test]
+fn con_comision_impar_el_stroop_sobrante_queda_en_la_tesoreria() {
+    let s = setup();
+    let referrer = Address::generate(&s.env);
+    // 150 stroops: comisión 3; 1.5 → 1 para quien recomendó y 2 para la tesorería.
+    let split = s
+        .splitter
+        .pay_ref(&s.payer, &paper(&s.env), &s.publisher, &150, &referrer);
+
+    assert_eq!(
+        split,
+        RefSplit {
+            publisher: 147,
+            fee: 2,
+            referral: 1
+        }
+    );
+    assert_eq!(s.usdc.balance(&s.publisher), 147);
+    assert_eq!(s.usdc.balance(&referrer), 1);
+    assert_eq!(s.usdc.balance(&s.treasury), 2);
+}
+
+#[test]
+fn la_lectura_recomendada_solo_pide_la_firma_de_quien_paga() {
+    let s = setup();
+    let paper_id = paper(&s.env);
+    let referrer = Address::generate(&s.env);
+    s.splitter
+        .pay_ref(&s.payer, &paper_id, &s.publisher, &PRICE, &referrer);
+
+    assert_eq!(
+        s.env.auths(),
+        std::vec![(
+            s.payer.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.splitter.address.clone(),
+                    Symbol::new(&s.env, "pay_ref"),
+                    (
+                        s.payer.clone(),
+                        paper_id,
+                        s.publisher.clone(),
+                        PRICE,
+                        referrer.clone()
+                    )
+                        .into_val(&s.env),
+                )),
+                sub_invocations: std::vec![
+                    s.transfer_auth(&s.payer, &s.publisher, 4_900_000),
+                    s.transfer_auth(&s.payer, &referrer, 50_000),
+                    s.transfer_auth(&s.payer, &s.treasury, 50_000),
+                ],
+            }
+        )]
+    );
+}
+
+#[test]
+fn nadie_se_recomienda_a_si_mismo_y_los_datos_invalidos_no_mueven_nada() {
+    let s = setup();
+    let paper_id = paper(&s.env);
+    let referrer = Address::generate(&s.env);
+    assert_eq!(
+        s.splitter
+            .try_pay_ref(&s.payer, &paper_id, &s.publisher, &PRICE, &s.payer),
+        Err(Ok(Error::SelfReferral.into()))
+    );
+    assert_eq!(
+        s.splitter
+            .try_pay_ref(&s.payer, &paper_id, &s.publisher, &0, &referrer),
+        Err(Ok(Error::InvalidAmount.into()))
+    );
+    assert_eq!(
+        s.splitter.try_pay_ref(
+            &s.payer,
+            &String::from_str(&s.env, ""),
+            &s.publisher,
+            &PRICE,
+            &referrer
+        ),
+        Err(Ok(Error::InvalidPaperId.into()))
+    );
+
+    s.env.set_auths(&[]);
+    assert!(s
+        .splitter
+        .try_pay_ref(&s.payer, &paper_id, &s.publisher, &PRICE, &referrer)
+        .is_err());
+
+    assert_eq!(s.usdc.balance(&s.payer), 10 * PRICE);
+    assert_eq!(s.usdc.balance(&s.publisher), 0);
+    assert_eq!(s.usdc.balance(&referrer), 0);
+    assert_eq!(s.usdc.balance(&s.treasury), 0);
+}
+
+#[test]
+fn la_editorial_puede_recomendar_su_propio_articulo() {
+    let s = setup();
+    let split = s
+        .splitter
+        .pay_ref(&s.payer, &paper(&s.env), &s.publisher, &PRICE, &s.publisher);
+
+    assert_eq!(split.referral, 50_000);
+    assert_eq!(s.usdc.balance(&s.publisher), 4_950_000);
+    assert_eq!(s.usdc.balance(&s.treasury), 50_000);
 }

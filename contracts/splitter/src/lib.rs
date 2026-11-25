@@ -6,12 +6,13 @@
 //! de quien paga a las cuentas de destino. Cada artículo pagado emite un evento `paid` con su id
 //! y con quién lo puede leer, que queda en la red como comprobante.
 //!
-//! Cinco formas de pagar una lectura, con la misma comisión:
+//! Seis formas de pagar una lectura, con la misma comisión:
 //! - `pay`: un artículo, para quien paga.
 //! - `pay_batch`: varios artículos (hasta `MAX_BATCH_ITEMS`) con una sola firma; todo o nada.
 //! - `gift`: un artículo que paga una cuenta y lee otra.
 //! - `gift_batch`: varios artículos que paga una cuenta y lee otra (una lista de lectura).
 //! - `pay_authors`: un artículo cuya parte de editorial se reparte entre coautores.
+//! - `pay_ref`: un artículo recomendado por otra cuenta, que se lleva la mitad de la comisión.
 //!
 //! Y dos movimientos que no dan acceso (emiten su propio evento, nunca `paid`):
 //! - `tip`: una propina a la editorial por un artículo, con el mismo reparto.
@@ -35,6 +36,8 @@ pub const MAX_PAPER_ID_LEN: u32 = 64;
 pub const MAX_BATCH_ITEMS: u32 = 10;
 /// Coautores por `pay_authors`: acota el costo de una transacción.
 pub const MAX_AUTHORS: u32 = 10;
+/// Parte de la comisión que recibe quien recomienda en `pay_ref` (5 000 = la mitad).
+pub const REFERRAL_SHARE_BPS: i128 = 5_000;
 
 // La instancia vive mientras haya pagos: cada cobro extiende su TTL a ~30 días.
 const DAY_IN_LEDGERS: u32 = 17_280;
@@ -64,6 +67,8 @@ pub enum Error {
     InvalidShares = 8,
     /// `pay_authors` con más de `MAX_AUTHORS` coautores.
     TooManyAuthors = 9,
+    /// `pay_ref` con `referrer` igual a `payer`: sería un descuento, no una recomendación.
+    SelfReferral = 10,
 }
 
 #[contracttype]
@@ -84,6 +89,16 @@ pub struct Split {
     pub publisher: i128,
     /// Lo que recibe la tesorería.
     pub fee: i128,
+}
+
+/// Reparto de `pay_ref`: la editorial recibe lo mismo que en `pay`; la comisión se parte entre
+/// la tesorería (`fee`) y quien recomendó (`referral`).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RefSplit {
+    pub publisher: i128,
+    pub fee: i128,
+    pub referral: i128,
 }
 
 /// Un artículo dentro de `pay_batch`.
@@ -124,6 +139,22 @@ pub struct Paid {
     pub payer: Address,
     pub amount: i128,
     pub fee: i128,
+}
+
+/// Recompensa por recomendar una lectura. Topics: `["referred", referrer, payer]`. Acompaña al
+/// `paid` de la misma lectura; `amount` es el precio del artículo y `reward` lo que recibió
+/// `referrer` (sale de la comisión).
+#[contractevent(topics = ["referred"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Referred {
+    #[topic]
+    pub referrer: Address,
+    #[topic]
+    pub payer: Address,
+    pub paper_id: String,
+    pub publisher: Address,
+    pub amount: i128,
+    pub reward: i128,
 }
 
 /// Comprobante de una propina. Topics: `["tipped", publisher, payer]`. No da acceso al artículo.
@@ -267,6 +298,67 @@ impl Splitter {
         .publish(&env);
 
         split
+    }
+
+    /// Cobra un artículo como `pay` y premia a quien lo recomendó: la editorial recibe lo mismo
+    /// (98%) y la comisión se parte entre `referrer` (`REFERRAL_SHARE_BPS`, la mitad, redondeada
+    /// hacia abajo) y la tesorería (el resto). Emite `paid` (con la comisión total, da acceso a
+    /// `payer`) y `referred`. Solo firma `payer`. Devuelve el reparto con la parte del referido.
+    pub fn pay_ref(
+        env: Env,
+        payer: Address,
+        paper_id: String,
+        publisher: Address,
+        amount: i128,
+        referrer: Address,
+    ) -> RefSplit {
+        payer.require_auth();
+        if referrer == payer {
+            panic_with_error!(&env, Error::SelfReferral);
+        }
+        validate_paper_id(&env, &paper_id);
+        let config = read_config(&env);
+        let split = compute_split(&env, amount, config.fee_bps);
+        // `fee` es un cociente entre 10 000: multiplicado por 5 000 no se desborda.
+        let reward = split.fee * REFERRAL_SHARE_BPS / BPS_DENOMINATOR;
+        let result = RefSplit {
+            publisher: split.publisher,
+            fee: split.fee - reward,
+            referral: reward,
+        };
+
+        let usdc = token::Client::new(&env, &config.token);
+        if result.publisher > 0 {
+            usdc.transfer(&payer, &publisher, &result.publisher);
+        }
+        if result.referral > 0 {
+            usdc.transfer(&payer, &referrer, &result.referral);
+        }
+        if result.fee > 0 {
+            usdc.transfer(&payer, &config.treasury, &result.fee);
+        }
+        extend_instance_ttl(&env);
+
+        Paid {
+            publisher: publisher.clone(),
+            reader: payer.clone(),
+            paper_id: paper_id.clone(),
+            payer: payer.clone(),
+            amount,
+            fee: split.fee,
+        }
+        .publish(&env);
+        Referred {
+            referrer,
+            payer,
+            paper_id,
+            publisher,
+            amount,
+            reward,
+        }
+        .publish(&env);
+
+        result
     }
 
     /// Propina de `payer` a la editorial por un artículo, con el mismo reparto que una lectura.
