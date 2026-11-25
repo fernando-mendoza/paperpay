@@ -11,6 +11,12 @@
  * Con LATE_RESEND_SECONDS=310 espera ese tiempo y reenvía el mismo sobre ya confirmado (fuera de la
  * ventana de 5 min): con el comprobante de /prepare debe dar 200; sin él (el sobre público que
  * cualquiera puede copiar de la red), 409.
+ *
+ * Referidos (contrato v0.4.0+ y SPLITTER_REFERRALS=true), con REFERRER=:
+ *   - `trustline`: quien recomienda es una cuenta nueva con trustline de USDC. El sobre debe ser
+ *     pay_ref y la comisión se parte: 0.005 a quien recomendó y 0.005 a la tesorería.
+ *   - `sin-trustline`: quien recomienda no puede cobrar USDC. La API debe armar pay sin referido y
+ *     el pago sale igual (0.01 a la tesorería).
  */
 import { Asset, BASE_FEE, Horizon, Keypair, Networks, Operation, TransactionBuilder } from '@stellar/stellar-sdk';
 import {
@@ -60,12 +66,30 @@ async function createReader(): Promise<Keypair> {
   return reader;
 }
 
+async function createReferrer(mode: string): Promise<string | undefined> {
+  if (!mode) return undefined;
+  if (mode === 'trustline') return (await createReader()).publicKey();
+  assert(mode === 'sin-trustline', `REFERRER debe ser trustline o sin-trustline, no ${mode}`);
+  const referrer = Keypair.random();
+  const friendbot = await fetch(`https://friendbot.stellar.org?addr=${encodeURIComponent(referrer.publicKey())}`);
+  assert(friendbot.ok, `Friendbot respondió ${friendbot.status}`);
+  return referrer.publicKey();
+}
+
 async function run() {
   assert(config.splitterContractId, 'Falta SPLITTER_CONTRACT_ID');
+  const refMode = process.env.REFERRER || '';
+  assert(!refMode || config.splitterReferrals, 'REFERRER necesita SPLITTER_REFERRALS=true');
   const reader = await createReader();
+  const referrer = await createReferrer(refMode);
   const publisher = config.splitterPublisher;
   const treasury = config.stellarTreasuryPublicKey;
-  const before = { reader: await usdcBalance(reader.publicKey()), publisher: await usdcBalance(publisher), treasury: await usdcBalance(treasury) };
+  const before = {
+    reader: await usdcBalance(reader.publicKey()),
+    publisher: await usdcBalance(publisher),
+    treasury: await usdcBalance(treasury),
+    referrer: referrer && refMode === 'trustline' ? await usdcBalance(referrer) : 0,
+  };
 
   const path = `${baseUrl}/api/papers/${encodeURIComponent(paperId)}`;
   const locked = await fetch(path);
@@ -73,16 +97,19 @@ async function run() {
   const required = JSON.parse(Buffer.from(locked.headers.get('payment-required') ?? '', 'base64').toString()) as X402PaymentRequiredHeader;
   const splitter = required.accepts[0]?.extra?.splitter;
   assert(splitter && splitter.contractId === config.splitterContractId, 'El 402 no anuncia el contrato de reparto');
+  assert(!refMode || splitter.referrals === true, 'El 402 no anuncia referidos (extra.splitter.referrals)');
 
   const prepared = await fetch(`${baseUrl}${splitter.prepareUrl}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ payer: reader.publicKey() }),
+    body: JSON.stringify(referrer ? { payer: reader.publicKey(), referrer } : { payer: reader.publicKey() }),
   });
   const preparedText = await prepared.text();
   assert(prepared.status === 200, `/prepare respondió ${prepared.status}: ${preparedText}`);
-  const { transactionXdr, networkPassphrase, claim } = JSON.parse(preparedText) as SplitterPrepareResponse;
+  const { transactionXdr, networkPassphrase, claim, referrer: preparedReferrer } = JSON.parse(preparedText) as SplitterPrepareResponse;
   assert(claim, '/prepare no devolvió el comprobante');
+  if (refMode === 'trustline') assert(preparedReferrer === referrer, '/prepare debía armar pay_ref con el referido');
+  if (refMode === 'sin-trustline') assert(preparedReferrer === undefined, '/prepare debía descartar un referido que no puede cobrar');
 
   // Lo que haría Freighter: firmar el sobre ya simulado.
   const tx = TransactionBuilder.fromXDR(transactionXdr, networkPassphrase);
@@ -109,7 +136,12 @@ async function run() {
   const replayBody = (await replay.json()) as { message?: string };
 
   await sleep(3000); // Horizon ingiere el ledger un poco después que el RPC.
-  const after = { reader: await usdcBalance(reader.publicKey()), publisher: await usdcBalance(publisher), treasury: await usdcBalance(treasury) };
+  const after = {
+    reader: await usdcBalance(reader.publicKey()),
+    publisher: await usdcBalance(publisher),
+    treasury: await usdcBalance(treasury),
+    referrer: referrer && refMode === 'trustline' ? await usdcBalance(referrer) : 0,
+  };
   const delta = (k: keyof typeof before) => Number((after[k] - before[k]).toFixed(7));
 
   const ops = (await (await fetch(`${config.horizonUrl}/transactions/${paidBody.txHash}/operations`)).json()) as {
@@ -119,6 +151,7 @@ async function run() {
 
   const summary = {
     contract: config.splitterContractId,
+    referrer: referrer ? { mode: refMode, account: referrer, payRef: preparedReferrer !== undefined } : null,
     paperId,
     reader: reader.publicKey(),
     txHash: paidBody.txHash,
@@ -126,7 +159,7 @@ async function run() {
     jwtReentry: withJwt.status,
     replayStatus: replay.status,
     replayMessage: replayBody.message,
-    deltas: { reader: delta('reader'), publisher: delta('publisher'), treasury: delta('treasury') },
+    deltas: { reader: delta('reader'), publisher: delta('publisher'), treasury: delta('treasury'), referrer: delta('referrer') },
     horizonTransfers: changes.map((c) => ({ to: c.to, amount: c.amount })),
   };
   console.log(JSON.stringify(summary, null, 2));
@@ -148,13 +181,21 @@ async function run() {
   assert(withJwt.status === 200, 'El JWT no reabre el artículo');
   assert(summary.deltas.reader === -0.5, `El lector debía pagar 0.50 y pagó ${-summary.deltas.reader}`);
   assert(summary.deltas.publisher === 0.49, `La editorial debía recibir 0.49 y recibió ${summary.deltas.publisher}`);
-  assert(summary.deltas.treasury === 0.01, `La tesorería debía recibir 0.01 y recibió ${summary.deltas.treasury}`);
+  // Con pay_ref, la comisión (0.01) se parte a la mitad entre quien recomendó y la tesorería.
+  const paysReferral = refMode === 'trustline';
+  const treasuryCut = paysReferral ? 0.005 : 0.01;
+  assert(summary.deltas.treasury === treasuryCut, `La tesorería debía recibir ${treasuryCut} y recibió ${summary.deltas.treasury}`);
+  if (paysReferral) {
+    assert(summary.deltas.referrer === 0.005, `Quien recomendó debía recibir 0.005 y recibió ${summary.deltas.referrer}`);
+    console.log('✅ Referido: pay_ref le pagó 0.005 a quien recomendó y 0.005 a la tesorería.');
+  }
+  if (refMode === 'sin-trustline') console.log('✅ Referido sin trustline: la API armó pay y el lector pagó igual.');
   if (late) {
     assert(late.withClaim === 200, `Con comprobante, el reenvío tardío debía dar 200 y dio ${late.withClaim}`);
     assert(late.withoutClaim === 409, `Sin comprobante, el reenvío tardío debía dar 409 y dio ${late.withoutClaim}`);
     console.log('✅ Reenvío tardío: con comprobante da acceso; el sobre público sin comprobante, no.');
   }
-  console.log('✅ Pago por contrato verificado en testnet: 0.49 a la editorial, 0.01 a la tesorería, artículo entregado.');
+  console.log('✅ Pago por contrato verificado en testnet: 0.49 a la editorial, 0.01 de comisión, artículo entregado.');
 }
 
 run()
