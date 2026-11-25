@@ -5,6 +5,7 @@
 - Hallazgo: Stellar no admite memo en transacciones de Soroban; `@stellar/stellar-sdk` corta al armarla ("Soroban transactions cannot have a memo"). Con memo, la web paga por la transferencia clásica.
 - `pnpm test`: 41 pruebas de la web (4 nuevas: el pago con memo no pide `/prepare` y arma la transferencia con el memo, un memo de más de 28 bytes no abre la wallet, la lectura de la URL).
 - Testnet, código del sitio contra la API publicada (`test:e2e` de memo, lector desechable): [`0a774b39…`](https://stellar.expert/explorer/testnet/tx/0a774b39515d291e2bec0007462f656795470eebaf0a6706780aca715aa8c018), Horizon muestra `memo_type: text`, `memo: PAPERPAY-PRUEBA`; artículo entregado en 5.1 s y recibo `classic`.
+- En producción (Pages `9c422ea6`, 24 de noviembre): el owner pagó desde el sitio con la extensión Freighter, con `?memo=` en la URL del artículo. Freighter mostró el memo antes de firmar. Tx [`2daeacf7…`](https://stellar.expert/explorer/testnet/tx/2daeacf77bd3ae501f2dddd8a4cb139a36c02a982c6d6d615cdc573d9fd9913e): 0.50 USDC a la tesorería, `memo: SHIP-S97KF8` (código del reto exprés "Pago relámpago" de Ship It), recibo `classic` por `crispr-nanomedicine-biotech`. El botón de regalo no lleva memo, porque va por el contrato.
 
 ## Revisión del 24 de noviembre de 2026: regalo por enlace en producción
 
