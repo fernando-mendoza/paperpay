@@ -6,6 +6,8 @@ Cobra lecturas y las reparte en la misma transacción. El USDC va directo de la 
 
 Desde la v0.3.0 también regala listas de lectura (`gift_batch`), cobra propinas (`tip`) y registra devoluciones (`refund`). Las propinas y las devoluciones emiten su propio evento, nunca `paid`, así que no dan acceso a ningún artículo.
 
+Historial de versiones, con su código y sus transacciones: [`CHANGELOG.md`](CHANGELOG.md).
+
 La v0.4.0 suma dos formas de pagar una lectura: `pay_authors` (la parte de la editorial se reparte entre coautores) y `pay_ref` (quien recomendó la lectura se lleva la mitad de la comisión). Las dos emiten `paid`, así que dan acceso igual que `pay`.
 
 | Función | Qué hace |
