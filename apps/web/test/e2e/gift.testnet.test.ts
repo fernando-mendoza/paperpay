@@ -106,7 +106,7 @@ describe.skipIf(!API)('e2e testnet: regalar un artículo por enlace', () => {
 
     await sleep(4_000) // Horizon ingiere el ledger un poco después que el RPC.
     const ops = (await (await fetch(`${STELLAR_HORIZON_URL}/transactions/${gift.txHash}/operations`)).json()) as { _embedded: { records: HorizonRecord[] } }
-    const [entry] = readsFromRecords(ops._embedded.records, { treasury: health.treasuryPublicKey, splitterContractId: health.splitterContractId })
+    const [entry] = readsFromRecords(ops._embedded.records, { treasury: health.treasuryPublicKey, splitterContractIds: health.splitterContractIds ?? [health.splitterContractId!] })
     expect(entry).toMatchObject({ kind: 'contract', reads: 1, publisherStroops: 4_900_000n, feeStroops: 100_000n, from: payer })
 
     process.stdout.write(`${JSON.stringify({ payer, reader: gift.reader, txHash: gift.txHash, settleMs, intruder }, null, 2)}\n`)

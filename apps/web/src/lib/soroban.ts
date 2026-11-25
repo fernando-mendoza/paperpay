@@ -7,12 +7,15 @@
  *   SCV_SYMBOL (15)  → uint32 largo + bytes
  *   SCV_VEC (16)     → uint32 presente (1) + uint32 largo + elementos
  *   SCV_ADDRESS (18) → int32 tipo (1 = contrato) + 32 bytes del id
+ *                      o tipo 0 = cuenta + int32 tipo de llave (0 = ed25519) + 32 bytes
  */
 
 const SCV_SYMBOL = 15
 const SCV_VEC = 16
 const SCV_ADDRESS = 18
+const SC_ADDRESS_ACCOUNT = 0
 const SC_ADDRESS_CONTRACT = 1
+const PUBLIC_KEY_ED25519 = 0
 
 const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
 
@@ -29,13 +32,13 @@ function u32(bytes: Uint8Array, offset: number): number {
   return new DataView(bytes.buffer, bytes.byteOffset).getUint32(offset)
 }
 
-/** Los 32 bytes del id de un contrato "C…" (strkey: versión + 32 bytes + CRC, en base32). */
-function contractIdBytes(contractId: string): Uint8Array | null {
-  if (!/^C[A-Z2-7]{55}$/.test(contractId)) return null
+/** Los 32 bytes de un strkey "C…" o "G…" (versión + 32 bytes + CRC, en base32). */
+function strkeyBytes(key: string, prefix: 'C' | 'G'): Uint8Array | null {
+  if (key[0] !== prefix || !/^[A-Z][A-Z2-7]{55}$/.test(key)) return null
   const out: number[] = []
   let value = 0
   let bits = 0
-  for (const ch of contractId) {
+  for (const ch of key) {
     value = ((value << 5) | BASE32.indexOf(ch)) & 0xffff
     bits += 5
     if (bits >= 8) {
@@ -48,13 +51,26 @@ function contractIdBytes(contractId: string): Uint8Array | null {
 
 /** El ScVal (base64) con que Horizon muestra la dirección del contrato en `parameters[0]`. */
 export function contractAddressParam(contractId: string): string | null {
-  const id = contractIdBytes(contractId)
+  const id = strkeyBytes(contractId, 'C')
   if (!id) return null
   const bytes = new Uint8Array(40)
   const view = new DataView(bytes.buffer)
   view.setUint32(0, SCV_ADDRESS)
   view.setUint32(4, SC_ADDRESS_CONTRACT)
   bytes.set(id, 8)
+  return bytesToBase64(bytes)
+}
+
+/** El ScVal (base64) con que Horizon muestra una cuenta "G…" en los parámetros (p. ej. el referido de pay_ref). */
+export function accountAddressParam(account: string): string | null {
+  const id = strkeyBytes(account, 'G')
+  if (!id) return null
+  const bytes = new Uint8Array(44)
+  const view = new DataView(bytes.buffer)
+  view.setUint32(0, SCV_ADDRESS)
+  view.setUint32(4, SC_ADDRESS_ACCOUNT)
+  view.setUint32(8, PUBLIC_KEY_ED25519)
+  bytes.set(id, 12)
   return bytesToBase64(bytes)
 }
 

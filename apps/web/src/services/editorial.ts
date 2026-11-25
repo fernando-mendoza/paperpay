@@ -1,20 +1,23 @@
 import { DEFAULT_PAPER_PRICE_USDC, STELLAR_HORIZON_URL, USDC_TESTNET_ISSUER, type HealthCheckResponse } from '@paperpay/shared'
 import { stroopsToUsdc, toStroops } from '@/lib/amounts'
 import { API_URL } from '@/lib/api'
-import { contractAddressParam, readScSymbol, readScVecLength } from '@/lib/soroban'
+import { accountAddressParam, contractAddressParam, readScSymbol, readScVecLength } from '@/lib/soroban'
 
 /*
  * Lecturas pagadas, leídas de la cuenta de la tesorería en Horizon (público). Hay dos tipos:
- *  - Por contrato de reparto (el que anuncia /api/health): la llamada pay/gift/pay_batch reparte en
- *    la misma transacción, así que el 98/2 es real y se lee de los movimientos de USDC. pay y gift
- *    pagan 1 artículo; pay_batch, uno por elemento.
+ *  - Por contrato de reparto (los que anuncia /api/health: el activo y los anteriores): la llamada
+ *    pay/pay_ref/gift/pay_batch reparte en la misma transacción, así que el 98/2 es real y se lee de
+ *    los movimientos de USDC. pay, pay_ref y gift pagan 1 artículo; pay_batch, uno por elemento. En
+ *    pay_ref, lo que recibe quien recomendó es parte de la comisión (la mitad del 2%).
  *  - Transferencia directa de USDC a la tesorería (pago clásico): el 100% llega a la tesorería y el
  *    98/2 es una estimación. El ledger no dice qué artículo se leyó ni si vino de PaperPay.
  */
 
 const CHART_DAYS = 14
 const MAX_PAYMENTS = 200 // suficiente para la demo
-const READS_PER_CALL: Record<string, 'one' | 'batch'> = { pay: 'one', gift: 'one', pay_batch: 'batch' }
+const READS_PER_CALL: Record<string, 'one' | 'batch'> = { pay: 'one', pay_ref: 'one', gift: 'one', pay_batch: 'batch' }
+/** pay_ref(payer, paper, publisher, amount, referrer): el referido es el parámetro 6 (0 = contrato, 1 = función). */
+const REFERRER_PARAM = 6
 
 export type ReadKind = 'contract' | 'direct'
 
@@ -94,20 +97,22 @@ function directRead(record: HorizonRecord, treasury: string): ReadEntry | null {
   }
 }
 
-function contractRead(record: HorizonRecord, treasury: string, contractParam: string): ReadEntry | null {
+function contractRead(record: HorizonRecord, treasury: string, contractParams: string[]): ReadEntry | null {
   const params = record.parameters ?? []
   if (record.type !== 'invoke_host_function' || record.transaction_successful === false) return null
-  if (params[0]?.value !== contractParam) return null
+  if (!contractParams.includes(params[0]?.value ?? '')) return null
 
-  const call = READS_PER_CALL[readScSymbol(params[1]?.value) ?? '']
+  const fn = readScSymbol(params[1]?.value) ?? ''
+  const call = READS_PER_CALL[fn]
   const reads = call === 'one' ? 1 : call === 'batch' ? readScVecLength(params[3]?.value) : 0
   if (reads === 0) return null
 
   const transfers = (record.asset_balance_changes ?? []).filter((c) => c.type === 'transfer' && isUsdc(c.asset_code, c.asset_issuer))
   let fee = 0n
   let publisher = 0n
+  const referrer = fn === 'pay_ref' ? params[REFERRER_PARAM]?.value : undefined
   for (const t of transfers) {
-    if (t.to === treasury) fee += toStroops(t.amount)
+    if (t.to === treasury || (referrer && accountAddressParam(t.to) === referrer)) fee += toStroops(t.amount)
     else publisher += toStroops(t.amount)
   }
   if (fee + publisher === 0n) return null
@@ -126,12 +131,12 @@ function contractRead(record: HorizonRecord, treasury: string, contractParam: st
 /** Lecturas pagadas en los registros de `/accounts/{tesorería}/payments` (más recientes primero). */
 export function readsFromRecords(
   records: HorizonRecord[],
-  opts: { treasury: string; splitterContractId: string | null },
+  opts: { treasury: string; splitterContractIds: string[] },
 ): ReadEntry[] {
-  const contractParam = opts.splitterContractId ? contractAddressParam(opts.splitterContractId) : null
+  const contractParams = opts.splitterContractIds.map(contractAddressParam).filter((p): p is string => p !== null)
   const entries: ReadEntry[] = []
   for (const record of records) {
-    const entry = directRead(record, opts.treasury) ?? (contractParam ? contractRead(record, opts.treasury, contractParam) : null)
+    const entry = directRead(record, opts.treasury) ?? (contractParams.length > 0 ? contractRead(record, opts.treasury, contractParams) : null)
     if (entry) entries.push(entry)
   }
   return entries
@@ -170,17 +175,19 @@ export function summarizeReads(entries: ReadEntry[], treasury: string, truncated
   }
 }
 
-async function getHealth(): Promise<{ treasury: string; splitterContractId: string | null }> {
+async function getHealth(): Promise<{ treasury: string; splitterContractIds: string[] }> {
   const res = await fetch(`${API_URL}/api/health`, { signal: AbortSignal.timeout(10_000) })
   if (!res.ok) throw new Error('health')
   const body = (await res.json()) as Partial<HealthCheckResponse>
   if (!body.treasuryPublicKey) throw new Error('health sin tesorería')
-  // Una API anterior al contrato no trae splitterContractId: solo se cuentan las directas.
-  return { treasury: body.treasuryPublicKey, splitterContractId: body.splitterContractId ?? null }
+  // Una API anterior al contrato no trae splitterContractId (solo se cuentan las directas); una
+  // anterior a los referidos trae solo el activo, sin la lista con los contratos anteriores.
+  const ids = body.splitterContractIds ?? (body.splitterContractId ? [body.splitterContractId] : [])
+  return { treasury: body.treasuryPublicKey, splitterContractIds: ids }
 }
 
 export async function getEditorialStats(): Promise<EditorialStats> {
-  const { treasury, splitterContractId } = await getHealth()
+  const { treasury, splitterContractIds } = await getHealth()
 
   const url = `${STELLAR_HORIZON_URL}/accounts/${treasury}/payments?order=desc&limit=${MAX_PAYMENTS}`
   const res = await fetch(url, { signal: AbortSignal.timeout(15_000) })
@@ -188,7 +195,7 @@ export async function getEditorialStats(): Promise<EditorialStats> {
   const data = (await res.json()) as { _embedded: { records: HorizonRecord[] } }
   const records = data._embedded.records
 
-  const entries = readsFromRecords(records, { treasury, splitterContractId })
+  const entries = readsFromRecords(records, { treasury, splitterContractIds })
   return summarizeReads(entries, treasury, records.length >= MAX_PAYMENTS)
 }
 

@@ -1,0 +1,71 @@
+{
+  "note": "pay_ref real de v0.4.0 en testnet (contracts/deployments/testnet.json): Horizon /transactions/ab2ca691\u2026/payments",
+  "records": [
+    {
+      "type": "invoke_host_function",
+      "transaction_successful": true,
+      "transaction_hash": "ab2ca6914b583415bf821e3223b651a4ab2d73863c827eb0634fb48752f7aa22",
+      "created_at": "2026-11-25T19:06:33Z",
+      "source_account": "GB2PFD2WJ3PXS27HEM6UV2KIKANNCEGIR67HSHLGC67YV5G7QJW6D7OF",
+      "parameters": [
+        {
+          "value": "AAAAEgAAAAG7JDPpr6d2WAGnzbGAG6/PFxQuCX6OztxOTqBB4SppYA==",
+          "type": "Address"
+        },
+        {
+          "value": "AAAADwAAAAdwYXlfcmVmAA==",
+          "type": "Sym"
+        },
+        {
+          "value": "AAAAEgAAAAAAAAAAdPKPVk7feWvnIz1K6UhQGtEQyI++eR1mF7+K9N+CbeE=",
+          "type": "Address"
+        },
+        {
+          "value": "AAAADgAAABthdXRvbm9tb3VzLWFpLW1pY3JvcGF5bWVudHMA",
+          "type": "Str"
+        },
+        {
+          "value": "AAAAEgAAAAAAAAAANsc9yd/4bgHqjyJP1fcvREgokdlBtedXkAEURlkhfQs=",
+          "type": "Address"
+        },
+        {
+          "value": "AAAACgAAAAAAAAAAAAAAAABMS0A=",
+          "type": "I128"
+        },
+        {
+          "value": "AAAAEgAAAAAAAAAAVwtf0IS2dsVOhVmwo6qDLMkThsSFLGhp/AnXLpCDREg=",
+          "type": "Address"
+        }
+      ],
+      "asset_balance_changes": [
+        {
+          "asset_type": "credit_alphanum4",
+          "asset_code": "USDC",
+          "asset_issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+          "type": "transfer",
+          "from": "GB2PFD2WJ3PXS27HEM6UV2KIKANNCEGIR67HSHLGC67YV5G7QJW6D7OF",
+          "to": "GA3MOPOJ374G4APKR4RE7VPXF5CEQKER3FA3LZ2XSAARIRSZEF6QXUZI",
+          "amount": "0.4900000"
+        },
+        {
+          "asset_type": "credit_alphanum4",
+          "asset_code": "USDC",
+          "asset_issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+          "type": "transfer",
+          "from": "GB2PFD2WJ3PXS27HEM6UV2KIKANNCEGIR67HSHLGC67YV5G7QJW6D7OF",
+          "to": "GBLQWX6QQS3HNRKOQVM3BI5KQMWMSE4GYSCSY2DJ7QE5OLUQQNCERTDF",
+          "amount": "0.0050000"
+        },
+        {
+          "asset_type": "credit_alphanum4",
+          "asset_code": "USDC",
+          "asset_issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+          "type": "transfer",
+          "from": "GB2PFD2WJ3PXS27HEM6UV2KIKANNCEGIR67HSHLGC67YV5G7QJW6D7OF",
+          "to": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+          "amount": "0.0050000"
+        }
+      ]
+    }
+  ]
+}

@@ -102,7 +102,7 @@ describe.skipIf(!API)('e2e testnet: el sitio paga por el contrato de reparto', (
     }
     const [entry] = readsFromRecords(ops._embedded.records, {
       treasury: health.treasuryPublicKey,
-      splitterContractId: health.splitterContractId,
+      splitterContractIds: health.splitterContractIds ?? [health.splitterContractId!],
     })
     expect(entry).toMatchObject({ kind: 'contract', reads: 1, amount: 0.5, publisherStroops: 4_900_000n, feeStroops: 100_000n, from: reader })
 
