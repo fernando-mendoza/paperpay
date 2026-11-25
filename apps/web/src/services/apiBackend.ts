@@ -11,6 +11,7 @@ import { API_URL } from '@/lib/api'
 import { decodeBase64Json, encodeBase64Json } from '@/lib/base64'
 import { PaywallError } from '@/lib/errors'
 import { memoFromUrl } from '@/lib/memo'
+import { readReferral } from '@/lib/referral'
 import type { PaperFull, PaperPreview, PaywallErrorCode, TxReceipt } from '@/lib/types'
 import { clearAccess, isAccessValid, readAccess, writeAccess } from './accessStore'
 import type { Backend, PaperResult } from './backend'
@@ -120,13 +121,16 @@ async function signPayment(id: string, address: string, terms: Terms): Promise<{
   if (splitter) {
     // Contrato de reparto: la API arma y simula pay(...); aquí se verifica y se firma.
     await checkReaderFunds(address, terms.amount)
-    const prepared = await prepareSplitterPayment(splitter, address)
+    // Entró por un enlace de referido (`?ref=`): pay_ref, que le da a esa cuenta la mitad de la comisión.
+    const referrer = readReferral(address)
+    const prepared = await prepareSplitterPayment(splitter, address, undefined, referrer)
     await assertPreparedPayment(prepared, {
       contractId: splitter.contractId,
       publisher: splitter.publisher,
       payer: address,
       paperId: id,
       amountStroops: terms.amount,
+      referrer,
     })
     return { signature: await signTxXdr(prepared.transactionXdr, address), claim: prepared.claim }
   }

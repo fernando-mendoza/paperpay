@@ -46,16 +46,19 @@ interface PayCall {
   paperId: string
   publisher?: string
   amount?: string
+  /** pay_ref: el último argumento. */
+  referrer?: string
   auth?: xdr.SorobanAuthorizationEntry[]
 }
 
 function payOp(call: PayCall) {
   return new Contract(call.contract ?? CONTRACT).call(
-    call.fn ?? 'pay',
+    call.fn ?? (call.referrer ? 'pay_ref' : 'pay'),
     nativeToScVal(call.payer ?? reader, { type: 'address' }),
     nativeToScVal(call.paperId, { type: 'string' }),
     nativeToScVal(call.publisher ?? PUBLISHER, { type: 'address' }),
     nativeToScVal(BigInt(call.amount ?? PRICE), { type: 'i128' }),
+    ...(call.referrer ? [nativeToScVal(call.referrer, { type: 'address' })] : []),
   )
 }
 
@@ -119,14 +122,16 @@ interface FakeApi {
   splitter?: boolean
   /** Saldos de la wallet en Horizon; 'missing' = la cuenta no existe. */
   balances?: { asset_code?: string; asset_issuer?: string; balance: string }[] | 'missing'
-  /** XDR que devuelve /prepare; por defecto, el pago exacto del 402. */
-  prepared?: (payer: string, paperId: string) => string
+  /** XDR que devuelve /prepare; por defecto, el pago exacto del 402 (pay_ref si se pidió referido). */
+  prepared?: (payer: string, paperId: string, referrer?: string) => string
+  /** `referrer` de la respuesta de /prepare; por defecto, el que se pidió. */
+  preparedReferrer?: (requested?: string) => string | undefined
   /** Respuestas sucesivas al GET con PAYMENT-SIGNATURE ('throw' = sin respuesta). */
   settle?: (number | 'throw')[]
 }
 
 function installApi(api: FakeApi) {
-  const calls = { prepare: [] as { payer: string }[], settle: [] as string[] }
+  const calls = { prepare: [] as { payer: string; referrer?: string }[], settle: [] as string[] }
   const settle = [...(api.settle ?? [200])]
   vi.stubGlobal(
     'fetch',
@@ -141,10 +146,17 @@ function installApi(api: FakeApi) {
       const id = decodeURIComponent(match[1])
 
       if (match[2]) {
-        const body = JSON.parse(String(init.body)) as { payer: string }
+        const body = JSON.parse(String(init.body)) as { payer: string; referrer?: string }
         calls.prepare.push(body)
-        const transactionXdr = api.prepared?.(body.payer, id) ?? payXdr({ payer: body.payer, paperId: id })
-        return json(200, { transactionXdr, claim: `comprobante-${id}`, networkPassphrase: Networks.TESTNET, terms: { contractId: CONTRACT, publisher: PUBLISHER, amount: PRICE } })
+        const referrer = api.preparedReferrer ? api.preparedReferrer(body.referrer) : body.referrer
+        const transactionXdr = api.prepared?.(body.payer, id, referrer) ?? payXdr({ payer: body.payer, paperId: id, referrer })
+        return json(200, {
+          transactionXdr,
+          claim: `comprobante-${id}`,
+          ...(referrer && { referrer }),
+          networkPassphrase: Networks.TESTNET,
+          terms: { contractId: CONTRACT, publisher: PUBLISHER, amount: PRICE },
+        })
       }
 
       const signature = new Headers(init.headers).get(X402_HEADERS.PAYMENT_SIGNATURE)
@@ -343,5 +355,59 @@ describe('pago firmado sin confirmar', () => {
     for (let i = 0; i < 3; i++) await vi.advanceTimersByTimeAsync(3_000)
     expect((await done).code).toBe('PAYMENT_PENDING')
     expect(calls.settle).toHaveLength(3)
+  })
+})
+
+describe('pago con referido (pay_ref)', () => {
+  const friend = Keypair.random().publicKey()
+  const refer = (address: string, savedAt = Date.now()) =>
+    window.localStorage.setItem('paperpay:ref', JSON.stringify({ address, savedAt }))
+
+  it('con un referido guardado pide pay_ref, verifica que el sobre le pague a esa cuenta y lo firma', async () => {
+    refer(friend)
+    const calls = installApi({})
+    const paper = nextPaper()
+    await apiBackend.payForPaper(paper, reader, () => {})
+    expect(calls.prepare).toEqual([{ payer: reader, referrer: friend }])
+    expect(signTxXdr).toHaveBeenCalledWith(payXdr({ paperId: paper, referrer: friend }), reader)
+  })
+
+  it('si la API descarta el referido (no puede cobrar), acepta pay normal', async () => {
+    refer(friend)
+    const calls = installApi({ preparedReferrer: () => undefined })
+    const paper = nextPaper()
+    await apiBackend.payForPaper(paper, reader, () => {})
+    expect(calls.prepare).toEqual([{ payer: reader, referrer: friend }])
+    expect(signTxXdr).toHaveBeenCalledWith(payXdr({ paperId: paper }), reader)
+  })
+
+  it('un referido vencido (más de 30 días) o de la misma wallet no se manda', async () => {
+    refer(friend, Date.now() - 31 * 24 * 60 * 60 * 1000)
+    const calls = installApi({})
+    await apiBackend.payForPaper(nextPaper(), reader, () => {})
+    refer(reader)
+    await apiBackend.payForPaper(nextPaper(), reader, () => {})
+    expect(calls.prepare).toEqual([{ payer: reader }, { payer: reader }])
+  })
+
+  it.each<[string, FakeApi]>([
+    ['la API pone otro referido', { preparedReferrer: () => Keypair.random().publicKey() }],
+    ['el sobre le paga a otra cuenta que la anunciada', { prepared: (payer, paperId) => payXdr({ payer, paperId, referrer: Keypair.random().publicKey() }) }],
+    ['dice referido pero el sobre es pay', { prepared: (payer, paperId) => payXdr({ payer, paperId }) }],
+    ['el sobre es pay_ref sin decir referido', { preparedReferrer: () => undefined, prepared: (payer, paperId) => payXdr({ payer, paperId, referrer: friend }) }],
+  ])('no abre Freighter si %s', async (_, api) => {
+    refer(friend)
+    const calls = installApi(api)
+    const err = await failure(apiBackend.payForPaper(nextPaper(), reader, () => {}))
+    expect(err.message).toMatch(/no coincide con el anunciado/)
+    expect(signTxXdr).not.toHaveBeenCalled()
+    expect(calls.settle).toEqual([])
+  })
+
+  it('sin referido pedido, un sobre pay_ref se rechaza', async () => {
+    const calls = installApi({ preparedReferrer: () => friend })
+    const err = await failure(apiBackend.payForPaper(nextPaper(), reader, () => {}))
+    expect(err.message).toMatch(/referido/)
+    expect(calls.settle).toEqual([])
   })
 })
