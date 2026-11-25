@@ -1,5 +1,15 @@
 # Estado de QA
 
+## Revisión del 25 de noviembre de 2026: contrato v0.4.0 en testnet (`pay_authors`, `pay_ref`)
+
+- `pnpm test:contracts`: 43 pruebas (11 nuevas), `cargo clippy -D warnings` limpio. Mutaciones (15):
+  - `pay_authors` (8): sin residuo al primer autor, parte en 0, parte de más del 100% (`u32::MAX + 10 001`), autor repetido, suma distinta de 100%, el máximo con error de uno, `paid` a nombre de quien paga y sin comisión.
+  - `pay_ref` (7): recomendarse a sí mismo, recompensa igual a toda la comisión, redondeo hacia arriba, tesorería con la comisión entera, sin pago al referido, sin `referred`, `paid` con la comisión de la tesorería.
+  - Todas las detecta alguna prueba.
+- Testnet: contrato [`CC5SIM…ADGA`](https://stellar.expert/explorer/testnet/contract/CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA); el WASM de la red tiene el mismo sha256 que el build (`b97fffc8…`).
+- [`pay_authors` `23a68ac1…`](https://stellar.expert/explorer/testnet/tx/23a68ac1be070324569dcb1a39b0e9ff1a80283a4809e63112ca0a3e648a4867) y [`pay_ref` `ab2ca691…`](https://stellar.expert/explorer/testnet/tx/ab2ca6914b583415bf821e3223b651a4ab2d73863c827eb0634fb48752f7aa22): las dos `successful`. Horizon muestra los repartos esperados: 0.245 / 0.147 / 0.098 / 0.01, y 0.49 / 0.005 / 0.005. `stellar events` muestra un `paid` (con el primer autor como `publisher`) y luego `paid` + `referred` (recompensa 50000).
+- Producción no cambió: la API y el sitio siguen en v0.2.0.
+
 ## Revisión del 25 de noviembre de 2026: contrato v0.3.0 en testnet (`gift_batch`, `tip`, `refund`)
 
 - `pnpm test:contracts`: 32 pruebas (11 nuevas), `cargo clippy -D warnings` limpio. Mutaciones (7): `gift_batch` da el acceso a quien paga, `gift_batch`/`tip` sin firma, `tip` emite `paid`, `refund` firmado por el lector, `refund` sin validar monto o id. Todas las detecta alguna prueba.

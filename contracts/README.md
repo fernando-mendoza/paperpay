@@ -56,7 +56,15 @@ cd contracts && stellar contract build
 
 Datos completos en [`deployments/testnet.json`](deployments/testnet.json).
 
-> **Dos versiones en la red.** El sitio y la API usan **v0.2.0** (`productionContractId`). La **v0.3.0** suma `gift_batch`, `tip` y `refund`, y está desplegada y probada en testnet, pero el sitio todavía no la usa: cambiarla es cambiar `SPLITTER_CONTRACT_ID` en la API (un despliegue a producción).
+> **Qué versión usa el sitio.** El sitio y la API usan **v0.2.0** (`productionContractId`). La más reciente es la **v0.4.0**: tiene todo lo de la v0.3.0 (`gift_batch`, `tip` y `refund`) más `pay_authors` y `pay_ref`. Está desplegada y probada en testnet, pero el sitio todavía no la usa: cambiarla es cambiar `SPLITTER_CONTRACT_ID` en la API, y eso es un despliegue a producción.
+
+| v0.4.0 | Valor |
+| --- | --- |
+| Contrato | [`CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA`](https://stellar.expert/explorer/testnet/contract/CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA) |
+| WASM (sha256) | `b97fffc81b053f597aaff0cb39b69a21005835ba412b8d8cf51681db1a6135aa` (15,339 bytes), igual al que se baja de la red |
+| Constructor | El mismo de v0.2.0 |
+| `pay_authors` | [`23a68ac1…`](https://stellar.expert/explorer/testnet/tx/23a68ac1be070324569dcb1a39b0e9ff1a80283a4809e63112ca0a3e648a4867): 0.50 USDC por un artículo con 3 coautores (50/30/20). 0.245 a la editorial demo, 0.147 y 0.098 a los otros dos, 0.01 a la tesorería y un evento `paid` a nombre del primer autor |
+| `pay_ref` | [`ab2ca691…`](https://stellar.expert/explorer/testnet/tx/ab2ca6914b583415bf821e3223b651a4ab2d73863c827eb0634fb48752f7aa22): 0.50 USDC recomendado por otra cuenta. 0.49 a la editorial demo, 0.005 a quien recomendó, 0.005 a la tesorería y los eventos `paid` y `referred` |
 
 | v0.3.0 | Valor |
 | --- | --- |
