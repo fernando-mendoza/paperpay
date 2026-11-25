@@ -6,10 +6,11 @@
 //! de quien paga a las cuentas de destino. Cada artículo pagado emite un evento `paid` con su id
 //! y con quién lo puede leer, que queda en la red como comprobante.
 //!
-//! Tres formas de pagar, con la misma regla de reparto:
+//! Cuatro formas de pagar una lectura, con la misma regla de reparto:
 //! - `pay`: un artículo, para quien paga.
 //! - `pay_batch`: varios artículos (hasta `MAX_BATCH_ITEMS`) con una sola firma; todo o nada.
 //! - `gift`: un artículo que paga una cuenta y lee otra.
+//! - `gift_batch`: varios artículos que paga una cuenta y lee otra (una lista de lectura).
 //!
 //! La configuración (token, tesorería y comisión) se fija al desplegar y no cambia: no hay
 //! admin ni llave que custodiar. Para cambiarla se despliega otro contrato.
@@ -158,6 +159,14 @@ impl Splitter {
         charge(&env, &payer, &reader, paper_id, publisher, amount)
     }
 
+    /// Cobra varios artículos a `payer` y deja el acceso de todos a nombre de `reader` (la lista
+    /// de lectura de un curso, por ejemplo). Mismas reglas que `pay_batch`: hasta
+    /// `MAX_BATCH_ITEMS`, sin repetidos, todo o nada. Solo firma `payer`.
+    pub fn gift_batch(env: Env, payer: Address, reader: Address, items: Vec<Item>) -> Split {
+        payer.require_auth();
+        charge_batch(&env, &payer, &reader, items)
+    }
+
     /// Cómo se repartiría `amount`, sin mover fondos.
     pub fn split(env: Env, amount: i128) -> Split {
         let config = read_config(&env);
@@ -198,7 +207,7 @@ fn charge(
     split
 }
 
-/// Varios cobros con una firma (`pay_batch`): valida todo antes de mover fondos,
+/// Varios cobros con una firma (`pay_batch` y `gift_batch`): valida todo antes de mover fondos,
 /// agrupa las transferencias por editorial y emite un `paid` por artículo, a nombre de `reader`.
 fn charge_batch(env: &Env, payer: &Address, reader: &Address, items: Vec<Item>) -> Split {
     if items.is_empty() {

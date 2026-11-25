@@ -553,3 +553,152 @@ fn sin_la_firma_de_quien_paga_no_hay_regalo() {
         .is_err());
     assert_eq!(s.usdc.balance(&s.payer), 10 * PRICE);
 }
+
+// ---------- gift_batch ----------
+
+#[test]
+fn un_paquete_de_regalo_cobra_a_quien_paga_y_da_cada_articulo_a_otra_cuenta() {
+    let s = setup();
+    let student = Address::generate(&s.env);
+    let other = Address::generate(&s.env);
+    let items = vec![
+        &s.env,
+        item(&s.env, "crispr-nanomedicine-biotech", &s.publisher, PRICE),
+        item(
+            &s.env,
+            "gravitational-lensing-dark-matter",
+            &other,
+            2 * PRICE,
+        ),
+    ];
+    let total = s.splitter.gift_batch(&s.payer, &student, &items);
+    let receipts = s.receipts();
+
+    assert_eq!(
+        total,
+        Split {
+            publisher: 14_700_000,
+            fee: 300_000
+        }
+    );
+    assert_eq!(s.usdc.balance(&s.payer), 7 * PRICE);
+    assert_eq!(s.usdc.balance(&s.publisher), 4_900_000);
+    assert_eq!(s.usdc.balance(&other), 9_800_000);
+    assert_eq!(s.usdc.balance(&s.treasury), 300_000);
+    assert_eq!(
+        s.usdc.balance(&student),
+        0,
+        "el lector no recibe dinero, recibe el acceso"
+    );
+
+    let receipt = |it: &Item, fee: i128| {
+        Paid {
+            publisher: it.publisher.clone(),
+            reader: student.clone(),
+            paper_id: it.paper_id.clone(),
+            payer: s.payer.clone(),
+            amount: it.amount,
+            fee,
+        }
+        .to_xdr(&s.env, &s.splitter.address)
+    };
+    assert_eq!(
+        receipts,
+        [
+            receipt(&items.get(0).unwrap(), 100_000),
+            receipt(&items.get(1).unwrap(), 200_000)
+        ]
+    );
+}
+
+#[test]
+fn el_paquete_de_regalo_solo_pide_la_firma_de_quien_paga() {
+    let s = setup();
+    let student = Address::generate(&s.env);
+    let items = vec![
+        &s.env,
+        item(&s.env, "a", &s.publisher, PRICE),
+        item(&s.env, "b", &s.publisher, PRICE),
+    ];
+    s.splitter.gift_batch(&s.payer, &student, &items);
+    let auths = s.env.auths();
+
+    assert_eq!(auths.len(), 1);
+    assert_eq!(auths[0].0, s.payer);
+    assert_eq!(
+        auths[0].1.function,
+        AuthorizedFunction::Contract((
+            s.splitter.address.clone(),
+            Symbol::new(&s.env, "gift_batch"),
+            (s.payer.clone(), student, items).into_val(&s.env),
+        ))
+    );
+    // Una editorial: una transferencia agrupada + la comisión.
+    assert_eq!(
+        auths[0].1.sub_invocations,
+        std::vec![
+            s.transfer_auth(&s.payer, &s.publisher, 9_800_000),
+            s.transfer_auth(&s.payer, &s.treasury, 200_000),
+        ]
+    );
+}
+
+#[test]
+fn el_paquete_de_regalo_tiene_las_mismas_reglas_que_el_paquete() {
+    let s = setup();
+    let student = Address::generate(&s.env);
+    let empty: Vec<Item> = Vec::new(&s.env);
+    assert_eq!(
+        s.splitter.try_gift_batch(&s.payer, &student, &empty),
+        Err(Ok(Error::EmptyBatch.into()))
+    );
+
+    let repeated = vec![
+        &s.env,
+        item(&s.env, "a", &s.publisher, PRICE),
+        item(&s.env, "a", &s.publisher, PRICE),
+    ];
+    assert_eq!(
+        s.splitter.try_gift_batch(&s.payer, &student, &repeated),
+        Err(Ok(Error::DuplicatePaper.into()))
+    );
+
+    let mut too_many: Vec<Item> = Vec::new(&s.env);
+    for i in 0..=MAX_BATCH_ITEMS {
+        too_many.push_back(Item {
+            paper_id: String::from_str(&s.env, &std::format!("paper-{i}")),
+            publisher: s.publisher.clone(),
+            amount: 1,
+        });
+    }
+    assert_eq!(
+        s.splitter.try_gift_batch(&s.payer, &student, &too_many),
+        Err(Ok(Error::BatchTooLarge.into()))
+    );
+
+    // Todo o nada: el tercer artículo no alcanza y no se cobra ninguno.
+    let short = Address::generate(&s.env);
+    s.fund(&short, 2 * PRICE);
+    let three = vec![
+        &s.env,
+        item(&s.env, "a", &s.publisher, PRICE),
+        item(&s.env, "b", &s.publisher, PRICE),
+        item(&s.env, "c", &s.publisher, PRICE),
+    ];
+    assert!(s.splitter.try_gift_batch(&short, &student, &three).is_err());
+    assert_eq!(s.usdc.balance(&short), 2 * PRICE);
+    assert_eq!(s.usdc.balance(&s.publisher), 0);
+}
+
+#[test]
+fn sin_la_firma_de_quien_paga_no_hay_paquete_de_regalo() {
+    let s = setup();
+    let student = Address::generate(&s.env);
+    let items = vec![&s.env, item(&s.env, "a", &s.publisher, PRICE)];
+    s.env.set_auths(&[]);
+    assert!(s
+        .splitter
+        .try_gift_batch(&s.payer, &student, &items)
+        .is_err());
+    assert_eq!(s.usdc.balance(&s.payer), 10 * PRICE);
+}
