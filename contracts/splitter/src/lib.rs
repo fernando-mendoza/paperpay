@@ -12,8 +12,9 @@
 //! - `gift`: un artículo que paga una cuenta y lee otra.
 //! - `gift_batch`: varios artículos que paga una cuenta y lee otra (una lista de lectura).
 //!
-//! Y un movimiento que no da acceso (emite su propio evento, nunca `paid`):
+//! Y dos movimientos que no dan acceso (emiten su propio evento, nunca `paid`):
 //! - `tip`: una propina a la editorial por un artículo, con el mismo reparto.
+//! - `refund`: la editorial le devuelve dinero a un lector; firma la editorial.
 //!
 //! La configuración (token, tesorería y comisión) se fija al desplegar y no cambia: no hay
 //! admin ni llave que custodiar. Para cambiarla se despliega otro contrato.
@@ -120,6 +121,18 @@ pub struct Tipped {
     pub fee: i128,
 }
 
+/// Comprobante de una devolución. Topics: `["refunded", publisher, reader]`.
+#[contractevent(topics = ["refunded"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Refunded {
+    #[topic]
+    pub publisher: Address,
+    #[topic]
+    pub reader: Address,
+    pub paper_id: String,
+    pub amount: i128,
+}
+
 #[contract]
 pub struct Splitter;
 
@@ -209,6 +222,28 @@ impl Splitter {
         .publish(&env);
 
         split
+    }
+
+    /// La editorial le devuelve `amount` a `reader` por un artículo. Solo firma la editorial.
+    /// El contrato no guarda pagos, así que no comprueba el pago original: eso lo decide quien
+    /// devuelve. La comisión ya cobrada no vuelve: la tesorería no firma aquí.
+    pub fn refund(env: Env, publisher: Address, reader: Address, paper_id: String, amount: i128) {
+        publisher.require_auth();
+        validate_paper_id(&env, &paper_id);
+        if amount <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(&publisher, &reader, &amount);
+        extend_instance_ttl(&env);
+
+        Refunded {
+            publisher,
+            reader,
+            paper_id,
+            amount,
+        }
+        .publish(&env);
     }
 
     /// Cómo se repartiría `amount`, sin mover fondos.

@@ -2,7 +2,7 @@
 extern crate std;
 
 use super::{
-    Config, Error, Item, Paid, Split, Splitter, SplitterClient, Tipped, MAX_BATCH_ITEMS,
+    Config, Error, Item, Paid, Refunded, Split, Splitter, SplitterClient, Tipped, MAX_BATCH_ITEMS,
     MAX_FEE_BPS,
 };
 use soroban_sdk::{
@@ -790,4 +790,96 @@ fn la_propina_rechaza_montos_e_ids_invalidos_y_sin_firma_no_se_cobra() {
         .is_err());
     assert_eq!(s.usdc.balance(&s.payer), 10 * PRICE);
     assert_eq!(s.usdc.balance(&s.publisher), 0);
+}
+
+// ---------- refund ----------
+
+#[test]
+fn una_devolucion_mueve_el_dinero_de_la_editorial_al_lector() {
+    let s = setup();
+    let paper_id = paper(&s.env);
+    s.splitter.pay(&s.payer, &paper_id, &s.publisher, &PRICE);
+    s.splitter
+        .refund(&s.publisher, &s.payer, &paper_id, &4_900_000);
+    let receipts = s.receipts();
+
+    assert_eq!(s.usdc.balance(&s.publisher), 0);
+    assert_eq!(s.usdc.balance(&s.payer), 9 * PRICE + 4_900_000);
+    assert_eq!(
+        s.usdc.balance(&s.treasury),
+        100_000,
+        "la comisión no vuelve: la tesorería no firma"
+    );
+
+    let expected = Refunded {
+        publisher: s.publisher.clone(),
+        reader: s.payer.clone(),
+        paper_id,
+        amount: 4_900_000,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.splitter.address)]);
+}
+
+#[test]
+fn la_devolucion_solo_la_firma_la_editorial() {
+    let s = setup();
+    let paper_id = paper(&s.env);
+    s.fund(&s.publisher, PRICE);
+    s.splitter.refund(&s.publisher, &s.payer, &paper_id, &PRICE);
+
+    assert_eq!(
+        s.env.auths(),
+        std::vec![(
+            s.publisher.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.splitter.address.clone(),
+                    Symbol::new(&s.env, "refund"),
+                    (s.publisher.clone(), s.payer.clone(), paper_id, PRICE).into_val(&s.env),
+                )),
+                sub_invocations: std::vec![s.transfer_auth(&s.publisher, &s.payer, PRICE)],
+            }
+        )]
+    );
+}
+
+#[test]
+fn sin_la_firma_de_la_editorial_no_hay_devolucion() {
+    let s = setup();
+    s.fund(&s.publisher, PRICE);
+    s.env.set_auths(&[]);
+    assert!(s
+        .splitter
+        .try_refund(&s.publisher, &s.payer, &paper(&s.env), &PRICE)
+        .is_err());
+    assert_eq!(s.usdc.balance(&s.publisher), PRICE);
+    assert_eq!(s.usdc.balance(&s.payer), 10 * PRICE);
+}
+
+#[test]
+fn la_devolucion_rechaza_montos_e_ids_invalidos_y_no_pasa_del_saldo() {
+    let s = setup();
+    let paper_id = paper(&s.env);
+    s.fund(&s.publisher, PRICE);
+    assert_eq!(
+        s.splitter.try_refund(&s.publisher, &s.payer, &paper_id, &0),
+        Err(Ok(Error::InvalidAmount.into()))
+    );
+    assert_eq!(
+        s.splitter
+            .try_refund(&s.publisher, &s.payer, &paper_id, &-1),
+        Err(Ok(Error::InvalidAmount.into()))
+    );
+    let long = String::from_str(&s.env, &"x".repeat(65));
+    assert_eq!(
+        s.splitter.try_refund(&s.publisher, &s.payer, &long, &PRICE),
+        Err(Ok(Error::InvalidPaperId.into()))
+    );
+
+    assert!(s
+        .splitter
+        .try_refund(&s.publisher, &s.payer, &paper_id, &(PRICE + 1))
+        .is_err());
+    assert_eq!(s.usdc.balance(&s.publisher), PRICE);
+    assert_eq!(s.usdc.balance(&s.payer), 10 * PRICE);
 }
