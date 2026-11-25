@@ -10,6 +10,7 @@ import {
 import { API_URL } from '@/lib/api'
 import { decodeBase64Json, encodeBase64Json } from '@/lib/base64'
 import { PaywallError } from '@/lib/errors'
+import { memoFromUrl } from '@/lib/memo'
 import type { PaperFull, PaperPreview, PaywallErrorCode, TxReceipt } from '@/lib/types'
 import { clearAccess, isAccessValid, readAccess, writeAccess } from './accessStore'
 import type { Backend, PaperResult } from './backend'
@@ -107,7 +108,15 @@ async function signPayment(id: string, address: string, terms: Terms): Promise<{
     await delay(800)
     return { signature: PLACEHOLDER_SIGNATURE }
   }
-  const splitter = terms.extra?.splitter
+  // `?memo=` en la URL del artículo: el pago lleva ese memo. Las transacciones de Soroban no admiten
+  // memo, así que ese pago va por la transferencia clásica a la tesorería (sin el reparto 98/2 en la red).
+  let memo: string | undefined
+  try {
+    memo = memoFromUrl(window.location.search)
+  } catch (err) {
+    throw new PaywallError('PAYMENT_FAILED', err instanceof Error ? err.message : 'Memo inválido')
+  }
+  const splitter = memo ? undefined : terms.extra?.splitter
   if (splitter) {
     // Contrato de reparto: la API arma y simula pay(...); aquí se verifica y se firma.
     await checkReaderFunds(address, terms.amount)
@@ -122,7 +131,7 @@ async function signPayment(id: string, address: string, terms: Terms): Promise<{
     return { signature: await signTxXdr(prepared.transactionXdr, address), claim: prepared.claim }
   }
   // Pago clásico: transferencia de USDC a la tesorería.
-  const unsignedXdr = await buildPaymentXdr(address, { payTo: terms.payTo, amountStroops: terms.amount })
+  const unsignedXdr = await buildPaymentXdr(address, { payTo: terms.payTo, amountStroops: terms.amount, memo })
   return { signature: await signTxXdr(unsignedXdr, address) }
 }
 

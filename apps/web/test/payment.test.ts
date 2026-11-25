@@ -224,6 +224,24 @@ describe('pago por el contrato de reparto', () => {
     expect(signed(calls.settle[0])).not.toHaveProperty('claim')
   })
 
+  it('con ?memo= en la URL paga por la transferencia clásica con ese memo (Soroban no admite memo)', async () => {
+    window.location.search = '?wallet=freighter&memo=PAPERPAY-PRUEBA'
+    const calls = installApi({ splitter: true })
+    await apiBackend.payForPaper(nextPaper(), reader, () => {})
+    expect(calls.prepare).toEqual([])
+    expect(buildPaymentXdr).toHaveBeenCalledWith(reader, { payTo: TREASURY, amountStroops: PRICE, memo: 'PAPERPAY-PRUEBA' })
+    expect(signed(calls.settle[0]).signature).toBe('SIGNED:CLASSIC_XDR')
+  })
+
+  it('un memo de más de 28 bytes se rechaza antes de abrir la wallet', async () => {
+    window.location.search = `?memo=${encodeURIComponent('é'.repeat(15))}`
+    const calls = installApi({ splitter: true })
+    expect((await failure(apiBackend.payForPaper(nextPaper(), reader, () => {}))).message).toMatch(/28 bytes/)
+    expect(buildPaymentXdr).not.toHaveBeenCalled()
+    expect(signTxXdr).not.toHaveBeenCalled()
+    expect(calls.settle).toEqual([])
+  })
+
   it.each<[string, Partial<PayCall>]>([
     ['otro monto', { amount: '50000000' }],
     ['otra función', { fn: 'gift' }],
