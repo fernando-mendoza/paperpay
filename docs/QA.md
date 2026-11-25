@@ -1,5 +1,32 @@
 # Estado de QA
 
+## Revisión del 25 de noviembre de 2026: referidos (`pay_ref`) en la API y la web, sin desplegar
+
+- API: `pnpm test` con 136 pruebas en verde (13 nuevas). Cubren:
+  - `pay_ref` armado y validado;
+  - el referido descartado si es quien paga;
+  - la vuelta a `pay` si la simulación falla;
+  - el `400` con un referido inválido o en un regalo;
+  - la autorización igual a la llamada;
+  - los contratos anteriores en `findGift` y en `/api/health`;
+  - `SPLITTER_REFERRALS` apagado.
+  - Fixture: los eventos reales del `pay_ref` de testnet `ab2ca691…`.
+- Web: `pnpm test` con 59 pruebas en verde (18 nuevas). Cubren:
+  - la captura del `?ref=` (checksum, URL limpia, 30 días, gana el último);
+  - el sobre `pay_ref` con otro referido, o `pay_ref` sin que la API lo diga;
+  - el contador con el registro real de Horizon del `pay_ref`, donde la parte del referido cuenta como comisión.
+  - `typecheck` limpio.
+- **Testnet, contra la API local** (`CC5SIM…ADGA`, `SPLITTER_REFERRALS=true`, `test:splitter`):
+  - `REFERRER=trustline`: `pay_ref` con 0.49 a la editorial, 0.005 a quien recomendó y 0.005 a la tesorería ([`1e667933…`](https://stellar.expert/explorer/testnet/tx/1e6679335b51dd92d133bf0724736fe1ed0842c730611cc013eda477c1d9b3ad)). El JWT reabre el artículo.
+  - `REFERRER=sin-trustline`: la API descartó el referido y armó `pay`, con 0.49 / 0.01 ([`ff3d4515…`](https://stellar.expert/explorer/testnet/tx/ff3d45154f2696cfa0311a3099798e9d3ad317c10e4ff243a8a79f92b92e482f)).
+- **Navegador** (export estático contra la API local; Puppeteer, cada caso con almacenamiento limpio):
+  - `?ref=` válido en un artículo: se guarda, la URL queda sin `ref` y aparecen el aviso en el paywall y el panel, en escritorio y en la barra del celular (390×844, sin scroll horizontal);
+  - `?ref=hola`: se quita de la URL y no se guarda;
+  - `/lee?ref=` y luego un artículo: el aviso sigue;
+  - sin referido: panel sí, aviso no;
+  - sin errores de consola (fuera del `402` del paywall).
+- **No probado:** "Crear mi enlace" con la extensión Freighter real (el navegador de pruebas no la tiene) y un pago con referido desde el sitio publicado. Producción no cambió: la API sigue en v0.2.0 sin referidos.
+
 ## Revisión del 25 de noviembre de 2026: intro y hero cinemático de `/lee` en el celular
 
 - Export estático (`STATIC_EXPORT=1`) servido en local; Puppeteer + Chrome con SwiftShader (WebGL).

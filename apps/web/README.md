@@ -55,6 +55,18 @@ Con Freighter y una API que anuncia `extra.splitter.giftUrl`, el artículo muest
 - Si la red no confirma a tiempo, "Reintentar" reenvía el mismo sobre.
 - Quien tiene el enlace tiene el regalo. Pollar no puede regalar (no usa el contrato).
 
+### Recomendar un artículo (referidos, `pay_ref`)
+
+Con Freighter y una API que anuncia `extra.splitter.referrals` (`SPLITTER_REFERRALS=true` y contrato v0.4.0 o posterior), el artículo muestra "Recomiéndalo y gana" (`components/ReferPanel.tsx`). Conecta la wallet y arma el enlace `/papers/<id>?ref=<wallet>`. Si alguien paga entrando por él, esa wallet recibe la mitad de la comisión, 0.005 USDC por lectura, en la misma transacción. Quien paga paga lo mismo y la editorial recibe lo mismo.
+
+- **Captura** (`components/RefCapture.tsx` en el layout raíz, `lib/referral.ts`). Cualquier página (`/lee`, `/top`, el catálogo o un artículo) guarda el `?ref=` en `localStorage` si es una cuenta G válida (con checksum).
+  - Dura 30 días y, si llegan varios enlaces, gana el último.
+  - El `ref` se quita de la URL, para que quien vuelve a compartir la página no reparta el enlace de otra persona.
+- **Pago.** `/prepare` recibe `{ payer, referrer }`. Antes de abrir Freighter, la web comprueba que el sobre sea `pay_ref` con ese mismo referido, o `pay` si la API lo descartó (la misma wallet, o una cuenta que no puede cobrar). Nunca acepta otro referido.
+- **Paywall.** Avisa quién lo recomendó y que se paga lo mismo (`PaywallCard`, también en la barra del celular).
+- **Sin `referrals` en el `402`.** No hay panel ni aviso. El `?ref=` se guarda igual, pero la API lo ignora.
+- **Para cobrar**, la wallet que recomienda necesita la trustline de USDC. Si no la tiene, el pago sale sin recomendación.
+
 El modo de wallet también se puede elegir con `?wallet=freighter`, `?wallet=pollar` o `?wallet=mock`; la selección persiste durante la sesión. Un pago real requiere el modo `api` con Freighter o Pollar. El recibo enlaza al explorador si el backend devuelve un hash de transacción real.
 
 El JWT y el recibo se guardan en `localStorage` por artículo. El servidor valida el JWT en cada lectura y caduca a las 24 horas. El catálogo lee esos accesos y marca como "Comprado" los artículos con acceso vigente en ese navegador. Si después de firmar la API responde `504` (la red no confirmó a tiempo), sigue en `503` tras dos reenvíos o no responde, el sitio guarda el sobre firmado en `sessionStorage` y muestra «Tu pago sigue en camino». «Reintentar» reenvía ese mismo sobre: la red lo aplica una sola vez, así que no hay doble cobro. Si la red lo rechaza, se olvida y el siguiente intento firma uno nuevo. Dos límites:
@@ -79,7 +91,7 @@ Verificación estática: `pnpm --filter @paperpay/web typecheck`. Compilación: 
 
 Pruebas:
 
-- `pnpm --filter @paperpay/web test`: 41 pruebas sin red, del pago con memo, del pago por contrato (sobre que no coincide, saldo, reenvío del pendiente), del regalo (llave guardada antes de firmar, sobre con otro destinatario, reenvío, firma del reclamo) y del panel. El panel se prueba con registros reales de la tesorería en Horizon (`test/fixtures`).
+- `pnpm --filter @paperpay/web test`: 59 pruebas sin red, del pago con memo, del pago por contrato (sobre que no coincide, saldo, reenvío del pendiente), del regalo (llave guardada antes de firmar, sobre con otro destinatario, reenvío, firma del reclamo), del referido (captura y vencimiento del `?ref=`, sobre `pay_ref` con otro referido o sin avisar) y del panel. El panel se prueba con registros reales de la tesorería en Horizon (`test/fixtures`).
 - `PAPERPAY_E2E_API_URL=http://127.0.0.1:4011 pnpm --filter @paperpay/web test:e2e` **sí paga 0.50 USDC de prueba en testnet**. Corre el código del sitio contra una API con el contrato activo; Freighter se simula con la llave de un lector desechable. Recorre 402 → `/prepare` → firma → artículo, reabre el artículo con el JWT y comprueba en Horizon y en el panel la lectura por contrato. Con `PAPERPAY_E2E_API_URL=https://paperpay.blockchains.tf` pasa por la Pages Function y la API publicadas. La misma orden corre también el pago con memo (`test/e2e/memo.testnet.test.ts`, transferencia clásica; el memo es `PAPERPAY_E2E_MEMO` o `PAPERPAY-PRUEBA`) y el regalo (`test/e2e/gift.testnet.test.ts`, otros 0.50 USDC de prueba): `gift` → enlace → otro navegador abre el artículo sin wallet, quien paga sigue sin acceso y una llave ajena no lo abre. Con `PAPERPAY_E2E_GIFT_ORIGIN=http://localhost:3000` imprime además el enlace para abrirlo a mano (con `next dev`, usa `localhost`: Next bloquea sus recursos de desarrollo si se abre por `127.0.0.1`).
 
 ## Pollar (v2)

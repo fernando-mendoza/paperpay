@@ -22,13 +22,13 @@ La API corre en una VPS con systemd y Caddy, detrás de Cloudflare: `https://pap
 
 | Solicitud | Respuesta |
 | --- | --- |
-| `GET /api/health` | `200`: estado, red, modo, dirección configurada y `splitterContractId` (o `null`) |
+| `GET /api/health` | `200`: estado, red, modo, dirección configurada, `splitterContractId` (o `null`) y `splitterContractIds` (el activo y los anteriores) |
 | `GET /api/papers` | `200`: previews, sin `fullContentMarkdown` |
 | `GET /api/papers/:id` sin credenciales | `402`: `{ preview }` y `payment-required` en Base64 JSON |
 | `GET /api/papers/:id` con pago aceptado | `200`: `{ paper, accessToken, txHash }` y `payment-response` |
 | `GET /api/papers/:id` con `Authorization: Bearer <jwt>` válido para ese artículo | `200`: `{ paper }` |
 | `POST /api/papers/:id/verify` | Verifica un pago Pollar enviado previamente y devuelve `{ paper, accessToken, txHash }` |
-| `POST /api/papers/:id/prepare` con `{ payer }` | Solo con el contrato de reparto activo. `200`: `{ transactionXdr, networkPassphrase, terms }` con la invocación `pay` ya simulada, lista para firmar. Con `{ payer, reader }` arma el regalo `gift`. `404 SPLITTER_DISABLED` si no está activo |
+| `POST /api/papers/:id/prepare` con `{ payer }` | Solo con el contrato de reparto activo. `200`: `{ transactionXdr, networkPassphrase, terms }` con la invocación `pay` ya simulada, lista para firmar. Con `{ payer, reader }` arma el regalo `gift`. Con `{ payer, referrer }` y `SPLITTER_REFERRALS=true`, arma `pay_ref` y la respuesta trae `referrer` (sin él, se armó `pay`). `404 SPLITTER_DISABLED` si no está activo |
 | `POST /api/papers/:id/gift` con `payment-signature` | Envía un regalo firmado (`gift`). `200`: `{ txHash, paperId, reader, settledAt }`. Quien paga no recibe el artículo ni un token |
 | `POST /api/gifts/claim` con `{ txHash, reader, signedAt, signature }` | Quien abre el enlace de regalo firma con su llave. `200`: `{ paperId, paperTitle, accessToken, txHash, settledAt }`. `403` si la firma no es de la llave del regalo, `400` si tiene más de 5 min, `404` si no hay regalo con ese hash |
 | `GET /api/receipts/:txHash` | `200`: el recibo guardado de ese pago, con `paperId`, título, wallet que pagó (`payer`), quien recibe el acceso (`reader`, distinto solo en un regalo), método (`pollar`, `splitter`, `classic`), monto en stroops, hora del ledger y enlace a stellar.expert. `404 RECEIPT_NOT_FOUND` si PaperPay no lo registró; `400` si el hash no es válido |
@@ -77,7 +77,22 @@ Se activa con `SPLITTER_CONTRACT_ID` (el contrato de [`contracts/splitter`](../.
    - el pago sale de quien firma, y la firma es válida para esa wallet.
 5. Lo envía por RPC y espera la confirmación. Entrega `{ paper, accessToken, txHash }` solo si el ledger trae el evento `paid` de ese artículo, con ese lector, editorial y monto.
 
-**Qué funciones del contrato usa la API.** Solo arma y acepta `pay` (lectura) y `gift` (regalo, sección siguiente); cualquier otra función del sobre firmado se rechaza con `400`. El contrato tiene más funciones (`pay_batch`, `gift_batch`, `tip`, `refund`, `pay_authors` y `pay_ref`; ver el [historial](../../contracts/CHANGELOG.md)), que funcionan en testnet pero que el sitio todavía no ofrece. Además, la API usa la v0.2.0 (`SPLITTER_CONTRACT_ID`), que solo tiene `pay`, `pay_batch` y `gift`.
+**Qué funciones del contrato usa la API.** Solo arma y acepta `pay` (lectura), `pay_ref` (lectura recomendada, más abajo) y `gift` (regalo); cualquier otra función del sobre firmado se rechaza con `400`. La autorización del sobre tiene que ser exactamente la misma llamada que la operación. El contrato tiene más funciones (`pay_batch`, `gift_batch`, `tip`, `refund` y `pay_authors`; ver el [historial](../../contracts/CHANGELOG.md)), que funcionan en testnet pero que el sitio no ofrece. `pay_ref` existe desde la v0.4.0: con la v0.2.0 (`CAIMQY…HOR5`), `SPLITTER_REFERRALS` tiene que quedar apagado.
+
+**Contratos anteriores.** Al cambiar `SPLITTER_CONTRACT_ID`, el contrato anterior va en `SPLITTER_LEGACY_CONTRACT_IDS`. Los pagos nuevos solo se aceptan con el activo, pero los comprobantes `paid` del anterior siguen valiendo para reclamar un regalo cuyo recibo no esté en SQLite, y `/api/health` los lista en `splitterContractIds` para que el contador de la web siga sumando sus lecturas.
+
+### Lectura recomendada (`pay_ref`)
+
+Con `SPLITTER_REFERRALS=true` (y un contrato v0.4.0 o posterior), el `402` agrega `referrals: true` a `extra.splitter` y `/prepare` acepta `{ payer, referrer }`:
+
+- Arma `pay_ref(payer, paperId, publisher, 5000000, referrer)`. Quien paga paga 0.50 y la editorial recibe 0.49, igual que con `pay`. La comisión de 0.01 se parte: 0.005 a `referrer` y 0.005 a la tesorería.
+- Emite el mismo `paid` (con la comisión completa), así que el acceso, el recibo y el reenvío funcionan igual que en `pay`. Además emite `referred`.
+- Un referido nunca impide pagar:
+  - si `referrer` es la misma wallet que paga, se ignora;
+  - si la simulación de `pay_ref` falla (la cuenta no existe o no tiene trustline de USDC, así que no puede cobrar), se arma `pay`.
+  - En los dos casos la respuesta no trae `referrer`, y la web lo comprueba antes de abrir Freighter.
+- `referrer` con forma inválida, o junto con `reader` (un regalo no lleva referido): `400`.
+- Apagado, `referrer` se ignora y se arma `pay`.
 
 Respuestas de error:
 
@@ -120,13 +135,14 @@ En producción son obligatorios un `JWT_SECRET` aleatorio de al menos 32 caracte
 
 ## Pruebas
 
-`pnpm test` ejecuta 123 pruebas locales. Incluyen la validación simulada de respuestas de Horizon para el flujo Pollar (monto exacto, intento de reutilizar un hash, también después de un reinicio y fuera de la ventana), los recibos en SQLite (incluido cerrar y reabrir el archivo, migrar uno v1 y volver de un rollback), el pago por contrato y el regalo (sobre `gift`, reclamo con la firma de la llave, firma vencida o de otra llave, búsqueda en la red). Para el contrato, la validación del sobre firmado, el envío y el cobro con un RPC simulado, el endpoint `/prepare` y la lectura de eventos `paid` usan eventos reales de testnet (`test/fixtures`). Ninguna de estas pruebas hace un pago externo.
+`pnpm test` ejecuta 136 pruebas locales. Incluyen la validación simulada de respuestas de Horizon para el flujo Pollar (monto exacto, intento de reutilizar un hash, también después de un reinicio y fuera de la ventana), los recibos en SQLite (incluido cerrar y reabrir el archivo, migrar uno v1 y volver de un rollback), el pago por contrato, el regalo (sobre `gift`, reclamo con la firma de la llave, firma vencida o de otra llave, búsqueda en la red) y el referido (`pay_ref`, descarte si es quien paga, vuelta a `pay` si la simulación falla, contratos anteriores). Para el contrato, la validación del sobre firmado, el envío y el cobro con un RPC simulado, el endpoint `/prepare` y la lectura de eventos `paid` usan eventos reales de testnet (`test/fixtures`). Ninguna de estas pruebas hace un pago externo.
 
 `pnpm --filter @paperpay/api test:splitter` (con `SPLITTER_CONTRACT_ID`, `SPLITTER_PUBLISHER_ADDRESS` y `STELLAR_TREASURY_PUBLIC_KEY`) **sí paga en testnet**:
 - crea un lector desechable con Friendbot y 1 USDC comprado en el DEX;
 - recorre `402 → /prepare → firma → payment-signature` contra una API local;
 - comprueba en Horizon que el lector pagó 0.50, la editorial recibió 0.49 y la tesorería 0.01;
 - comprueba que el JWT reabre el artículo y que reenviar el mismo sobre no cobra dos veces;
-- con `LATE_RESEND_SECONDS=310`, espera y reenvía el sobre ya confirmado fuera de la ventana de 5 min: con `claim` da `200`, y sin él, `409`.
+- con `LATE_RESEND_SECONDS=310`, espera y reenvía el sobre ya confirmado fuera de la ventana de 5 min: con `claim` da `200`, y sin él, `409`;
+- con `SPLITTER_REFERRALS=true` y `REFERRER=trustline`, recomienda una cuenta nueva con trustline: el sobre es `pay_ref` y Horizon muestra 0.49 / 0.005 / 0.005. Con `REFERRER=sin-trustline`, la cuenta no puede cobrar: la API arma `pay` y el pago sale igual (0.49 / 0.01).
 
 `pnpm --filter @paperpay/api test:testnet` verifica Friendbot, Horizon y el paywall de una API local, sin comprar artículos. `pnpm --filter @paperpay/api test:settle` usa una firma de prueba y solo puede desbloquear con `DEMO_PAYMENTS=true`.
