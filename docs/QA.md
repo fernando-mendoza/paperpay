@@ -1,5 +1,11 @@
 # Estado de QA
 
+## Revisión del 24 de noviembre de 2026: pago con memo (`?memo=`)
+
+- Hallazgo: Stellar no admite memo en transacciones de Soroban; `@stellar/stellar-sdk` corta al armarla ("Soroban transactions cannot have a memo"). Con memo, la web paga por la transferencia clásica.
+- `pnpm test`: 41 pruebas de la web (4 nuevas: el pago con memo no pide `/prepare` y arma la transferencia con el memo, un memo de más de 28 bytes no abre la wallet, la lectura de la URL).
+- Testnet, código del sitio contra la API publicada (`test:e2e` de memo, lector desechable): [`0a774b39…`](https://stellar.expert/explorer/testnet/tx/0a774b39515d291e2bec0007462f656795470eebaf0a6706780aca715aa8c018), Horizon muestra `memo_type: text`, `memo: PAPERPAY-PRUEBA`; artículo entregado en 5.1 s y recibo `classic`.
+
 ## Revisión del 24 de noviembre de 2026: regalo por enlace en producción
 
 Uno paga por el contrato (`gift`) y otro lee con un enlace, sin wallet. Detalle en `apps/api/README.md` ("Regalo por enlace").

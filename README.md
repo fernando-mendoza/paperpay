@@ -19,6 +19,7 @@ El catálogo contiene **52 artículos ficticios de demostración** en 10 discipl
 | Selector de wallet | Implementado. Con la key de Pollar configurada, el paywall ofrece Pollar y Freighter. |
 | Acceso tras el pago | JWT de 24 horas por artículo, guardado en el navegador. El catálogo marca los artículos con acceso vigente. |
 | Recibos persistentes | Implementado. Cada pago aceptado (Pollar, contrato o clásico) queda en SQLite ligado a su artículo, a la wallet que pagó y a quien recibe el acceso (distinto en un regalo), sobrevive a reinicios y se consulta en `GET /api/receipts/:txHash` con enlace a la transacción. En la API de la VPS desde el 24 de noviembre de 2026. |
+| Pago con memo | `?memo=<texto>` en la URL de un artículo pone ese memo en la transacción (≤ 28 bytes). Como Soroban no admite memo, ese pago va por la transferencia clásica a la tesorería. Probado en testnet contra la API publicada. |
 | Regalar un artículo | Implementado y activo en [paperpay.blockchains.tf](https://paperpay.blockchains.tf/) desde el 24 de noviembre de 2026. Con Freighter, el lector paga por el contrato (`gift`) y comparte un enlace; quien lo abre lee el artículo sin wallet. Probado de punta a punta contra el sitio publicado. |
 | Panel editorial (`/editorial`) | Lee de Horizon los pagos que llegan a la tesorería. En los pagos por contrato muestra el reparto 98/2 que se hizo en la red; en las transferencias directas (pago clásico y Pollar) el 98/2 es un cálculo visual. |
 | Pagos simulados (`mock`) | Disponibles para demos locales; no mueven fondos. |
@@ -63,7 +64,7 @@ curl -i http://localhost:4000/api/papers/autonomous-ai-micropayments
 ## Verificación
 
 ```bash
-pnpm test                               # 123 pruebas de la API y 37 de la web
+pnpm test                               # 123 pruebas de la API y 41 de la web
 pnpm build:shared && pnpm build:api
 pnpm --filter @paperpay/web typecheck
 pnpm build

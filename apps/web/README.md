@@ -36,6 +36,12 @@ Si el `402` trae `extra.splitter` (API con `SPLITTER_CONTRACT_ID`), Freighter pa
 
 Pollar sigue con el pago clásico.
 
+### Pago con memo (`?memo=`)
+
+Con `?memo=<texto>` en la URL de un artículo (por ejemplo `/papers/<id>?memo=SHIP-ABC123`), el pago lleva ese memo de texto en la transacción: una referencia, un código de campaña o de un reto. Máximo 28 bytes (los acentos cuentan doble); si pasa, el sitio avisa antes de abrir Freighter (`lib/memo.ts`).
+
+Stellar no admite memo en transacciones de Soroban (el SDK lo rechaza al armarlas), así que **con memo el pago va por la transferencia clásica** de 0.50 USDC a la tesorería, aunque la API anuncie el contrato. Necesita una API con `SELF_SETTLE=true` (la de la VPS lo tiene). Esa lectura no hace el reparto 98/2 en la red y el panel la cuenta como transferencia directa.
+
 ### Regalar un artículo
 
 Con Freighter y una API que anuncia `extra.splitter.giftUrl`, el artículo muestra "Regálalo" (`components/GiftPanel.tsx`, `services/gift.ts`): quien regala paga 0.50 USDC por el contrato (`gift`) y recibe un enlace `/regalo#<txHash>.<secreto>`. Quien lo abre no necesita wallet: `/regalo` (`views/GiftClaimView.tsx`) firma con la llave del enlace, la API entrega el acceso de 24 h y el sitio abre el artículo. Quien paga no recibe el artículo.
@@ -69,8 +75,8 @@ Verificación estática: `pnpm --filter @paperpay/web typecheck`. Compilación: 
 
 Pruebas:
 
-- `pnpm --filter @paperpay/web test`: 37 pruebas sin red, del pago por contrato (sobre que no coincide, saldo, reenvío del pendiente), del regalo (llave guardada antes de firmar, sobre con otro destinatario, reenvío, firma del reclamo) y del panel. El panel se prueba con registros reales de la tesorería en Horizon (`test/fixtures`).
-- `PAPERPAY_E2E_API_URL=http://127.0.0.1:4011 pnpm --filter @paperpay/web test:e2e` **sí paga 0.50 USDC de prueba en testnet**. Corre el código del sitio contra una API con el contrato activo; Freighter se simula con la llave de un lector desechable. Recorre 402 → `/prepare` → firma → artículo, reabre el artículo con el JWT y comprueba en Horizon y en el panel la lectura por contrato. Con `PAPERPAY_E2E_API_URL=https://paperpay.blockchains.tf` pasa por la Pages Function y la API publicadas. La misma orden corre también el regalo (`test/e2e/gift.testnet.test.ts`, otros 0.50 USDC de prueba): `gift` → enlace → otro navegador abre el artículo sin wallet, quien paga sigue sin acceso y una llave ajena no lo abre. Con `PAPERPAY_E2E_GIFT_ORIGIN=http://localhost:3000` imprime además el enlace para abrirlo a mano (con `next dev`, usa `localhost`: Next bloquea sus recursos de desarrollo si se abre por `127.0.0.1`).
+- `pnpm --filter @paperpay/web test`: 41 pruebas sin red, del pago con memo, del pago por contrato (sobre que no coincide, saldo, reenvío del pendiente), del regalo (llave guardada antes de firmar, sobre con otro destinatario, reenvío, firma del reclamo) y del panel. El panel se prueba con registros reales de la tesorería en Horizon (`test/fixtures`).
+- `PAPERPAY_E2E_API_URL=http://127.0.0.1:4011 pnpm --filter @paperpay/web test:e2e` **sí paga 0.50 USDC de prueba en testnet**. Corre el código del sitio contra una API con el contrato activo; Freighter se simula con la llave de un lector desechable. Recorre 402 → `/prepare` → firma → artículo, reabre el artículo con el JWT y comprueba en Horizon y en el panel la lectura por contrato. Con `PAPERPAY_E2E_API_URL=https://paperpay.blockchains.tf` pasa por la Pages Function y la API publicadas. La misma orden corre también el pago con memo (`test/e2e/memo.testnet.test.ts`, transferencia clásica; el memo es `PAPERPAY_E2E_MEMO` o `PAPERPAY-PRUEBA`) y el regalo (`test/e2e/gift.testnet.test.ts`, otros 0.50 USDC de prueba): `gift` → enlace → otro navegador abre el artículo sin wallet, quien paga sigue sin acceso y una llave ajena no lo abre. Con `PAPERPAY_E2E_GIFT_ORIGIN=http://localhost:3000` imprime además el enlace para abrirlo a mano (con `next dev`, usa `localhost`: Next bloquea sus recursos de desarrollo si se abre por `127.0.0.1`).
 
 ## Pollar (v2)
 
