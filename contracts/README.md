@@ -4,12 +4,17 @@
 
 Cobra lecturas y las reparte en la misma transacción. El USDC va directo de la cuenta que paga a la editorial (monto − comisión) y a la tesorería de PaperPay (comisión). El contrato nunca guarda fondos.
 
+Desde la v0.3.0 también regala listas de lectura (`gift_batch`), cobra propinas (`tip`) y registra devoluciones (`refund`). Las propinas y las devoluciones emiten su propio evento, nunca `paid`, así que no dan acceso a ningún artículo.
+
 | Función | Qué hace |
 | --- | --- |
 | `__constructor(token, treasury, fee_bps)` | Fija el token (SAC de USDC), la tesorería y la comisión en puntos base (`200` = 2%, máximo `1000`). No cambia después: no hay admin. |
 | `pay(payer, paper_id, publisher, amount) -> Split` | Pide la firma de `payer` sobre la llamada con sus argumentos, mueve `amount − fee` a `publisher` y `fee` a la tesorería, y emite el evento `paid` con `payer` como lector. |
 | `pay_batch(payer, items) -> Split` | Varios artículos (`Item { paper_id, publisher, amount }`, hasta 10) con **una sola firma**. Reparte cada uno igual que `pay`, agrupa las transferencias por editorial y emite un `paid` por artículo. Es todo o nada: lista vacía, artículo repetido o inválido, o falta de saldo → no se cobra ninguno. Devuelve la suma. |
 | `gift(payer, reader, paper_id, publisher, amount) -> Split` | `payer` paga y el acceso queda a nombre de `reader` (un profesor que paga la lectura de un estudiante, por ejemplo). Mismo reparto que `pay`. Solo firma `payer`. |
+| `gift_batch(payer, reader, items) -> Split` | `pay_batch` como regalo: `payer` paga hasta 10 artículos y el acceso de todos queda a nombre de `reader` (la lista de lectura de un curso). Mismas reglas: sin repetidos, todo o nada, un `paid` por artículo con `reader`. Solo firma `payer`. *(v0.3.0)* |
+| `tip(payer, paper_id, publisher, amount) -> Split` | Propina a la editorial por un artículo, con el mismo reparto que una lectura. Emite `tipped`, **no** `paid`: no da acceso. Solo firma `payer`. *(v0.3.0)* |
+| `refund(publisher, reader, paper_id, amount)` | La editorial le devuelve `amount` a `reader` y queda el evento `refunded`. Solo firma la editorial. El contrato no guarda pagos, así que no comprueba el pago original; la comisión ya cobrada no vuelve, porque la tesorería no firma. *(v0.3.0)* |
 | `split(amount) -> Split` | El reparto que aplicaría `pay`, sin mover fondos. |
 | `config() -> Config` | La configuración fijada al desplegar. |
 
@@ -18,7 +23,10 @@ Cobra lecturas y las reparte en la misma transacción. El USDC va directo de la 
   - topics: `["paid", publisher, reader]`;
   - datos: `{ paper_id, payer, amount, fee }`.
   
-  Es el comprobante en la red de qué artículo se pagó y quién lo puede leer. En `pay_batch` la comisión se redondea por artículo, así que un paquete cobra lo mismo que los `pay` separados.
+  Es el comprobante en la red de qué artículo se pagó y quién lo puede leer. En `pay_batch` y `gift_batch` la comisión se redondea por artículo, así que un paquete cobra lo mismo que los `pay` separados.
+- **Evento `tipped`** (v0.3.0): topics `["tipped", publisher, payer]`; datos `{ paper_id, amount, fee }`.
+- **Evento `refunded`** (v0.3.0): topics `["refunded", publisher, reader]`; datos `{ paper_id, amount }`.
+- **Acceso:** la API solo da acceso por eventos `paid` (`paidReceipts` en `apps/api/src/services/splitter.service.ts`). Una propina o una devolución nunca abren un artículo.
 - **Quién valida qué:** el contrato garantiza el reparto. La API sigue decidiendo el precio y la editorial de cada artículo, y valida que el evento coincida antes de dar acceso.
 - **Errores:** `FeeTooHigh` (1), `InvalidAmount` (2), `InvalidPaperId` (3; vacío o de más de 64 bytes), `AmountOverflow` (4), `EmptyBatch` (5), `BatchTooLarge` (6), `DuplicatePaper` (7).
 
@@ -27,7 +35,7 @@ Cobra lecturas y las reparte en la misma transacción. El USDC va directo de la 
 Requiere Rust estable y el target `wasm32v1-none` (`rustup target add wasm32v1-none`).
 
 ```bash
-pnpm test:contracts            # cargo test: 21 pruebas con un SAC de USDC simulado
+pnpm test:contracts            # cargo test: 32 pruebas con un SAC de USDC simulado
 ```
 
 ### Compilar el WASM
@@ -41,6 +49,8 @@ cd contracts && stellar contract build
 ### Despliegue en testnet
 
 Datos completos en [`deployments/testnet.json`](deployments/testnet.json).
+
+> **v0.3.0** (`gift_batch`, `tip`, `refund`) está en el código, probada y compilada (WASM de 10,635 bytes), pero **todavía no se despliega**: la red y el sitio siguen en v0.2.0.
 
 | Dato | Valor |
 | --- | --- |
