@@ -2,8 +2,8 @@
 extern crate std;
 
 use super::{
-    Config, Error, Item, Paid, Refunded, Split, Splitter, SplitterClient, Tipped, MAX_BATCH_ITEMS,
-    MAX_FEE_BPS,
+    Config, Error, Item, Paid, Refunded, Share, Split, Splitter, SplitterClient, Tipped,
+    MAX_AUTHORS, MAX_BATCH_ITEMS, MAX_FEE_BPS,
 };
 use soroban_sdk::{
     testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Events as _},
@@ -72,6 +72,13 @@ impl Setup<'_> {
 
 fn paper(env: &Env) -> String {
     String::from_str(env, "crispr-nanomedicine-biotech")
+}
+
+fn share(account: &Address, bps: u32) -> Share {
+    Share {
+        account: account.clone(),
+        bps,
+    }
 }
 
 fn item(env: &Env, paper_id: &str, publisher: &Address, amount: i128) -> Item {
@@ -882,4 +889,197 @@ fn la_devolucion_rechaza_montos_e_ids_invalidos_y_no_pasa_del_saldo() {
         .is_err());
     assert_eq!(s.usdc.balance(&s.publisher), PRICE);
     assert_eq!(s.usdc.balance(&s.payer), 10 * PRICE);
+}
+
+// ---------- pay_authors ----------
+
+#[test]
+fn una_lectura_con_coautores_reparte_la_parte_de_la_editorial_segun_cada_autor() {
+    let s = setup();
+    let paper_id = paper(&s.env);
+    let (ana, beto, caro) = (
+        Address::generate(&s.env),
+        Address::generate(&s.env),
+        Address::generate(&s.env),
+    );
+    let authors = vec![
+        &s.env,
+        share(&ana, 6_000),
+        share(&beto, 3_000),
+        share(&caro, 1_000),
+    ];
+    let split = s
+        .splitter
+        .pay_authors(&s.payer, &paper_id, &authors, &PRICE);
+    let receipts = s.receipts();
+
+    assert_eq!(
+        split,
+        Split {
+            publisher: 4_900_000,
+            fee: 100_000
+        }
+    );
+    assert_eq!(s.usdc.balance(&ana), 2_940_000);
+    assert_eq!(s.usdc.balance(&beto), 1_470_000);
+    assert_eq!(s.usdc.balance(&caro), 490_000);
+    assert_eq!(s.usdc.balance(&s.treasury), 100_000);
+    assert_eq!(s.usdc.balance(&s.payer), 9 * PRICE);
+    assert_eq!(
+        s.usdc.balance(&s.splitter.address),
+        0,
+        "el contrato no guarda fondos"
+    );
+
+    // Un solo `paid`, a nombre del primer autor: da acceso a quien paga, igual que `pay`.
+    let expected = Paid {
+        publisher: ana,
+        reader: s.payer.clone(),
+        paper_id,
+        payer: s.payer.clone(),
+        amount: PRICE,
+        fee: 100_000,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.splitter.address)]);
+}
+
+#[test]
+fn el_residuo_de_los_coautores_va_al_primer_autor() {
+    let s = setup();
+    let (ana, beto, caro) = (
+        Address::generate(&s.env),
+        Address::generate(&s.env),
+        Address::generate(&s.env),
+    );
+    let authors = vec![
+        &s.env,
+        share(&ana, 3_334),
+        share(&beto, 3_333),
+        share(&caro, 3_333),
+    ];
+    // 101 stroops: comisión 2 y 99 para los autores. 99 × 33.33% = 32.99 → 32 cada uno de los
+    // dos últimos; el primero recibe 33 más el residuo de 2: 35. No se pierde ningún stroop.
+    let split = s
+        .splitter
+        .pay_authors(&s.payer, &paper(&s.env), &authors, &101);
+
+    assert_eq!(
+        split,
+        Split {
+            publisher: 99,
+            fee: 2
+        }
+    );
+    assert_eq!(s.usdc.balance(&ana), 35);
+    assert_eq!(s.usdc.balance(&beto), 32);
+    assert_eq!(s.usdc.balance(&caro), 32);
+    assert_eq!(s.usdc.balance(&s.treasury), 2);
+    assert_eq!(s.usdc.balance(&s.payer), 10 * PRICE - 101);
+}
+
+#[test]
+fn la_lectura_con_coautores_solo_pide_la_firma_de_quien_paga() {
+    let s = setup();
+    let paper_id = paper(&s.env);
+    let (ana, beto) = (Address::generate(&s.env), Address::generate(&s.env));
+    let authors = vec![&s.env, share(&ana, 7_500), share(&beto, 2_500)];
+    s.splitter
+        .pay_authors(&s.payer, &paper_id, &authors, &PRICE);
+
+    assert_eq!(
+        s.env.auths(),
+        std::vec![(
+            s.payer.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.splitter.address.clone(),
+                    Symbol::new(&s.env, "pay_authors"),
+                    (s.payer.clone(), paper_id, authors, PRICE).into_val(&s.env),
+                )),
+                sub_invocations: std::vec![
+                    s.transfer_auth(&s.payer, &ana, 3_675_000),
+                    s.transfer_auth(&s.payer, &beto, 1_225_000),
+                    s.transfer_auth(&s.payer, &s.treasury, 100_000),
+                ],
+            }
+        )]
+    );
+}
+
+#[test]
+fn los_coautores_rechazan_partes_invalidas_y_no_mueven_nada() {
+    let s = setup();
+    let paper_id = paper(&s.env);
+    let (ana, beto) = (Address::generate(&s.env), Address::generate(&s.env));
+    let invalid = |authors: Vec<Share>| {
+        assert_eq!(
+            s.splitter
+                .try_pay_authors(&s.payer, &paper_id, &authors, &PRICE),
+            Err(Ok(Error::InvalidShares.into()))
+        );
+    };
+
+    invalid(Vec::new(&s.env));
+    invalid(vec![&s.env, share(&ana, 10_000), share(&beto, 0)]);
+    invalid(vec![&s.env, share(&ana, 5_000), share(&beto, 4_999)]);
+    invalid(vec![&s.env, share(&ana, 5_000), share(&beto, 5_001)]);
+    invalid(vec![&s.env, share(&ana, 5_000), share(&ana, 5_000)]);
+    // u32::MAX + 10 001 da 10 000 si se suma sin revisar cada parte.
+    invalid(vec![&s.env, share(&ana, u32::MAX), share(&beto, 10_001)]);
+
+    let mut crowd: Vec<Share> = Vec::new(&s.env);
+    for _ in 0..=MAX_AUTHORS {
+        crowd.push_back(share(&Address::generate(&s.env), 1));
+    }
+    assert_eq!(
+        s.splitter
+            .try_pay_authors(&s.payer, &paper_id, &crowd, &PRICE),
+        Err(Ok(Error::TooManyAuthors.into()))
+    );
+
+    let ok = vec![&s.env, share(&ana, 5_000), share(&beto, 5_000)];
+    assert_eq!(
+        s.splitter.try_pay_authors(&s.payer, &paper_id, &ok, &0),
+        Err(Ok(Error::InvalidAmount.into()))
+    );
+    assert_eq!(
+        s.splitter
+            .try_pay_authors(&s.payer, &String::from_str(&s.env, ""), &ok, &PRICE),
+        Err(Ok(Error::InvalidPaperId.into()))
+    );
+
+    assert_eq!(s.usdc.balance(&s.payer), 10 * PRICE);
+    assert_eq!(s.usdc.balance(&ana), 0);
+    assert_eq!(s.usdc.balance(&s.treasury), 0);
+}
+
+#[test]
+fn la_lectura_con_coautores_acepta_el_maximo_de_autores() {
+    let s = setup();
+    let mut authors: Vec<Share> = Vec::new(&s.env);
+    for _ in 0..MAX_AUTHORS {
+        authors.push_back(share(&Address::generate(&s.env), 1_000));
+    }
+    s.splitter
+        .pay_authors(&s.payer, &paper(&s.env), &authors, &PRICE);
+
+    for author in authors.iter() {
+        assert_eq!(s.usdc.balance(&author.account), 490_000);
+    }
+    assert_eq!(s.usdc.balance(&s.treasury), 100_000);
+}
+
+#[test]
+fn sin_la_firma_de_quien_paga_no_hay_lectura_con_coautores() {
+    let s = setup();
+    let ana = Address::generate(&s.env);
+    let authors = vec![&s.env, share(&ana, 10_000)];
+    s.env.set_auths(&[]);
+
+    assert!(s
+        .splitter
+        .try_pay_authors(&s.payer, &paper(&s.env), &authors, &PRICE)
+        .is_err());
+    assert_eq!(s.usdc.balance(&s.payer), 10 * PRICE);
+    assert_eq!(s.usdc.balance(&ana), 0);
 }

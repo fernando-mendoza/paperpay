@@ -6,11 +6,12 @@
 //! de quien paga a las cuentas de destino. Cada artículo pagado emite un evento `paid` con su id
 //! y con quién lo puede leer, que queda en la red como comprobante.
 //!
-//! Cuatro formas de pagar una lectura, con la misma regla de reparto:
+//! Cinco formas de pagar una lectura, con la misma comisión:
 //! - `pay`: un artículo, para quien paga.
 //! - `pay_batch`: varios artículos (hasta `MAX_BATCH_ITEMS`) con una sola firma; todo o nada.
 //! - `gift`: un artículo que paga una cuenta y lee otra.
 //! - `gift_batch`: varios artículos que paga una cuenta y lee otra (una lista de lectura).
+//! - `pay_authors`: un artículo cuya parte de editorial se reparte entre coautores.
 //!
 //! Y dos movimientos que no dan acceso (emiten su propio evento, nunca `paid`):
 //! - `tip`: una propina a la editorial por un artículo, con el mismo reparto.
@@ -32,6 +33,8 @@ pub const MAX_FEE_BPS: u32 = 1_000;
 pub const MAX_PAPER_ID_LEN: u32 = 64;
 /// Artículos por `pay_batch`: acota el costo de una transacción.
 pub const MAX_BATCH_ITEMS: u32 = 10;
+/// Coautores por `pay_authors`: acota el costo de una transacción.
+pub const MAX_AUTHORS: u32 = 10;
 
 // La instancia vive mientras haya pagos: cada cobro extiende su TTL a ~30 días.
 const DAY_IN_LEDGERS: u32 = 17_280;
@@ -56,6 +59,11 @@ pub enum Error {
     BatchTooLarge = 6,
     /// `pay_batch` con el mismo artículo dos veces.
     DuplicatePaper = 7,
+    /// `pay_authors` con partes inválidas: lista vacía, una parte en 0 o de más del 100%,
+    /// partes que no suman 100% o un autor repetido.
+    InvalidShares = 8,
+    /// `pay_authors` con más de `MAX_AUTHORS` coautores.
+    TooManyAuthors = 9,
 }
 
 #[contracttype]
@@ -87,6 +95,15 @@ pub struct Item {
     pub amount: i128,
 }
 
+/// Un coautor dentro de `pay_authors`: su cuenta y su parte de lo que le toca a la editorial,
+/// en puntos base (2 500 = 25%).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Share {
+    pub account: Address,
+    pub bps: u32,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -95,6 +112,7 @@ enum DataKey {
 
 /// Comprobante de un artículo pagado. Topics: `["paid", publisher, reader]`.
 /// `reader` es quien obtiene el acceso: `payer` en `pay` y `pay_batch`, otra cuenta en `gift`.
+/// En `pay_authors`, `publisher` es el primer autor de la lista (el de correspondencia).
 #[contractevent(topics = ["paid"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Paid {
@@ -194,6 +212,61 @@ impl Splitter {
     pub fn gift_batch(env: Env, payer: Address, reader: Address, items: Vec<Item>) -> Split {
         payer.require_auth();
         charge_batch(&env, &payer, &reader, items)
+    }
+
+    /// Cobra un artículo a `payer` y reparte la parte de la editorial entre coautores, según la
+    /// parte de cada uno (`bps`; entre todos suman 10 000). La tesorería cobra su comisión como en
+    /// `pay`. Cada parte se redondea hacia abajo y el residuo va al primer autor: no se pierde
+    /// ningún stroop. Emite un `paid` a nombre del primer autor, así que da acceso igual que `pay`.
+    /// Devuelve el reparto total.
+    pub fn pay_authors(
+        env: Env,
+        payer: Address,
+        paper_id: String,
+        authors: Vec<Share>,
+        amount: i128,
+    ) -> Split {
+        payer.require_auth();
+        validate_paper_id(&env, &paper_id);
+        validate_shares(&env, &authors);
+        let config = read_config(&env);
+        let split = compute_split(&env, amount, config.fee_bps);
+
+        let mut parts: Vec<i128> = Vec::new(&env);
+        let mut assigned: i128 = 0;
+        for share in authors.iter() {
+            let part = match split.publisher.checked_mul(share.bps as i128) {
+                Some(scaled) => scaled / BPS_DENOMINATOR,
+                None => panic_with_error!(&env, Error::AmountOverflow),
+            };
+            // Cada parte es un piso de `publisher × bps / 10 000`: la suma nunca pasa de `publisher`.
+            assigned += part;
+            parts.push_back(part);
+        }
+        parts.set(0, parts.get_unchecked(0) + (split.publisher - assigned));
+
+        let usdc = token::Client::new(&env, &config.token);
+        for (share, part) in authors.iter().zip(parts.iter()) {
+            if part > 0 {
+                usdc.transfer(&payer, &share.account, &part);
+            }
+        }
+        if split.fee > 0 {
+            usdc.transfer(&payer, &config.treasury, &split.fee);
+        }
+        extend_instance_ttl(&env);
+
+        Paid {
+            publisher: authors.get_unchecked(0).account,
+            reader: payer.clone(),
+            paper_id,
+            payer,
+            amount,
+            fee: split.fee,
+        }
+        .publish(&env);
+
+        split
     }
 
     /// Propina de `payer` a la editorial por un artículo, con el mismo reparto que una lectura.
@@ -370,6 +443,33 @@ fn extend_instance_ttl(env: &Env) {
 fn validate_paper_id(env: &Env, paper_id: &String) {
     if paper_id.is_empty() || paper_id.len() > MAX_PAPER_ID_LEN {
         panic_with_error!(env, Error::InvalidPaperId);
+    }
+}
+
+/// Partes de `pay_authors`: de 1 a `MAX_AUTHORS` autores distintos, cada parte entre 1 y 10 000
+/// puntos base, y entre todas exactamente 10 000 (100%).
+fn validate_shares(env: &Env, authors: &Vec<Share>) {
+    if authors.len() > MAX_AUTHORS {
+        panic_with_error!(env, Error::TooManyAuthors);
+    }
+    if authors.is_empty() {
+        panic_with_error!(env, Error::InvalidShares);
+    }
+    let mut seen: Map<Address, bool> = Map::new(env);
+    let mut total: u32 = 0;
+    for share in authors.iter() {
+        if share.bps == 0 || share.bps as i128 > BPS_DENOMINATOR {
+            panic_with_error!(env, Error::InvalidShares);
+        }
+        if seen.contains_key(share.account.clone()) {
+            panic_with_error!(env, Error::InvalidShares);
+        }
+        seen.set(share.account, true);
+        // Hasta `MAX_AUTHORS` partes de 10 000 como máximo: no se desborda.
+        total += share.bps;
+    }
+    if total as i128 != BPS_DENOMINATOR {
+        panic_with_error!(env, Error::InvalidShares);
     }
 }
 
