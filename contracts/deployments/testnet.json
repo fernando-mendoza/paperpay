@@ -4,34 +4,29 @@
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "productionContractId": "CAIMQYXIXNYSAXIRQRAAG5ZTWP26476JX4SVAMDAOXRKLRCADUDKHOR5",
   "splitter": {
-    "version": "0.3.0",
-    "contractId": "CCQRUTXBSWOSOHIZIEJ637HIMJZ6CZN5ZYSMTPGBTSMFAEXY6O5QHEQD",
-    "wasmSha256": "2af32e3a2017dedc6105c13e161a4a04bdad328c0ee271edbb2bad1d712318fb",
-    "source": "contracts/splitter @ c47ade5, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+    "version": "0.4.0",
+    "contractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
+    "wasmSha256": "b97fffc81b053f597aaff0cb39b69a21005835ba412b8d8cf51681db1a6135aa",
+    "source": "contracts/splitter @ 57b3a74, soroban-sdk 29.0.1, stellar-cli 30.0.1",
     "constructor": {
       "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
       "fee_bps": 200
     },
-    "uploadTx": "82166be846bc1a8fd7b62a99fee1870d0820edbb13cce5c28889c75cb7ebb07a",
-    "deployTx": "ae4434b36c89e6159c3072c4c293debc0e186420f80c0dcc9d86173148276974",
-    "deployedAt": "2026-11-25T10:58:53Z",
+    "uploadTx": "845d38825ee93b8dc4ff247e2571a9dd5ef6394709a07d2cbf50ea9642f51aa8",
+    "deployTx": "3ff42545e1728924f7bbe516f2aec2a6f5443e183f3f013d3a747382abfc5bcf",
+    "deployedAt": "2026-11-25T19:05:58Z",
     "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.2.0",
     "usage": {
-      "gift_batch": {
-        "tx": "70d309192251ee041afadbbd51cd938c0fcab28fec3b258560241204544d07f9",
-        "what": "crispr-nanomedicine-biotech y gravitational-lensing-dark-matter pagados por GDUJ436M6AJMGEDV23NLIEFMH7DVA7FSC33CC3BPKVWU4SPO4KGSXKLF para GC7E5MVMEM6W37EXQNQYEO5GA4DSPOWPK5S34OLXK5U5RK4DXYWZVQWZ (cuenta sin crear en la red)",
-        "result": "9800000 a la editorial demo en una transferencia y 200000 a la tesorería; 2 eventos paid con reader = el estudiante"
+      "pay_authors": {
+        "tx": "23a68ac1be070324569dcb1a39b0e9ff1a80283a4809e63112ca0a3e648a4867",
+        "what": "0.50 USDC por crispr-nanomedicine-biotech de GB2PFD2WJ3PXS27HEM6UV2KIKANNCEGIR67HSHLGC67YV5G7QJW6D7OF, con 3 coautores: la editorial demo (50%), GD3ACPRMSXCN4O75NRZJES6EUIUQL5AYNP3QO2L4JICZ4UABWC6LUU43 (30%) y GDPDEFI3IVSEMVZWBY34PIFWSTG7UTWWTVBFA3GMGQHMUHE3QRSDJDXI (20%)",
+        "result": "2450000 a la editorial demo, 1470000 y 980000 a los coautores, 100000 a la tesorería; un evento paid con publisher = la editorial demo (primer autor)"
       },
-      "tip": {
-        "tx": "36e14727c832a99a448d80cece792899aa117599a5b301eadde96722434ed5d5",
-        "what": "propina de 0.50 USDC por autonomous-ai-micropayments a la editorial demo",
-        "result": "4900000 a la editorial demo y 100000 a la tesorería; evento tipped, ningún paid"
-      },
-      "refund": {
-        "tx": "3bc229057ea0312ea574dfee50cde01280a7fb647fc58cc5a8d2d37e1c0910db",
-        "what": "la editorial desechable GBEGJQG4F5USSYCY7HG6VEYC46J4ZUEJ74QH56M5O6YOF2AMCJICGNCS devuelve su parte (0.49) del pago a10772f8faa8ab883fba19824caadc69412378b92396d6b6028c30745b9dea3e por stablecoins-emerging-markets",
-        "result": "4900000 de la editorial al lector; evento refunded; la comisión (100000) se queda en la tesorería"
+      "pay_ref": {
+        "tx": "ab2ca6914b583415bf821e3223b651a4ab2d73863c827eb0634fb48752f7aa22",
+        "what": "0.50 USDC por autonomous-ai-micropayments a la editorial demo, recomendado por GBLQWX6QQS3HNRKOQVM3BI5KQMWMSE4GYSCSY2DJ7QE5OLUQQNCERTDF",
+        "result": "4900000 a la editorial demo, 50000 a quien recomendó y 50000 a la tesorería; eventos paid (fee 100000) y referred (reward 50000)"
       }
     }
   },
@@ -40,6 +35,38 @@
     "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."
   },
   "previous": [
+    {
+      "version": "0.3.0",
+      "contractId": "CCQRUTXBSWOSOHIZIEJ637HIMJZ6CZN5ZYSMTPGBTSMFAEXY6O5QHEQD",
+      "wasmSha256": "2af32e3a2017dedc6105c13e161a4a04bdad328c0ee271edbb2bad1d712318fb",
+      "source": "contracts/splitter @ c47ade5, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200
+      },
+      "uploadTx": "82166be846bc1a8fd7b62a99fee1870d0820edbb13cce5c28889c75cb7ebb07a",
+      "deployTx": "ae4434b36c89e6159c3072c4c293debc0e186420f80c0dcc9d86173148276974",
+      "deployedAt": "2026-11-25T10:58:53Z",
+      "status": "desplegado en testnet, sin usar en el sitio; reemplazado por v0.4.0 (mismas funciones más pay_authors y pay_ref)",
+      "usage": {
+        "gift_batch": {
+          "tx": "70d309192251ee041afadbbd51cd938c0fcab28fec3b258560241204544d07f9",
+          "what": "crispr-nanomedicine-biotech y gravitational-lensing-dark-matter pagados por GDUJ436M6AJMGEDV23NLIEFMH7DVA7FSC33CC3BPKVWU4SPO4KGSXKLF para GC7E5MVMEM6W37EXQNQYEO5GA4DSPOWPK5S34OLXK5U5RK4DXYWZVQWZ (cuenta sin crear en la red)",
+          "result": "9800000 a la editorial demo en una transferencia y 200000 a la tesorería; 2 eventos paid con reader = el estudiante"
+        },
+        "tip": {
+          "tx": "36e14727c832a99a448d80cece792899aa117599a5b301eadde96722434ed5d5",
+          "what": "propina de 0.50 USDC por autonomous-ai-micropayments a la editorial demo",
+          "result": "4900000 a la editorial demo y 100000 a la tesorería; evento tipped, ningún paid"
+        },
+        "refund": {
+          "tx": "3bc229057ea0312ea574dfee50cde01280a7fb647fc58cc5a8d2d37e1c0910db",
+          "what": "la editorial desechable GBEGJQG4F5USSYCY7HG6VEYC46J4ZUEJ74QH56M5O6YOF2AMCJICGNCS devuelve su parte (0.49) del pago a10772f8faa8ab883fba19824caadc69412378b92396d6b6028c30745b9dea3e por stablecoins-emerging-markets",
+          "result": "4900000 de la editorial al lector; evento refunded; la comisión (100000) se queda en la tesorería"
+        }
+      }
+    },
     {
       "version": "0.2.0",
       "contractId": "CAIMQYXIXNYSAXIRQRAAG5ZTWP26476JX4SVAMDAOXRKLRCADUDKHOR5",
