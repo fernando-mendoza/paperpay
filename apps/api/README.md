@@ -55,10 +55,11 @@ La API consulta Horizon y exige que la transacción haya tenido éxito, sea reci
 
 ### Recibos persistentes
 
-Cada pago aceptado deja un recibo en SQLite (`node:sqlite`, incluido en Node 22.13+; sin dependencias ni servidor aparte): hash de la transacción como clave primaria, artículo, wallet que paga, quien recibe el acceso, método, monto y hora del ledger. Un archivo de la versión 1 (sin `reader`) se migra solo al arrancar: sus recibos quedan a nombre de quien pagó. Eso liga el pago a un artículo de forma permanente y sobrevive a reinicios y despliegues:
+Cada pago aceptado deja un recibo en SQLite (`node:sqlite`, incluido en Node 22.13+; sin dependencias ni servidor aparte): hash de la transacción como clave primaria, artículo, wallet que paga, quien recibe el acceso, método, monto y hora del ledger. Un archivo de la versión 1 (sin `reader`) se migra solo al arrancar: sus recibos quedan a nombre de quien pagó. Ese paso corre en cada arranque, así que los recibos que escriba una versión anterior tras un rollback también se completan. Eso liga el pago a un artículo de forma permanente y sobrevive a reinicios y despliegues:
 
 - **Pollar:** es el anti-replay. Un hash ya registrado para otro artículo o wallet responde `409` sin consultar Horizon.
 - **Contrato y pago clásico:** se registran al liquidar. La prueba pública sigue en la red (en el contrato, el evento `paid` con el id del artículo).
+- **Regalo:** se registra con `payer` y `reader` al confirmar; es lo que permite reclamarlo con el enlace (ver "Regalo por enlace").
 - Si escribir el recibo falla después de cobrar, se registra el error y el lector recibe su artículo igual.
 
 El archivo es `RECEIPTS_DB_PATH`; si no se define, `$STATE_DIRECTORY/receipts.db` (systemd lo fija con `StateDirectory=`) y, en local, `apps/api/.data/receipts.db`. En pruebas vive en memoria. En producción la API no arranca con `:memory:`. Node 24 imprime al arrancar `ExperimentalWarning: SQLite is an experimental feature`: es un aviso, no un error. Una sola instancia: varias necesitarían un almacén compartido.
@@ -117,7 +118,7 @@ En producción son obligatorios un `JWT_SECRET` aleatorio de al menos 32 caracte
 
 ## Pruebas
 
-`pnpm test` ejecuta 122 pruebas locales. Incluyen la validación simulada de respuestas de Horizon para el flujo Pollar (monto exacto, intento de reutilizar un hash, también después de un reinicio y fuera de la ventana), los recibos en SQLite (incluido cerrar y reabrir el archivo y migrar uno v1), el pago por contrato y el regalo (sobre `gift`, reclamo con la firma de la llave, firma vencida o de otra llave, búsqueda en la red). Para el contrato, la validación del sobre firmado, el envío y el cobro con un RPC simulado, el endpoint `/prepare` y la lectura de eventos `paid` usan eventos reales de testnet (`test/fixtures`). Ninguna de estas pruebas hace un pago externo.
+`pnpm test` ejecuta 123 pruebas locales. Incluyen la validación simulada de respuestas de Horizon para el flujo Pollar (monto exacto, intento de reutilizar un hash, también después de un reinicio y fuera de la ventana), los recibos en SQLite (incluido cerrar y reabrir el archivo, migrar uno v1 y volver de un rollback), el pago por contrato y el regalo (sobre `gift`, reclamo con la firma de la llave, firma vencida o de otra llave, búsqueda en la red). Para el contrato, la validación del sobre firmado, el envío y el cobro con un RPC simulado, el endpoint `/prepare` y la lectura de eventos `paid` usan eventos reales de testnet (`test/fixtures`). Ninguna de estas pruebas hace un pago externo.
 
 `pnpm --filter @paperpay/api test:splitter` (con `SPLITTER_CONTRACT_ID`, `SPLITTER_PUBLISHER_ADDRESS` y `STELLAR_TREASURY_PUBLIC_KEY`) **sí paga en testnet**:
 - crea un lector desechable con Friendbot y 1 USDC comprado en el DEX;

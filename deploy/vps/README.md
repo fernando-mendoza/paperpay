@@ -52,5 +52,6 @@ sudo systemctl restart paperpay-api
 
 ## Límites conocidos
 
-- Los recibos viven en `/var/lib/paperpay/receipts.db` (SQLite; con `DynamicUser` el directorio real es `/var/lib/private/paperpay`). Sobreviven a reinicios, despliegues y rollbacks. **No hay respaldo fuera de la VPS:** si el disco se pierde, se pierden los recibos de Pollar; los del contrato se pueden reconstruir desde la red (evento `paid`).
+- Los recibos viven en `/var/lib/paperpay/receipts.db` (SQLite; con `DynamicUser` el directorio real es `/var/lib/private/paperpay`). Sobreviven a reinicios, despliegues y rollbacks. **No hay respaldo fuera de la VPS:** si el disco se pierde, se pierden los recibos de Pollar; los del contrato se pueden reconstruir desde la red (evento `paid`). Los enlaces de regalo dependen de su recibo: si falta, la API lo busca en el RPC, que solo retiene unos 7 días, así que un regalo más viejo dejaría de abrirse.
+- El esquema va en `PRAGMA user_version` (hoy 2: columna `reader`). La API lo migra sola al arrancar. Un rollback a una versión anterior sigue funcionando con el archivo nuevo; los recibos que escriba sin `reader` se completan con `payer` en el siguiente arranque de una versión nueva. Ese arreglo es posterior al deploy del 24 de noviembre (`82f8418`) y se activa con el próximo deploy.
 - Una sola instancia. Para escalar hace falta un almacén compartido.

@@ -18,7 +18,7 @@ El catálogo contiene **52 artículos ficticios de demostración** en 10 discipl
 | Pago con **Pollar** (v2) | Implementado. Login con Google o email; Pollar firma y envía el pago y la API lo verifica por hash en Horizon (`POST /api/papers/:id/verify`). Requiere la publishable key de Pollar. |
 | Selector de wallet | Implementado. Con la key de Pollar configurada, el paywall ofrece Pollar y Freighter. |
 | Acceso tras el pago | JWT de 24 horas por artículo, guardado en el navegador. El catálogo marca los artículos con acceso vigente. |
-| Recibos persistentes | Implementado. Cada pago aceptado (Pollar, contrato o clásico) queda en SQLite ligado a su artículo y wallet, sobrevive a reinicios y se consulta en `GET /api/receipts/:txHash` con enlace a la transacción. En la API de la VPS desde el 24 de noviembre de 2026. |
+| Recibos persistentes | Implementado. Cada pago aceptado (Pollar, contrato o clásico) queda en SQLite ligado a su artículo, a la wallet que pagó y a quien recibe el acceso (distinto en un regalo), sobrevive a reinicios y se consulta en `GET /api/receipts/:txHash` con enlace a la transacción. En la API de la VPS desde el 24 de noviembre de 2026. |
 | Regalar un artículo | Implementado y activo en [paperpay.blockchains.tf](https://paperpay.blockchains.tf/) desde el 24 de noviembre de 2026. Con Freighter, el lector paga por el contrato (`gift`) y comparte un enlace; quien lo abre lee el artículo sin wallet. Probado de punta a punta contra el sitio publicado. |
 | Panel editorial (`/editorial`) | Lee de Horizon los pagos que llegan a la tesorería. En los pagos por contrato muestra el reparto 98/2 que se hizo en la red; en las transferencias directas (pago clásico y Pollar) el 98/2 es un cálculo visual. |
 | Pagos simulados (`mock`) | Disponibles para demos locales; no mueven fondos. |
@@ -63,7 +63,7 @@ curl -i http://localhost:4000/api/papers/autonomous-ai-micropayments
 ## Verificación
 
 ```bash
-pnpm test                               # 122 pruebas de la API y 37 de la web
+pnpm test                               # 123 pruebas de la API y 37 de la web
 pnpm build:shared && pnpm build:api
 pnpm --filter @paperpay/web typecheck
 pnpm build
@@ -75,7 +75,9 @@ Las pruebas cubren el catálogo, el 402, JWT, el modo demo y la verificación po
 
 La API se niega a arrancar en `NODE_ENV=production` sin un `JWT_SECRET` de al menos 32 caracteres, una `STELLAR_TREASURY_PUBLIC_KEY` válida y, si no usa `SELF_SETTLE`, una `OPENZEPPELIN_API_KEY`. Genera el `JWT_SECRET` de forma aleatoria; los valores de los archivos de ejemplo y de la historia del repositorio son públicos y no deben usarse. La clave de tesorería de ejemplo no es una cuenta real. `DEMO_PAYMENTS` se desactiva siempre en producción.
 
-Cada pago aceptado deja un recibo en SQLite (hash → artículo y wallet) que sobrevive a reinicios; es el anti-replay de Pollar y se consulta en `GET /api/receipts/:txHash`. Es una sola instancia sin respaldo fuera de la VPS: antes de mainnet hace falta respaldo y, para escalar, un almacén compartido.
+Cada pago aceptado deja un recibo en SQLite (hash → artículo, wallet que paga y quien lee) que sobrevive a reinicios; es el anti-replay de Pollar, la base para reclamar regalos y se consulta en `GET /api/receipts/:txHash`. Es una sola instancia sin respaldo fuera de la VPS: antes de mainnet hace falta respaldo y, para escalar, un almacén compartido.
+
+Un enlace de regalo es la llave del regalo: quien lo tiene abre el artículo, y la API no puede saber quién lo compartió. El hash y la cuenta que recibe son públicos en la red, pero sin la llave del enlace la API rechaza el reclamo.
 
 ## Documentación
 

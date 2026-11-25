@@ -16,6 +16,8 @@ Uno paga por el contrato (`gift`) y otro lee con un enlace, sin wallet. Detalle 
 
 - Producción (API `82f8418` en la VPS y Pages `e05744d8`, 24 de noviembre): al arrancar, la API migró el archivo de recibos a v2 (el recibo existente quedó con `reader = payer`). El `402` publicado anuncia `giftUrl`, `/regalo` responde con `noindex` y `no-referrer`. `test:e2e` contra [paperpay.blockchains.tf](https://paperpay.blockchains.tf/): regalo [`3fe887ee…`](https://stellar.expert/explorer/testnet/tx/3fe887ee932f4e260267dc80b4a2a7c5d31ecf1d6b776a7eea7bc6931d517f7e) (5.2 s, abierto con el enlace, llave ajena rechazada) y pago normal [`5e8b4c03…`](https://stellar.expert/explorer/testnet/tx/5e8b4c03a526be339338976f66861a50886730622bd280fe9283f16e69c22e8b) (4.7 s). El recibo publicado distingue los dos.
 
+- Después del despliegue (fork, sin desplegar; solo importa tras un rollback): la migración de recibos completa `reader` en cada arranque. Antes, si la API volvía a `4beee9e` y luego a una versión nueva, los recibos escritos entretanto quedaban sin `reader`. Prueba nueva (123 en total); sin el arreglo, 2 fallan.
+
 **No comprobado:** el lado de quien regala con la extensión Freighter real (la firma se simuló con la llave del lector).
 
 ## Revisión del 24 de noviembre de 2026: recibos persistentes en producción
@@ -84,13 +86,19 @@ Horizon confirma transferencias reales en **Testnet**. Su historial no demuestra
 
 El build del frontend pasa con webpack, pero emite advertencias al empaquetar `sodium-native` desde el SDK de Stellar. No se ejecutó una compra nueva en navegador durante esta revisión.
 
-## Pendiente (actualizado al 27 de septiembre)
+## Pendiente (actualizado al 24 de noviembre)
 
-1. Automatizar o registrar una prueba que vincule la firma (Freighter o Pollar), el hash confirmado, la respuesta `200`, el artículo desbloqueado y el reingreso con JWT.
-2. Guardar los hashes verificados en un almacén persistente, con restricción única, antes de pasar a mainnet.
-3. Vincular el pago al artículo en un comprobante verificable y evitar que el panel editorial equipare cualquier transferencia USDC con una lectura.
-4. Verificar el facilitador OpenZeppelin por separado si se quiere ofrecer ese modo. La ruta actual confirmada usa `SELF_SETTLE`, que espera una transacción clásica completa.
-5. Reemplazar los artículos ficticios por material con licencia de distribución.
-6. Probar errores de red después del envío: el pago puede quedar confirmado aunque el cliente no reciba la respuesta. El usuario debe consultar su wallet antes de reintentar.
+Hecho desde la lista del 27 de septiembre:
 
-El panel editorial calcula 98%/2% sobre los pagos entrantes, pero el código no realiza ese reparto en el ledger.
+- **Prueba de punta a punta** (firma → hash → `200` → artículo → reingreso con JWT): `test:e2e` para el pago por contrato y el regalo, también contra el sitio publicado. El pago clásico y Pollar no la tienen.
+- **Almacén persistente con restricción única:** recibos en SQLite con el hash como clave primaria (en producción desde el 24 de noviembre).
+- **Pago ligado al artículo en un comprobante verificable:** el evento `paid` del contrato lleva el artículo y el lector; el panel separa lecturas por contrato de transferencias directas y el reparto 98/2 ocurre en el ledger.
+- **Errores de red después del envío** (pago por contrato y regalo): el sitio guarda el sobre firmado y lo reenvía; con el comprobante de `/prepare`, el acceso se recupera hasta 24 h después.
+
+Sigue pendiente:
+
+1. Respaldo de los recibos fuera de la VPS (pospuesto por decisión del owner). Sin él, perder el disco pierde los recibos de Pollar y los regalos de más de ~7 días.
+2. Un pago real de Pollar con el recibo en disco, y regalar con la extensión Freighter real.
+3. Verificar el facilitador OpenZeppelin si se quiere ofrecer ese modo.
+4. Reemplazar los artículos ficticios por material con licencia de distribución (entregable 3 del SOW, con mainnet).
+5. Pollar y el sitio de Vercel siguen con transferencias directas: su 98/2 en el panel es un cálculo visual.

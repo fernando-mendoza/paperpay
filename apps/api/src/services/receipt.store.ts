@@ -106,18 +106,20 @@ export class ReceiptStore {
     return this.get(txHash) as Receipt;
   }
 
-  /** v1 → v2: columna `reader`; los recibos anteriores son de quien pagó. */
+  /**
+   * v1 → v2: columna `reader`; los recibos anteriores son de quien pagó. El `UPDATE` corre en cada
+   * arranque: si un rollback a la v1 escribió recibos sin `reader`, al volver quedan a nombre de
+   * quien pagó.
+   */
   private migrate(): void {
     const columns = this.db.prepare('PRAGMA table_info(receipts)').all() as { name: string }[];
-    if (!columns.some((c) => c.name === 'reader')) {
-      this.db.exec(`
-        BEGIN;
-        ALTER TABLE receipts ADD COLUMN reader TEXT;
-        UPDATE receipts SET reader = payer WHERE reader IS NULL;
-        COMMIT;
-      `);
-    }
-    this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    this.db.exec(`
+      BEGIN;
+      ${columns.some((c) => c.name === 'reader') ? '' : 'ALTER TABLE receipts ADD COLUMN reader TEXT;'}
+      UPDATE receipts SET reader = payer WHERE reader IS NULL;
+      PRAGMA user_version = ${SCHEMA_VERSION};
+      COMMIT;
+    `);
   }
 
   public count(): number {

@@ -86,6 +86,24 @@ describe('ReceiptStore', () => {
     again.close();
   });
 
+  it('después de un rollback a la v1, los recibos que escribió sin reader quedan a nombre de quien pagó', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'paperpay-recibos-rollback-'));
+    dirs.push(dir);
+    const file = path.join(dir, 'receipts.db');
+    new ReceiptStore(file).close(); // archivo ya en v2
+    // La v1 inserta sin nombrar la columna reader (no la conoce) y baja user_version a 1.
+    const v1 = new DatabaseSync(file);
+    v1.prepare(
+      'INSERT INTO receipts (tx_hash, paper_id, payer, method, amount_stroops, settled_at, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    ).run(receipt.txHash, receipt.paperId, receipt.payer, receipt.method, receipt.amountStroops, receipt.settledAt, receipt.settledAt);
+    v1.exec('PRAGMA user_version = 1');
+    v1.close();
+
+    const store = new ReceiptStore(file);
+    expect(store.get(receipt.txHash)).toEqual(receipt);
+    store.close();
+  });
+
   it('la tabla rechaza hashes que no miden 64 y métodos desconocidos', () => {
     const store = new ReceiptStore(':memory:');
     expect(() => store.record({ ...receipt, txHash: 'abc' })).toThrow();
