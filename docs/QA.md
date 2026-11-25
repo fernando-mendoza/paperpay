@@ -1,5 +1,19 @@
 # Estado de QA
 
+## Revisión del 25 de noviembre de 2026: intro y hero cinemático de `/lee` en el celular
+
+- Export estático (`STATIC_EXPORT=1`) servido en local; Puppeteer + Chrome con SwiftShader (WebGL).
+- Celular: 390×664 y 375×548 (alto de Safari con sus barras en un iPhone 15 y un SE), y 390×844.
+  - Escenas 1 → 2 → 3 en los puntos 0, 0.44 y 0.86 del scroll. En cada meseta la escena tiene opacidad 1 y las demás 0.
+  - Sin encimados entre el texto y el símbolo (caja del símbolo medida con su transform), y nada se sale de la pantalla.
+  - El símbolo aterriza de frente en cada escena. Con media vuelta quedaba de espaldas y la "P" se veía en espejo; se corrigió a vuelta completa.
+- Intro: sus animaciones CSS congeladas con `document.getAnimations()` en 0.3, 1.0 y 2.2 s. Se ve el símbolo con las letras subiendo, luego la cortina subiendo y al final el hero completo, con la capa en `visibility: hidden`.
+- Escritorio 1440×860: igual que antes. El símbolo queda con `transform: none`, las capas se separan con sus etiquetas y el texto cambia en 3 tramos.
+- Reduced-motion: sin intro y con el hero de una pantalla en la escena 1. Sin JS: el hero mide una pantalla y se ve el SVG.
+- Sin scroll horizontal. El único error de consola es el 404 de `/api`, porque el servidor local no tiene API y `HeroStats` falla en silencio.
+- `pnpm --filter @paperpay/web typecheck` limpio y `test` con 41 pruebas en verde.
+- **No probado:** un iPhone real (Safari con GPU real, scroll táctil con inercia).
+
 ## Revisión del 25 de noviembre de 2026: contrato v0.4.0 en testnet (`pay_authors`, `pay_ref`)
 
 - `pnpm test:contracts`: 43 pruebas (11 nuevas), `cargo clippy -D warnings` limpio. Mutaciones (15):
