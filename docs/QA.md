@@ -1,6 +1,6 @@
 # Estado de QA
 
-## Revisión del 24 de noviembre de 2026: regalo por enlace (sin desplegar)
+## Revisión del 24 de noviembre de 2026: regalo por enlace en producción
 
 Uno paga por el contrato (`gift`) y otro lee con un enlace, sin wallet. Detalle en `apps/api/README.md` ("Regalo por enlace").
 
@@ -14,7 +14,9 @@ Uno paga por el contrato (`gift`) y otro lee con un enlace, sin wallet. Detalle 
 
 - Navegador (Chrome headless contra `next dev` y la API local): el panel "Regálalo" aparece bajo la tarjeta de pago en escritorio y bajo la vista previa en móvil, sin scroll horizontal. Con un regalo real de testnet ([`c40d8910…`](https://stellar.expert/explorer/testnet/tx/c40d8910b86d3f79fc0bcbd9efe3121e1600bfc2a32d25ae19d4de68604834c2)), el enlace abierto en un navegador limpio mostró el título del artículo; "Abrir mi regalo" llevó al artículo completo con "Acceso activo". Un enlace roto muestra su aviso.
 
-**No comprobado:** el lado de quien regala con la extensión Freighter real (la firma se simuló con la llave del lector), y el flujo contra la API y el sitio publicados.
+- Producción (API `82f8418` en la VPS y Pages `e05744d8`, 24 de noviembre): al arrancar, la API migró el archivo de recibos a v2 (el recibo existente quedó con `reader = payer`). El `402` publicado anuncia `giftUrl`, `/regalo` responde con `noindex` y `no-referrer`. `test:e2e` contra [paperpay.blockchains.tf](https://paperpay.blockchains.tf/): regalo [`3fe887ee…`](https://stellar.expert/explorer/testnet/tx/3fe887ee932f4e260267dc80b4a2a7c5d31ecf1d6b776a7eea7bc6931d517f7e) (5.2 s, abierto con el enlace, llave ajena rechazada) y pago normal [`5e8b4c03…`](https://stellar.expert/explorer/testnet/tx/5e8b4c03a526be339338976f66861a50886730622bd280fe9283f16e69c22e8b) (4.7 s). El recibo publicado distingue los dos.
+
+**No comprobado:** el lado de quien regala con la extensión Freighter real (la firma se simuló con la llave del lector).
 
 ## Revisión del 24 de noviembre de 2026: recibos persistentes en producción
 

@@ -19,7 +19,7 @@ El catálogo contiene **52 artículos ficticios de demostración** en 10 discipl
 | Selector de wallet | Implementado. Con la key de Pollar configurada, el paywall ofrece Pollar y Freighter. |
 | Acceso tras el pago | JWT de 24 horas por artículo, guardado en el navegador. El catálogo marca los artículos con acceso vigente. |
 | Recibos persistentes | Implementado. Cada pago aceptado (Pollar, contrato o clásico) queda en SQLite ligado a su artículo y wallet, sobrevive a reinicios y se consulta en `GET /api/receipts/:txHash` con enlace a la transacción. En la API de la VPS desde el 24 de noviembre de 2026. |
-| Regalar un artículo | Implementado en el fork, **sin desplegar**. Con Freighter, el lector paga por el contrato (`gift`) y comparte un enlace; quien lo abre lee el artículo sin wallet. Probado en testnet contra una API local. |
+| Regalar un artículo | Implementado y activo en [paperpay.blockchains.tf](https://paperpay.blockchains.tf/) desde el 24 de noviembre de 2026. Con Freighter, el lector paga por el contrato (`gift`) y comparte un enlace; quien lo abre lee el artículo sin wallet. Probado de punta a punta contra el sitio publicado. |
 | Panel editorial (`/editorial`) | Lee de Horizon los pagos que llegan a la tesorería. En los pagos por contrato muestra el reparto 98/2 que se hizo en la red; en las transferencias directas (pago clásico y Pollar) el 98/2 es un cálculo visual. |
 | Pagos simulados (`mock`) | Disponibles para demos locales; no mueven fondos. |
 | Facilitador OpenZeppelin | Integración presente, sin liquidación real verificada. |
