@@ -12,6 +12,7 @@
 - Reduced-motion: sin intro y con el hero de una pantalla en la escena 1. Sin JS: el hero mide una pantalla y se ve el SVG.
 - Sin scroll horizontal. El único error de consola es el 404 de `/api`, porque el servidor local no tiene API y `HeroStats` falla en silencio.
 - `pnpm --filter @paperpay/web typecheck` limpio y `test` con 41 pruebas en verde.
+- **En producción** desde el 25-nov (Cloudflare Pages `021224ea`, código `9f3ffcc`). El mismo arnés contra `paperpay.blockchains.tf` da lo mismo que en local, y en 390×844 el dato en vivo ("60 lecturas liquidadas on-chain") entra sin encimarse. El único error de consola es el beacon de `cloudflareinsights` (CA de la máquina de pruebas, no del sitio). Rollback: `9c422ea6`.
 - **No probado:** un iPhone real (Safari con GPU real, scroll táctil con inercia).
 
 ## Revisión del 25 de noviembre de 2026: contrato v0.4.0 en testnet (`pay_authors`, `pay_ref`)
