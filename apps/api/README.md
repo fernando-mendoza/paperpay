@@ -28,8 +28,10 @@ La API corre en una VPS con systemd y Caddy, detrás de Cloudflare: `https://pap
 | `GET /api/papers/:id` con pago aceptado | `200`: `{ paper, accessToken, txHash }` y `payment-response` |
 | `GET /api/papers/:id` con `Authorization: Bearer <jwt>` válido para ese artículo | `200`: `{ paper }` |
 | `POST /api/papers/:id/verify` | Verifica un pago Pollar enviado previamente y devuelve `{ paper, accessToken, txHash }` |
-| `POST /api/papers/:id/prepare` con `{ payer }` | Solo con el contrato de reparto activo. `200`: `{ transactionXdr, networkPassphrase, terms }` con la invocación `pay` ya simulada, lista para firmar. `404 SPLITTER_DISABLED` si no está activo |
-| `GET /api/receipts/:txHash` | `200`: el recibo guardado de ese pago, con `paperId`, título, wallet, método (`pollar`, `splitter`, `classic`), monto en stroops, hora del ledger y enlace a stellar.expert. `404 RECEIPT_NOT_FOUND` si PaperPay no lo registró; `400` si el hash no es válido |
+| `POST /api/papers/:id/prepare` con `{ payer }` | Solo con el contrato de reparto activo. `200`: `{ transactionXdr, networkPassphrase, terms }` con la invocación `pay` ya simulada, lista para firmar. Con `{ payer, reader }` arma el regalo `gift`. `404 SPLITTER_DISABLED` si no está activo |
+| `POST /api/papers/:id/gift` con `payment-signature` | Envía un regalo firmado (`gift`). `200`: `{ txHash, paperId, reader, settledAt }`. Quien paga no recibe el artículo ni un token |
+| `POST /api/gifts/claim` con `{ txHash, reader, signedAt, signature }` | Quien abre el enlace de regalo firma con su llave. `200`: `{ paperId, paperTitle, accessToken, txHash, settledAt }`. `403` si la firma no es de la llave del regalo, `400` si tiene más de 5 min, `404` si no hay regalo con ese hash |
+| `GET /api/receipts/:txHash` | `200`: el recibo guardado de ese pago, con `paperId`, título, wallet que pagó (`payer`), quien recibe el acceso (`reader`, distinto solo en un regalo), método (`pollar`, `splitter`, `classic`), monto en stroops, hora del ledger y enlace a stellar.expert. `404 RECEIPT_NOT_FOUND` si PaperPay no lo registró; `400` si el hash no es válido |
 | ID inexistente | `404`: `PAPER_NOT_FOUND` |
 
 El requisito de pago declara `exact`, `stellar:testnet`, USDC SAC, `5000000` unidades de 7 decimales y la tesorería. `payment-signature` se decodifica como Base64 JSON (también acepta JSON directo). Una respuesta fallida devuelve `402 PAYMENT_FAILED`.
@@ -53,7 +55,7 @@ La API consulta Horizon y exige que la transacción haya tenido éxito, sea reci
 
 ### Recibos persistentes
 
-Cada pago aceptado deja un recibo en SQLite (`node:sqlite`, incluido en Node 22.13+; sin dependencias ni servidor aparte): hash de la transacción como clave primaria, artículo, wallet, método, monto y hora del ledger. Eso liga el pago a un artículo de forma permanente y sobrevive a reinicios y despliegues:
+Cada pago aceptado deja un recibo en SQLite (`node:sqlite`, incluido en Node 22.13+; sin dependencias ni servidor aparte): hash de la transacción como clave primaria, artículo, wallet que paga, quien recibe el acceso, método, monto y hora del ledger. Un archivo de la versión 1 (sin `reader`) se migra solo al arrancar: sus recibos quedan a nombre de quien pagó. Eso liga el pago a un artículo de forma permanente y sobrevive a reinicios y despliegues:
 
 - **Pollar:** es el anti-replay. Un hash ya registrado para otro artículo o wallet responde `409` sin consultar Horizon.
 - **Contrato y pago clásico:** se registran al liquidar. La prueba pública sigue en la red (en el contrato, el evento `paid` con el id del artículo).
@@ -91,6 +93,16 @@ Respuestas de error:
 
 La comisión de inclusión lleva hasta 999 stroops al azar, así que dos pedidos iguales en el mismo segundo no dan el mismo sobre ni el mismo `claim`. Rotar `JWT_SECRET` invalida los comprobantes, igual que los accesos.
 
+### Regalo por enlace (`gift`)
+
+Uno paga y otro lee, sin que quien recibe tenga wallet. El `402` agrega `giftUrl` a `extra.splitter`; sin ese campo, la web no ofrece regalar.
+
+1. El navegador de quien regala crea una llave nueva. Su dirección es el `reader` de `gift(payer, reader, paperId, publisher, 5000000)`; su secreto va en el enlace `/regalo#<txHash>.<secreto>`. El fragmento no viaja al servidor.
+2. `POST prepareUrl` con `{ payer, reader }` arma y simula `gift`. La wallet lo firma y el cliente lo manda a `giftUrl` en `payment-signature`. La API revisa lo mismo que en `pay`, más que `reader` sea otra cuenta, y solo responde `200` si el evento `paid` trae a ese `reader`. Guarda el recibo con `payer` y `reader`.
+3. Quien abre el enlace firma `giftClaimMessage(txHash, signedAt)` (`packages/shared`) con la llave y la manda a `/api/gifts/claim`. La API comprueba la firma (ed25519, vale 5 min), que el recibo sea un regalo (`reader ≠ payer`) y que `reader` sea esa llave, y entrega un JWT de 24 h. El enlace sirve otra vez cuando el acceso vence.
+
+El hash y el `reader` son públicos en la red: sin la firma, cualquiera que mirara la red podría abrir el regalo. Quien tiene el enlace tiene el regalo. Si el recibo no está en SQLite (escritura fallida o disco perdido), el reclamo busca el regalo en el RPC, que retiene unos 7 días, y lo guarda. Reenviar a `giftUrl` un regalo ya confirmado solo devuelve su recibo.
+
 ## Modos de liquidación
 
 Por defecto la API intenta enviar la firma al URL configurado en `OPENZEPPELIN_CHANNELS_URL`. Exige una respuesta con `success: true` y un hash de 64 caracteres hexadecimales. **Ese contrato de integración no se ha probado con un pago real**; confirmar el formato y el endpoint del facilitador antes de usarlo.
@@ -105,7 +117,7 @@ En producción son obligatorios un `JWT_SECRET` aleatorio de al menos 32 caracte
 
 ## Pruebas
 
-`pnpm test` ejecuta 98 pruebas locales. Incluyen la validación simulada de respuestas de Horizon para el flujo Pollar (monto exacto, intento de reutilizar un hash, también después de un reinicio y fuera de la ventana), los recibos en SQLite (incluido cerrar y reabrir el archivo) y el pago por contrato. Para el contrato, la validación del sobre firmado, el envío y el cobro con un RPC simulado, el endpoint `/prepare` y la lectura de eventos `paid` usan eventos reales de testnet (`test/fixtures`). Ninguna de estas pruebas hace un pago externo.
+`pnpm test` ejecuta 122 pruebas locales. Incluyen la validación simulada de respuestas de Horizon para el flujo Pollar (monto exacto, intento de reutilizar un hash, también después de un reinicio y fuera de la ventana), los recibos en SQLite (incluido cerrar y reabrir el archivo y migrar uno v1), el pago por contrato y el regalo (sobre `gift`, reclamo con la firma de la llave, firma vencida o de otra llave, búsqueda en la red). Para el contrato, la validación del sobre firmado, el envío y el cobro con un RPC simulado, el endpoint `/prepare` y la lectura de eventos `paid` usan eventos reales de testnet (`test/fixtures`). Ninguna de estas pruebas hace un pago externo.
 
 `pnpm --filter @paperpay/api test:splitter` (con `SPLITTER_CONTRACT_ID`, `SPLITTER_PUBLISHER_ADDRESS` y `STELLAR_TREASURY_PUBLIC_KEY`) **sí paga en testnet**:
 - crea un lector desechable con Friendbot y 1 USDC comprado en el DEX;

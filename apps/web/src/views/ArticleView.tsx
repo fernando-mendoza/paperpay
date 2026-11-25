@@ -6,6 +6,7 @@ import { ConnectWalletModal } from '@/components/ConnectWalletModal'
 import { WalletChoiceModal } from '@/components/WalletChoiceModal'
 import { DebugPanel } from '@/components/DebugPanel'
 import { DisciplineChip } from '@/components/DisciplineChip'
+import { GiftPanel } from '@/components/GiftPanel'
 import { MarkdownContent } from '@/components/MarkdownContent'
 import { PaywallBarMobile, PaywallCard } from '@/components/PaywallCard'
 import { Toast } from '@/components/Toast'
@@ -230,6 +231,10 @@ export function ArticleView({ paperId }: { paperId: string }) {
                     <p className="text-xs text-muted-foreground">{COPY.paper.unlockToRead}</p>
                   </div>
                 </div>
+                {/* En móvil la barra de pago tapa el aside: el regalo va bajo la vista previa. */}
+                <div className="lg:hidden">
+                  <GiftPanel paperId={paperId} />
+                </div>
               </>
             )}
           </article>
@@ -237,6 +242,7 @@ export function ArticleView({ paperId }: { paperId: string }) {
           <aside className={isUnlocked ? 'block' : 'hidden lg:block'}>
             <div className="lg:sticky lg:top-24">
               <PaywallCard {...cardProps} />
+              <GiftPanel paperId={paperId} />
             </div>
           </aside>
         </div>

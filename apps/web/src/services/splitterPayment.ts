@@ -30,6 +30,8 @@ export interface ExpectedPayment {
   payer: string
   paperId: string
   amountStroops: string
+  /** Regalo: el sobre debe ser `gift(payer, reader, …)` en vez de `pay`. */
+  reader?: string
 }
 
 export async function checkReaderFunds(address: string, amountStroops: string): Promise<void> {
@@ -51,7 +53,11 @@ export async function checkReaderFunds(address: string, amountStroops: string): 
   if (toStroops(usdc.balance) < BigInt(amountStroops)) throw new PaywallError('INSUFFICIENT_FUNDS')
 }
 
-export async function prepareSplitterPayment(splitter: X402SplitterTerms, payer: string): Promise<SplitterPrepareResponse> {
+export async function prepareSplitterPayment(
+  splitter: X402SplitterTerms,
+  payer: string,
+  reader?: string,
+): Promise<SplitterPrepareResponse> {
   // Solo rutas de la misma API: el 402 no puede mandar a la wallet a firmar algo de otro origen.
   if (!splitter.prepareUrl.startsWith('/api/')) {
     throw new PaywallError('PAYMENT_FAILED', 'Ruta de preparación inválida')
@@ -61,7 +67,7 @@ export async function prepareSplitterPayment(splitter: X402SplitterTerms, payer:
     res = await fetch(`${API_URL}${splitter.prepareUrl}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ payer }),
+      body: JSON.stringify(reader ? { payer, reader } : { payer }),
       signal: AbortSignal.timeout(20_000),
     })
   } catch {
@@ -74,7 +80,10 @@ export async function prepareSplitterPayment(splitter: X402SplitterTerms, payer:
   return body as SplitterPrepareResponse
 }
 
-/** Rechaza el sobre si no es una sola llamada `pay` del lector por este artículo, monto y editorial. */
+/**
+ * Rechaza el sobre si no es una sola llamada `pay` del lector por este artículo, monto y editorial
+ * (o `gift` a `expected.reader`, en un regalo).
+ */
 export async function assertPreparedPayment(prepared: SplitterPrepareResponse, expected: ExpectedPayment): Promise<void> {
   const { Address, Transaction, TransactionBuilder, scValToNative, xdr } = await import('@stellar/stellar-sdk')
   const mismatch = (detail: string) =>
@@ -92,13 +101,17 @@ export async function assertPreparedPayment(prepared: SplitterPrepareResponse, e
   if (op.type !== 'invokeHostFunction' || (op.source && op.source !== expected.payer)) throw mismatch('operación')
   if (op.func.type !== 'hostFunctionTypeInvokeContract') throw mismatch('función')
 
+  // pay(payer, paperId, publisher, amount) · gift(payer, reader, paperId, publisher, amount)
   const isExpectedCall = (call: InstanceType<typeof xdr.InvokeContractArgs>): boolean => {
-    const [payer, paperId, publisher, amount, ...rest] = call.args.map((arg) => scValToNative(arg) as unknown)
+    const [payer, ...rest] = call.args.map((arg) => scValToNative(arg) as unknown)
+    const reader = expected.reader ? rest.shift() : payer
+    const [paperId, publisher, amount] = rest
     return (
       Address.fromScAddress(call.contractAddress).toString() === expected.contractId &&
-      call.functionName.toString() === 'pay' &&
-      rest.length === 0 &&
+      call.functionName.toString() === (expected.reader ? 'gift' : 'pay') &&
+      rest.length === 3 &&
       payer === expected.payer &&
+      reader === (expected.reader ?? expected.payer) &&
       paperId === expected.paperId &&
       publisher === expected.publisher &&
       amount === BigInt(expected.amountStroops)

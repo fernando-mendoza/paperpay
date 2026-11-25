@@ -1,5 +1,21 @@
 # Estado de QA
 
+## Revisión del 24 de noviembre de 2026: regalo por enlace (sin desplegar)
+
+Uno paga por el contrato (`gift`) y otro lee con un enlace, sin wallet. Detalle en `apps/api/README.md` ("Regalo por enlace").
+
+**Comprobado:**
+
+- `pnpm test`: 122 pruebas de la API y 37 de la web. Las nuevas cubren `/prepare` con `reader`, la validación del sobre `gift` (y que no pase como `pay`), el comprobante a nombre de quien recibe, el reclamo (firma de la llave, firma vencida, otra llave, pago normal, búsqueda en la red), la migración de recibos v1 → v2 y, en la web, la llave guardada antes de firmar y el reenvío del sobre pendiente.
+- Mutaciones: quitar la verificación de la firma, no comparar `reader`, aceptar un pago normal como regalo, quitar la ventana de 5 min, no comparar `reader` en el comprobante, aceptar un sobre con otro destinatario en la web, no guardar la llave antes de firmar y no borrar la llave de un regalo sin firmar rompen 2, 1, 1, 1, 2, 1, 1 y 1 pruebas.
+- Testnet contra una API local (`test:e2e`): regalo [`2df3f2c3…`](https://stellar.expert/explorer/testnet/tx/2df3f2c311a000ab664082a7b36e64f310de0e38230de52edf9434bbf34204fd) confirmado en 4.3 s. Quien pagó siguió sin acceso; otro navegador abrió el artículo solo con el enlace; el recibo trae `payer` y `reader`; una llave ajena recibió "Ese enlace no es el de este regalo". El panel lo cuenta como lectura por contrato (0.49 / 0.01).
+- `findGift` contra el RPC de testnet encuentra este regalo y el del 23 de noviembre (`8dac0f7e…`), y devuelve `null` para un pago normal.
+- La migración v1 → v2 sobre una copia de un archivo real de la revisión anterior: `user_version` 1 → 2, columna `reader`, el recibo queda a nombre de quien pagó.
+
+- Navegador (Chrome headless contra `next dev` y la API local): el panel "Regálalo" aparece bajo la tarjeta de pago en escritorio y bajo la vista previa en móvil, sin scroll horizontal. Con un regalo real de testnet ([`c40d8910…`](https://stellar.expert/explorer/testnet/tx/c40d8910b86d3f79fc0bcbd9efe3121e1600bfc2a32d25ae19d4de68604834c2)), el enlace abierto en un navegador limpio mostró el título del artículo; "Abrir mi regalo" llevó al artículo completo con "Acceso activo". Un enlace roto muestra su aviso.
+
+**No comprobado:** el lado de quien regala con la extensión Freighter real (la firma se simuló con la llave del lector), y el flujo contra la API y el sitio publicados.
+
 ## Revisión del 24 de noviembre de 2026: recibos persistentes en producción
 
 Cada pago aceptado deja un recibo en SQLite (`node:sqlite`): hash → artículo, wallet, método, monto y hora del ledger.

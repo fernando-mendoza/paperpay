@@ -63,6 +63,7 @@ describe('Pagos por el contrato de reparto', () => {
       function: 'pay',
       publisher: PUBLISHER,
       prepareUrl: `/api/papers/${PAPER}/prepare`,
+      giftUrl: `/api/papers/${PAPER}/gift`,
     });
     expect(res.body.paper).toBeUndefined();
 
@@ -102,7 +103,18 @@ describe('Pagos por el contrato de reparto', () => {
         networkPassphrase: Networks.TESTNET,
         terms: { contractId: CONTRACT, publisher: PUBLISHER, amount: '5000000' },
       });
-      expect(prepare).toHaveBeenCalledWith(PAPER, reader.publicKey());
+      expect(prepare).toHaveBeenCalledWith(PAPER, reader.publicKey(), undefined);
+    });
+
+    it('con reader prepara el regalo; reader que no es texto → 400', async () => {
+      enableSplitter();
+      const student = Keypair.random().publicKey();
+      const prepare = vi.spyOn(splitterService, 'preparePayment').mockResolvedValueOnce({ transactionXdr: 'GIFT-xdr' });
+      const res = await request(app).post(`/api/papers/${PAPER}/prepare`).send({ payer: reader.publicKey(), reader: student });
+      expect(res.status).toBe(200);
+      expect(prepare).toHaveBeenCalledWith(PAPER, reader.publicKey(), student);
+      const bad = await request(app).post(`/api/papers/${PAPER}/prepare`).send({ payer: reader.publicKey(), reader: 42 });
+      expect(bad.status).toBe(400);
     });
 
     it('propaga el estado y el mensaje de un error de preparación', async () => {

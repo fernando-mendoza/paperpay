@@ -421,3 +421,67 @@ describe('SplitterService.preparePayment', () => {
     await expect(off.preparePayment(PAPER, reader.publicKey())).rejects.toMatchObject({ status: 400 });
   });
 });
+
+describe('Regalo (gift)', () => {
+  const student = Keypair.random().publicKey();
+  const giftArgs = (payer = reader.publicKey(), to = student, paper = PAPER): xdr.ScVal[] => {
+    const [payerArg, ...rest] = payArgs(payer, paper);
+    return [payerArg, nativeToScVal(to, { type: 'address' }), ...rest];
+  };
+  const giftFixturePaper = 'stablecoins-emerging-markets';
+
+  it('/prepare con reader arma gift(payer, reader, …) y lo firmado pasa la validación del regalo', async () => {
+    const client = fakeRpc({
+      getAccount: vi.fn().mockResolvedValue(new Account(reader.publicKey(), '41')),
+      prepareTransaction: vi.fn(async (t: Transaction) => t),
+    });
+    const prepared = await service(client).preparePayment(PAPER, reader.publicKey(), student);
+    const tx = TransactionBuilder.fromXDR(prepared.transactionXdr, Networks.TESTNET) as Transaction;
+    const op = tx.operations[0] as Operation.InvokeHostFunction;
+    if (op.func.type !== 'hostFunctionTypeInvokeContract') throw new Error('no es invokeContract');
+    expect(op.func.invokeContract.functionName.toString()).toBe('gift');
+    tx.sign(reader);
+    expect(service().validateSignedGift(tx.toXDR(), reader.publicKey(), PAPER).reader).toBe(student);
+    // El mismo sobre no sirve como pago normal: el acceso no es de quien paga.
+    expect(() => service().validateSignedPayment(tx.toXDR(), reader.publicKey(), PAPER)).toThrow(/Solo se acepta la función pay/);
+  });
+
+  it('/prepare rechaza regalarse a sí mismo o a una dirección inválida', async () => {
+    await expect(service().preparePayment(PAPER, reader.publicKey(), reader.publicKey())).rejects.toMatchObject({ status: 400 });
+    await expect(service().preparePayment(PAPER, reader.publicKey(), 'GNOVALIDA')).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('validateSignedGift rechaza pay, un regalo a quien firma y argumentos de más o de menos', () => {
+    const check = (xdrB64: string) => () => service().validateSignedGift(xdrB64, reader.publicKey(), PAPER);
+    expect(check(build())).toThrow(/Solo se acepta la función gift/);
+    expect(check(build({ fn: 'gift', args: giftArgs(reader.publicKey(), reader.publicKey()) }))).toThrow(/otra cuenta/);
+    expect(check(build({ fn: 'gift', args: payArgs(reader.publicKey()) }))).toThrow(SplitterError);
+    expect(check(build({ fn: 'gift', args: [...giftArgs(), nativeToScVal(1, { type: 'u32' })] }))).toThrow(SplitterError);
+    expect(check(build({ fn: 'gift', args: giftArgs(reader.publicKey(), student, 'otro-articulo') }))).toThrow(/otro artículo/);
+    expect(check(build({ fn: 'gift', args: giftArgs(), signer: Keypair.random() }))).toThrow(/no está firmada/);
+  });
+
+  it('settleGift confirma con el comprobante a nombre de quien recibe (tx real de testnet)', async () => {
+    const client = fakeRpc({ sendTransaction: vi.fn().mockResolvedValue({ status: 'PENDING', hash: fixtures.gift.txHash }), pollTransaction: vi.fn().mockResolvedValue(confirmed(fixtures.gift)) });
+    const tx = TransactionBuilder.fromXDR(build({ fn: 'gift', args: giftArgs() }), Networks.TESTNET) as Transaction;
+    const result = await service(client).settleGift(tx, FIXTURE_PAYER, FIXTURE_STUDENT, giftFixturePaper);
+    expect(result.receipt).toMatchObject({ payer: FIXTURE_PAYER, reader: FIXTURE_STUDENT, paperId: giftFixturePaper });
+    // Otro lector en el comprobante = no es este regalo.
+    await expect(service(client).settleGift(tx, FIXTURE_PAYER, student, giftFixturePaper)).rejects.toMatchObject({ status: 502 });
+  });
+
+  it('reenviar un regalo confirmado hace días devuelve su recibo sin reenviarlo (no da acceso a quien paga)', async () => {
+    const client = fakeRpc({ getTransaction: vi.fn().mockResolvedValue(confirmed(fixtures.gift)) });
+    const tx = TransactionBuilder.fromXDR(build({ fn: 'gift', args: giftArgs() }), Networks.TESTNET) as Transaction;
+    const result = await service(client, CONFIRMED_AT + 3 * 86_400).settleGift(tx, FIXTURE_PAYER, FIXTURE_STUDENT, giftFixturePaper);
+    expect(result.txHash).toBe(fixtures.gift.txHash);
+    expect(client.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('findGift encuentra un regalo en la red y no confunde un pago normal con uno', async () => {
+    const gift = await service(fakeRpc({ getTransaction: vi.fn().mockResolvedValue(confirmed(fixtures.gift)) })).findGift(fixtures.gift.txHash);
+    expect(gift?.receipt).toMatchObject({ payer: FIXTURE_PAYER, reader: FIXTURE_STUDENT });
+    expect(await service(fakeRpc({ getTransaction: vi.fn().mockResolvedValue(confirmed()) })).findGift(fixtures.pay_batch.txHash)).toBeNull();
+    expect(await service().findGift('ab'.repeat(32))).toBeNull();
+  });
+});

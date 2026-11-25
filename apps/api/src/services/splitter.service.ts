@@ -25,6 +25,9 @@ import { config } from '../config';
  */
 
 export const SPLITTER_PAY_FUNCTION = 'pay';
+/** Regalo: cobra a `payer` y deja el acceso a nombre de `reader` (solo firma `payer`). */
+export const SPLITTER_GIFT_FUNCTION = 'gift';
+type SplitterFunction = typeof SPLITTER_PAY_FUNCTION | typeof SPLITTER_GIFT_FUNCTION;
 
 export class SplitterError extends Error {
   public constructor(
@@ -82,6 +85,12 @@ export interface SplitterOptions {
   now?: () => number;
 }
 
+export interface SettledPayment {
+  txHash: string;
+  receipt: PaidReceipt;
+  settledAt: string;
+}
+
 /** Lo que devuelve `/prepare`: el sobre para firmar y el comprobante que solo recibe quien lo pidió. */
 export interface PreparedPayment {
   transactionXdr: string;
@@ -114,14 +123,22 @@ export class SplitterService {
   }
 
   /**
-   * Arma y simula `pay(payer, paperId, publisher, amount)`. Devuelve el XDR listo para firmar y su
+   * Arma y simula `pay(payer, paperId, publisher, amount)` o, con `reader`, el regalo
+   * `gift(payer, reader, paperId, publisher, amount)`. Devuelve el XDR listo para firmar y su
    * comprobante (ver `settle`).
    */
-  public async preparePayment(paperId: string, payer: string): Promise<PreparedPayment> {
+  public async preparePayment(paperId: string, payer: string, reader?: string): Promise<PreparedPayment> {
     this.requireEnabled();
     if (!StrKey.isValidEd25519PublicKey(payer)) {
       throw new SplitterError(400, 'La wallet del lector no es una dirección Stellar válida (G...).');
     }
+    if (reader !== undefined && (!StrKey.isValidEd25519PublicKey(reader) || reader === payer)) {
+      throw new SplitterError(400, 'Quien recibe el regalo debe ser otra dirección Stellar válida (G...).');
+    }
+    const call =
+      reader === undefined
+        ? new Contract(this.opts.contractId).call(SPLITTER_PAY_FUNCTION, ...this.payArgs(payer, paperId))
+        : new Contract(this.opts.contractId).call(SPLITTER_GIFT_FUNCTION, ...this.giftArgs(payer, reader, paperId));
 
     const server = this.rpc();
     let account;
@@ -138,7 +155,7 @@ export class SplitterService {
       fee: String(Number(BASE_FEE) + randomInt(0, 1000)),
       networkPassphrase: this.opts.networkPassphrase,
     })
-      .addOperation(new Contract(this.opts.contractId).call(SPLITTER_PAY_FUNCTION, ...this.payArgs(payer, paperId)))
+      .addOperation(call)
       .setTimeout(300)
       .build();
 
@@ -146,7 +163,7 @@ export class SplitterService {
       const prepared = await server.prepareTransaction(tx);
       return { transactionXdr: prepared.toXDR(), claim: this.claimFor(prepared.hash()) };
     } catch (err: unknown) {
-      console.warn('[splitter] La simulación de pay falló:', err instanceof Error ? err.message : err);
+      console.warn(`[splitter] La simulación de ${reader === undefined ? 'pay' : 'gift'} falló:`, err instanceof Error ? err.message : err);
       throw new SplitterError(
         402,
         'No se pudo preparar el pago: la wallet necesita 0.50 USDC (con trustline) y un poco de XLM para la comisión de red.',
@@ -169,6 +186,20 @@ export class SplitterService {
    * para este artículo, con la editorial y el monto que fija la API, y firmado por el lector.
    */
   public validateSignedPayment(transactionXdr: string, signer: string, paperId: string): Transaction {
+    return this.validateSigned(transactionXdr, signer, paperId, SPLITTER_PAY_FUNCTION).tx;
+  }
+
+  /** Igual que `validateSignedPayment`, pero para `gift`. Devuelve también quién recibe el acceso. */
+  public validateSignedGift(transactionXdr: string, signer: string, paperId: string): { tx: Transaction; reader: string } {
+    return this.validateSigned(transactionXdr, signer, paperId, SPLITTER_GIFT_FUNCTION);
+  }
+
+  private validateSigned(
+    transactionXdr: string,
+    signer: string,
+    paperId: string,
+    fn: SplitterFunction,
+  ): { tx: Transaction; reader: string } {
     this.requireEnabled();
     let parsed;
     try {
@@ -196,7 +227,7 @@ export class SplitterService {
       throw new SplitterError(400, 'La operación no invoca una función de contrato.');
     }
 
-    this.requirePayCall(func.invokeContract, signer, paperId);
+    const reader = this.requireCall(func.invokeContract, signer, paperId, fn);
     for (const entry of op.auth ?? []) {
       if (entry.credentials.type !== 'sorobanCredentialsSourceAccount') {
         throw new SplitterError(400, 'La autorización debe ser la de la cuenta que firma la transacción.');
@@ -205,7 +236,7 @@ export class SplitterService {
       if (root.type !== 'sorobanAuthorizedFunctionTypeContractFn') {
         throw new SplitterError(400, 'La autorización no corresponde al pago.');
       }
-      this.requirePayCall(root.contractFn, signer, paperId);
+      this.requireCall(root.contractFn, signer, paperId, fn);
     }
 
     const keypair = Keypair.fromPublicKey(signer);
@@ -218,7 +249,7 @@ export class SplitterService {
     if (!signed) {
       throw new SplitterError(400, 'La transacción no está firmada por la wallet del lector.');
     }
-    return tx;
+    return { tx, reader };
   }
 
   /**
@@ -233,12 +264,8 @@ export class SplitterService {
     signer: string,
     paperId: string,
     claim?: string,
-  ): Promise<{ txHash: string; receipt: PaidReceipt; settledAt: string }> {
-    this.requireEnabled();
-    const server = this.rpc();
-
-    const existing = await server.getTransaction(Buffer.from(tx.hash()).toString('hex'));
-    if (existing.status === rpc.Api.GetTransactionStatus.SUCCESS) {
+  ): Promise<SettledPayment> {
+    return this.confirm(tx, signer, signer, paperId, (existing) => {
       const ageSeconds = this.now() / 1000 - existing.createdAt;
       if (ageSeconds > this.recoveryMaxAgeSeconds) {
         if (!this.isValidClaim(tx.hash(), claim)) {
@@ -248,7 +275,44 @@ export class SplitterService {
           throw new SplitterError(409, 'Ese pago tiene más de 24 horas: el acceso que daba ya venció.', existing.txHash);
         }
       }
-      return { txHash: existing.txHash, receipt: this.requireReceipt(existing, signer, paperId), settledAt: ledgerTime(existing.createdAt) };
+    });
+  }
+
+  /**
+   * Envía el regalo y espera su comprobante `paid` a nombre de `reader`. Reenviar un regalo ya
+   * confirmado solo devuelve su recibo: quien paga no recibe el artículo, y la llave del enlace
+   * nunca pasa por la API.
+   */
+  public async settleGift(tx: Transaction, payer: string, reader: string, paperId: string): Promise<SettledPayment> {
+    return this.confirm(tx, payer, reader, paperId, () => {});
+  }
+
+  /**
+   * Busca en la red un regalo ya confirmado de nuestro contrato (para reclamarlo si su recibo no
+   * quedó en SQLite). El RPC solo retiene unos días de transacciones.
+   */
+  public async findGift(txHash: string): Promise<SettledPayment | null> {
+    if (!this.enabled) return null;
+    const found = await this.rpc().getTransaction(txHash.toLowerCase());
+    if (found.status !== rpc.Api.GetTransactionStatus.SUCCESS) return null;
+    const receipt = this.paidReceipts(found).find((r) => r.reader !== r.payer);
+    return receipt ? { txHash: found.txHash, receipt, settledAt: ledgerTime(found.createdAt) } : null;
+  }
+
+  private async confirm(
+    tx: Transaction,
+    payer: string,
+    reader: string,
+    paperId: string,
+    checkAlreadyConfirmed: (existing: rpc.Api.GetSuccessfulTransactionResponse) => void,
+  ): Promise<SettledPayment> {
+    this.requireEnabled();
+    const server = this.rpc();
+
+    const existing = await server.getTransaction(Buffer.from(tx.hash()).toString('hex'));
+    if (existing.status === rpc.Api.GetTransactionStatus.SUCCESS) {
+      checkAlreadyConfirmed(existing);
+      return { txHash: existing.txHash, receipt: this.requireReceipt(existing, payer, reader, paperId), settledAt: ledgerTime(existing.createdAt) };
     }
     if (existing.status === rpc.Api.GetTransactionStatus.FAILED) {
       throw new SplitterError(402, 'Ese pago ya falló en la red: revisa tu saldo de USDC y vuelve a pagar.', existing.txHash);
@@ -274,7 +338,7 @@ export class SplitterService {
       throw new SplitterError(402, 'La red rechazó el pago: revisa tu saldo de USDC.', txHash);
     }
 
-    return { txHash, receipt: this.requireReceipt(result, signer, paperId), settledAt: ledgerTime(result.createdAt) };
+    return { txHash, receipt: this.requireReceipt(result, payer, reader, paperId), settledAt: ledgerTime(result.createdAt) };
   }
 
   /** HMAC del hash del sobre: la red nunca lo ve, solo quien recibió la respuesta de `/prepare`. */
@@ -294,17 +358,21 @@ export class SplitterService {
     return given.length === wanted.length && timingSafeEqual(given, wanted);
   }
 
-  private requireReceipt(result: rpc.Api.GetSuccessfulTransactionResponse, signer: string, paperId: string): PaidReceipt {
+  /** Comprobantes `paid` de nuestro contrato, con nuestra editorial y nuestro precio. */
+  private paidReceipts(result: rpc.Api.GetSuccessfulTransactionResponse): PaidReceipt[] {
     const events = result.events?.contractEventsXdr.flat() ?? [];
-    const receipt = parsePaidReceipts(events).find(
-      (r) =>
-        r.contractId === this.opts.contractId &&
-        r.paperId === paperId &&
-        r.payer === signer &&
-        r.reader === signer &&
-        r.publisher === this.opts.publisher &&
-        r.amount === BigInt(this.amount),
+    return parsePaidReceipts(events).filter(
+      (r) => r.contractId === this.opts.contractId && r.publisher === this.opts.publisher && r.amount === BigInt(this.amount),
     );
+  }
+
+  private requireReceipt(
+    result: rpc.Api.GetSuccessfulTransactionResponse,
+    payer: string,
+    reader: string,
+    paperId: string,
+  ): PaidReceipt {
+    const receipt = this.paidReceipts(result).find((r) => r.paperId === paperId && r.payer === payer && r.reader === reader);
     if (!receipt) {
       throw new SplitterError(502, 'El pago se confirmó, pero sin el comprobante esperado del artículo.', result.txHash);
     }
@@ -320,18 +388,31 @@ export class SplitterService {
     ];
   }
 
-  private requirePayCall(call: xdr.InvokeContractArgs, signer: string, paperId: string): void {
+  private giftArgs(payer: string, reader: string, paperId: string): xdr.ScVal[] {
+    const [payerArg, ...rest] = this.payArgs(payer, paperId);
+    return [payerArg, nativeToScVal(reader, { type: 'address' }), ...rest];
+  }
+
+  /** Revisa una llamada `pay` o `gift` y devuelve quién recibe el acceso. */
+  private requireCall(call: xdr.InvokeContractArgs, signer: string, paperId: string, fn: SplitterFunction): string {
     const contractId = Address.fromScAddress(call.contractAddress).toString();
     if (contractId !== this.opts.contractId) {
       throw new SplitterError(400, 'La transacción no invoca el contrato de reparto de PaperPay.');
     }
-    if (call.functionName.toString() !== SPLITTER_PAY_FUNCTION) {
-      throw new SplitterError(400, `Solo se acepta la función ${SPLITTER_PAY_FUNCTION} del contrato.`);
+    if (call.functionName.toString() !== fn) {
+      throw new SplitterError(400, `Solo se acepta la función ${fn} del contrato.`);
     }
+    // pay(payer, paper, publisher, amount) · gift(payer, reader, paper, publisher, amount)
     const args = call.args.map((arg) => scValToNative(arg) as unknown);
-    const [payer, paper, publisher, amount] = args;
-    if (args.length !== 4 || payer !== signer) {
+    const isGift = fn === SPLITTER_GIFT_FUNCTION;
+    const [payer, ...rest] = args;
+    const reader = isGift ? rest.shift() : signer;
+    const [paper, publisher, amount] = rest;
+    if (rest.length !== 3 || payer !== signer) {
       throw new SplitterError(400, 'El pago debe salir de la wallet que firma.');
+    }
+    if (typeof reader !== 'string' || !StrKey.isValidEd25519PublicKey(reader) || (isGift && reader === signer)) {
+      throw new SplitterError(400, 'Quien recibe el regalo debe ser otra cuenta Stellar.');
     }
     if (paper !== paperId) {
       throw new SplitterError(400, 'El pago es por otro artículo.');
@@ -342,6 +423,7 @@ export class SplitterService {
     if (amount !== BigInt(this.amount)) {
       throw new SplitterError(400, 'El monto del pago no es el precio del artículo.');
     }
+    return reader;
   }
 
   private requireEnabled(): void {

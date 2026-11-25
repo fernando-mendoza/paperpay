@@ -1,5 +1,6 @@
 import express from 'express';
 import { corsMiddleware } from './middlewares/cors.middleware';
+import { giftsController } from './controllers/gifts.controller';
 import { papersController } from './controllers/papers.controller';
 
 const app = express();
@@ -14,6 +15,8 @@ app.get('/api/health', (req, res) => papersController.getHealth(req, res));
 app.get('/api/papers', (req, res) => papersController.getPaperList(req, res));
 app.post('/api/papers/:id/verify', (req, res) => papersController.verifyPaperByHash(req, res));
 app.post('/api/papers/:id/prepare', (req, res) => papersController.preparePaperPayment(req, res));
+app.post('/api/papers/:id/gift', (req, res) => giftsController.sendGift(req, res));
+app.post('/api/gifts/claim', (req, res) => giftsController.claimGift(req, res));
 app.get('/api/papers/:id', (req, res) => papersController.getPaperById(req, res));
 app.get('/api/receipts/:txHash', (req, res) => papersController.getReceipt(req, res));
 app.use((_req, res) => {

@@ -147,6 +147,7 @@ export class PapersController {
       paperId: receipt.paperId,
       paperTitle: papersService.getPaperById(receipt.paperId)?.title ?? null,
       payer: receipt.payer,
+      reader: receipt.reader,
       method: receipt.method,
       amountStroops: receipt.amountStroops,
       settledAt: receipt.settledAt,
@@ -157,7 +158,10 @@ export class PapersController {
     res.status(200).json(body);
   }
 
-  /** Arma y simula el pago por el contrato de reparto para que la wallet del lector lo firme. */
+  /**
+   * Arma y simula el pago por el contrato de reparto para que la wallet del lector lo firme. Con
+   * `reader`, arma el regalo (`gift`): paga `payer` y el acceso queda a nombre de `reader`.
+   */
   public async preparePaperPayment(req: Request, res: Response): Promise<void> {
     const { id } = req.params;
     if (!papersService.getPaperById(id)) {
@@ -168,13 +172,13 @@ export class PapersController {
       res.status(404).json({ error: 'SPLITTER_DISABLED', message: 'Esta API no cobra a través del contrato de reparto.' });
       return;
     }
-    const payer = (req.body as { payer?: unknown } | undefined)?.payer;
-    if (typeof payer !== 'string') {
-      res.status(400).json({ error: 'PREPARE_FAILED', message: 'El cuerpo debe incluir payer (la wallet del lector).' });
+    const { payer, reader } = (req.body ?? {}) as { payer?: unknown; reader?: unknown };
+    if (typeof payer !== 'string' || (reader !== undefined && typeof reader !== 'string')) {
+      res.status(400).json({ error: 'PREPARE_FAILED', message: 'El cuerpo debe incluir payer (la wallet del lector) y, en un regalo, reader.' });
       return;
     }
     try {
-      const { transactionXdr, claim } = await splitterService.preparePayment(id, payer);
+      const { transactionXdr, claim } = await splitterService.preparePayment(id, payer, reader);
       const body: SplitterPrepareResponse = {
         transactionXdr,
         claim,

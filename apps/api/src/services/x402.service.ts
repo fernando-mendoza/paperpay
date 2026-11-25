@@ -7,7 +7,7 @@ import {
 } from '@paperpay/shared';
 import { config } from '../config';
 import { decodeBase64Json } from '../utils/base64';
-import { ReceiptStore, receiptStore, sameReceipt, type Receipt } from './receipt.store';
+import { ReceiptStore, receiptStore, sameReceipt, type NewReceipt } from './receipt.store';
 import { SPLITTER_PAY_FUNCTION, splitterService } from './splitter.service';
 
 export class X402Service {
@@ -32,6 +32,7 @@ export class X402Service {
                 function: SPLITTER_PAY_FUNCTION,
                 publisher: splitterService.terms().publisher,
                 prepareUrl: `/api/papers/${encodeURIComponent(paperId)}/prepare`,
+                giftUrl: `/api/papers/${encodeURIComponent(paperId)}/gift`,
               },
             }),
           },
@@ -151,7 +152,7 @@ export class X402Service {
    * Guarda el recibo del pago ya liquidado. El cobro ya ocurrió en la red: si la escritura falla,
    * se registra el error y el lector recibe su acceso igual.
    */
-  private recordReceipt(receipt: Receipt): void {
+  private recordReceipt(receipt: NewReceipt): void {
     try {
       const saved = this.receipts.record(receipt);
       if (!sameReceipt(saved, receipt.paperId, receipt.payer)) {

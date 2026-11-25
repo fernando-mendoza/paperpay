@@ -44,6 +44,40 @@ export interface X402SplitterTerms {
   function: 'pay';
   publisher: string;
   prepareUrl: string;
+  /**
+   * Regalo: `prepareUrl` con `{ payer, reader }` arma `gift(payer, reader, …)` y el sobre firmado se
+   * manda aquí (POST con PAYMENT-SIGNATURE). Sin este campo, la API no acepta regalos.
+   */
+  giftUrl?: string;
+}
+
+/** `POST giftUrl`: el regalo quedó pagado. Quien paga no recibe el artículo. */
+export interface GiftSentResponse {
+  txHash: string;
+  paperId: string;
+  /** Cuenta que recibe el acceso: la llave del enlace de regalo. */
+  reader: string;
+  settledAt: string;
+}
+
+/**
+ * `POST /api/gifts/claim`: quien abre el enlace prueba que tiene la llave de `reader` firmando
+ * `giftClaimMessage(txHash, signedAt)` (ed25519, en base64). La firma vale `GIFT_CLAIM_WINDOW_SECONDS`.
+ */
+export interface GiftClaimRequest {
+  txHash: string;
+  reader: string;
+  /** Segundos Unix. */
+  signedAt: number;
+  signature: string;
+}
+
+export interface GiftClaimResponse {
+  paperId: string;
+  paperTitle: string | null;
+  accessToken: string;
+  txHash: string;
+  settledAt: string;
 }
 
 /** `GET /api/receipts/:txHash`: el recibo que la API guardó para ese pago. */
@@ -52,6 +86,8 @@ export interface PaymentReceiptResponse {
   paperId: string;
   paperTitle: string | null;
   payer: string;
+  /** Quien recibe el acceso: igual a `payer`, salvo en un regalo. */
+  reader: string;
   method: 'pollar' | 'splitter' | 'classic' | 'facilitator';
   /** Total pagado en stroops de USDC (7 decimales): '5000000' = 0.50 USDC. */
   amountStroops: string;

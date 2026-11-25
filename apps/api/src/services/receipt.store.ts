@@ -10,6 +10,8 @@ export interface Receipt {
   txHash: string;
   paperId: string;
   payer: string;
+  /** Quien recibe el acceso: `payer`, salvo en un regalo (`gift` del contrato). */
+  reader: string;
   method: ReceiptMethod;
   /** Monto total pagado, en stroops de USDC (7 decimales). */
   amountStroops: string;
@@ -17,16 +19,20 @@ export interface Receipt {
   settledAt: string;
 }
 
+/** Lo que se guarda: sin `reader`, el acceso es de quien paga. */
+export type NewReceipt = Omit<Receipt, 'reader'> & { reader?: string };
+
 interface ReceiptRow {
   tx_hash: string;
   paper_id: string;
   payer: string;
+  reader: string;
   method: ReceiptMethod;
   amount_stroops: string;
   settled_at: string;
 }
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 /**
  * Recibos de pago en SQLite (`node:sqlite`, sin servidor aparte). El hash de la transacción es
@@ -55,14 +61,14 @@ export class ReceiptStore {
         settled_at     TEXT NOT NULL,
         recorded_at    TEXT NOT NULL
       ) STRICT;
-      PRAGMA user_version = ${SCHEMA_VERSION};
     `);
+    this.migrate();
     this.selectStmt = this.db.prepare(
-      'SELECT tx_hash, paper_id, payer, method, amount_stroops, settled_at FROM receipts WHERE tx_hash = ?',
+      'SELECT tx_hash, paper_id, payer, reader, method, amount_stroops, settled_at FROM receipts WHERE tx_hash = ?',
     );
     this.insertStmt = this.db.prepare(`
-      INSERT INTO receipts (tx_hash, paper_id, payer, method, amount_stroops, settled_at, recorded_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO receipts (tx_hash, paper_id, payer, reader, method, amount_stroops, settled_at, recorded_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (tx_hash) DO NOTHING
     `);
     this.countStmt = this.db.prepare('SELECT count(*) AS n FROM receipts');
@@ -74,6 +80,7 @@ export class ReceiptStore {
       txHash: row.tx_hash,
       paperId: row.paper_id,
       payer: row.payer,
+      reader: row.reader,
       method: row.method,
       amountStroops: row.amount_stroops,
       settledAt: row.settled_at,
@@ -84,18 +91,33 @@ export class ReceiptStore {
    * Guarda el recibo si el hash es nuevo y devuelve el que queda guardado. Si el hash ya existía,
    * NO lo pisa: el que llama compara artículo y wallet para detectar un intento de reutilizarlo.
    */
-  public record(receipt: Receipt): Receipt {
+  public record(receipt: NewReceipt): Receipt {
     const txHash = receipt.txHash.toLowerCase();
     this.insertStmt.run(
       txHash,
       receipt.paperId,
       receipt.payer,
+      receipt.reader ?? receipt.payer,
       receipt.method,
       receipt.amountStroops,
       receipt.settledAt,
       new Date().toISOString(),
     );
     return this.get(txHash) as Receipt;
+  }
+
+  /** v1 → v2: columna `reader`; los recibos anteriores son de quien pagó. */
+  private migrate(): void {
+    const columns = this.db.prepare('PRAGMA table_info(receipts)').all() as { name: string }[];
+    if (!columns.some((c) => c.name === 'reader')) {
+      this.db.exec(`
+        BEGIN;
+        ALTER TABLE receipts ADD COLUMN reader TEXT;
+        UPDATE receipts SET reader = payer WHERE reader IS NULL;
+        COMMIT;
+      `);
+    }
+    this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
 
   public count(): number {
@@ -111,9 +133,9 @@ export class ReceiptStore {
   }
 }
 
-/** Mismo hash → mismo artículo y misma wallet. */
-export function sameReceipt(stored: Receipt, paperId: string, payer: string): boolean {
-  return stored.paperId === paperId && stored.payer === payer;
+/** Mismo hash → mismo artículo, misma wallet y mismo lector. */
+export function sameReceipt(stored: Receipt, paperId: string, payer: string, reader = payer): boolean {
+  return stored.paperId === paperId && stored.payer === payer && stored.reader === reader;
 }
 
 export const receiptStore = new ReceiptStore(config.receiptsDbPath);

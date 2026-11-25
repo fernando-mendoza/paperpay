@@ -25,3 +25,11 @@ export const X402_HEADERS = {
   PAYMENT_SIGNATURE: 'payment-signature',
   PAYMENT_RESPONSE: 'payment-response',
 } as const;
+
+// Regalo: la firma con la llave del enlace vale 5 minutos.
+export const GIFT_CLAIM_WINDOW_SECONDS = 300;
+
+/** Mensaje que firma quien abre un enlace de regalo. Lo arman igual la web y la API. */
+export function giftClaimMessage(txHash: string, signedAt: number): string {
+  return `PaperPay regalo\ntx: ${txHash.toLowerCase()}\nfirmado: ${signedAt}`;
+}

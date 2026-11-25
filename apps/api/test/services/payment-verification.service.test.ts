@@ -130,7 +130,7 @@ describe('PaymentVerificationService con recibos en SQLite', () => {
     await new PaymentVerificationService(store).verifyByHash({ txHash, signerPublicKey: signer, paperId });
 
     expect(store.get(txHash)).toEqual({
-      txHash, paperId, payer: signer, method: 'pollar', amountStroops: '5000000', settledAt: createdAt,
+      txHash, paperId, payer: signer, reader: signer, method: 'pollar', amountStroops: '5000000', settledAt: createdAt,
     });
   }));
 

@@ -36,6 +36,15 @@ Si el `402` trae `extra.splitter` (API con `SPLITTER_CONTRACT_ID`), Freighter pa
 
 Pollar sigue con el pago clásico.
 
+### Regalar un artículo
+
+Con Freighter y una API que anuncia `extra.splitter.giftUrl`, el artículo muestra "Regálalo" (`components/GiftPanel.tsx`, `services/gift.ts`): quien regala paga 0.50 USDC por el contrato (`gift`) y recibe un enlace `/regalo#<txHash>.<secreto>`. Quien lo abre no necesita wallet: `/regalo` (`views/GiftClaimView.tsx`) firma con la llave del enlace, la API entrega el acceso de 24 h y el sitio abre el artículo. Quien paga no recibe el artículo.
+
+- La llave se crea en el navegador y se guarda en `localStorage` **antes** de abrir Freighter, así que cerrar la pestaña después de pagar no pierde el enlace. El panel lista los regalos enviados desde ese navegador.
+- El sobre se revisa igual que en `pay`, más el destinatario: si `/prepare` devuelve otra cosa, Freighter no se abre.
+- Si la red no confirma a tiempo, "Reintentar" reenvía el mismo sobre.
+- Quien tiene el enlace tiene el regalo. Pollar no puede regalar (no usa el contrato).
+
 El modo de wallet también se puede elegir con `?wallet=freighter`, `?wallet=pollar` o `?wallet=mock`; la selección persiste durante la sesión. Un pago real requiere el modo `api` con Freighter o Pollar. El recibo enlaza al explorador si el backend devuelve un hash de transacción real.
 
 El JWT y el recibo se guardan en `localStorage` por artículo. El servidor valida el JWT en cada lectura y caduca a las 24 horas. El catálogo lee esos accesos y marca como "Comprado" los artículos con acceso vigente en ese navegador. Si después de firmar la API responde `504` (la red no confirmó a tiempo), sigue en `503` tras dos reenvíos o no responde, el sitio guarda el sobre firmado en `sessionStorage` y muestra «Tu pago sigue en camino». «Reintentar» reenvía ese mismo sobre: la red lo aplica una sola vez, así que no hay doble cobro. Si la red lo rechaza, se olvida y el siguiente intento firma uno nuevo. Dos límites:
@@ -60,8 +69,8 @@ Verificación estática: `pnpm --filter @paperpay/web typecheck`. Compilación: 
 
 Pruebas:
 
-- `pnpm --filter @paperpay/web test`: 28 pruebas sin red, del pago por contrato (sobre que no coincide, saldo, reenvío del pendiente) y del panel. El panel se prueba con registros reales de la tesorería en Horizon (`test/fixtures`).
-- `PAPERPAY_E2E_API_URL=http://127.0.0.1:4011 pnpm --filter @paperpay/web test:e2e` **sí paga 0.50 USDC de prueba en testnet**. Corre el código del sitio contra una API con el contrato activo; Freighter se simula con la llave de un lector desechable. Recorre 402 → `/prepare` → firma → artículo, reabre el artículo con el JWT y comprueba en Horizon y en el panel la lectura por contrato. Con `PAPERPAY_E2E_API_URL=https://paperpay.blockchains.tf` pasa por la Pages Function y la API publicadas.
+- `pnpm --filter @paperpay/web test`: 37 pruebas sin red, del pago por contrato (sobre que no coincide, saldo, reenvío del pendiente), del regalo (llave guardada antes de firmar, sobre con otro destinatario, reenvío, firma del reclamo) y del panel. El panel se prueba con registros reales de la tesorería en Horizon (`test/fixtures`).
+- `PAPERPAY_E2E_API_URL=http://127.0.0.1:4011 pnpm --filter @paperpay/web test:e2e` **sí paga 0.50 USDC de prueba en testnet**. Corre el código del sitio contra una API con el contrato activo; Freighter se simula con la llave de un lector desechable. Recorre 402 → `/prepare` → firma → artículo, reabre el artículo con el JWT y comprueba en Horizon y en el panel la lectura por contrato. Con `PAPERPAY_E2E_API_URL=https://paperpay.blockchains.tf` pasa por la Pages Function y la API publicadas. La misma orden corre también el regalo (`test/e2e/gift.testnet.test.ts`, otros 0.50 USDC de prueba): `gift` → enlace → otro navegador abre el artículo sin wallet, quien paga sigue sin acceso y una llave ajena no lo abre.
 
 ## Pollar (v2)
 
