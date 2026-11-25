@@ -81,6 +81,11 @@ export interface SplitterOptions {
    * sigue contando sus lecturas. Los pagos nuevos van siempre a `contractId`.
    */
   legacyContractIds?: string[];
+  /**
+   * Armar `pay_ref` cuando /prepare trae `referrer`. Solo con un contrato que tenga `pay_ref`
+   * (v0.4.0 o posterior); apagado, el referido se ignora y se arma `pay`.
+   */
+  referrals?: boolean;
   /** Cuenta de la editorial que recibe el 98% (hoy, una editorial demo para todo el catálogo). */
   publisher: string;
   rpcUrl: string;
@@ -139,6 +144,11 @@ export class SplitterService {
     return { contractId: this.opts.contractId, publisher: this.opts.publisher, amount: this.amount };
   }
 
+  /** ¿Arma `pay_ref` con el referido de /prepare? (ver `referrals`). */
+  public get referralsEnabled(): boolean {
+    return this.enabled && this.opts.referrals === true;
+  }
+
   /** El contrato activo y los anteriores, en ese orden (ver `legacyContractIds`). */
   public contractIds(): string[] {
     if (!this.enabled) return [];
@@ -167,7 +177,7 @@ export class SplitterService {
       throw new SplitterError(400, 'El referido debe ser una dirección Stellar válida (G...) y no aplica a regalos.');
     }
     const contract = new Contract(this.opts.contractId);
-    const ref = referrer !== undefined && referrer !== payer ? referrer : undefined;
+    const ref = this.referralsEnabled && referrer !== undefined && referrer !== payer ? referrer : undefined;
 
     const server = this.rpc();
     let account;
@@ -533,6 +543,7 @@ export function parsePaidReceipts(events: xdr.ContractEvent[]): PaidReceipt[] {
 export const splitterService = new SplitterService({
   contractId: config.splitterContractId,
   legacyContractIds: config.splitterLegacyContractIds,
+  referrals: config.splitterReferrals,
   publisher: config.splitterPublisher,
   rpcUrl: config.stellarRpcUrl,
   networkPassphrase: STELLAR_NETWORK_PASSPHRASE,

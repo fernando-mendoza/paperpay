@@ -49,6 +49,11 @@ export interface X402SplitterTerms {
    * manda aquí (POST con PAYMENT-SIGNATURE). Sin este campo, la API no acepta regalos.
    */
   giftUrl?: string;
+  /**
+   * Referidos: `prepareUrl` con `{ payer, referrer }` arma `pay_ref(…, referrer)` y quien recomendó
+   * se lleva la mitad de la comisión. Sin este campo, la API ignora `referrer` y arma `pay`.
+   */
+  referrals?: boolean;
 }
 
 /** `POST giftUrl`: el regalo quedó pagado. Quien paga no recibe el artículo. */

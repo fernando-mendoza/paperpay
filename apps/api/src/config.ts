@@ -20,6 +20,8 @@ export interface AppConfig {
   splitterContractId: string;
   /** Contratos de reparto anteriores (C..., separados por coma): sus comprobantes siguen valiendo. */
   splitterLegacyContractIds: string[];
+  /** `pay_ref` con el `referrer` de /prepare. Solo con un contrato que lo tenga (v0.4.0 o posterior). */
+  splitterReferrals: boolean;
   /** Cuenta que recibe la parte de la editorial en los pagos por contrato. */
   splitterPublisher: string;
   paymentVerificationMaxAgeSeconds: number;
@@ -61,6 +63,7 @@ export const config: AppConfig = {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
+  splitterReferrals: process.env.SPLITTER_REFERRALS === 'true',
   splitterPublisher: (process.env.SPLITTER_PUBLISHER_ADDRESS || '').trim(),
   paymentVerificationMaxAgeSeconds: parseInt(process.env.PAYMENT_VERIFICATION_MAX_AGE_SECONDS || '300', 10),
   receiptsDbPath: receiptsDbPath(),

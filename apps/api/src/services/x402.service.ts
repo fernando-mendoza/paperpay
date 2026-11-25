@@ -33,6 +33,7 @@ export class X402Service {
                 publisher: splitterService.terms().publisher,
                 prepareUrl: `/api/papers/${encodeURIComponent(paperId)}/prepare`,
                 giftUrl: `/api/papers/${encodeURIComponent(paperId)}/gift`,
+                ...(splitterService.referralsEnabled && { referrals: true }),
               },
             }),
           },

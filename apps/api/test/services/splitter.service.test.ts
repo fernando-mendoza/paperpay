@@ -57,6 +57,7 @@ function service(client: SplitterRpc = fakeRpc(), nowSeconds = CONFIRMED_AT + 10
     rpc: client,
     now: () => nowSeconds * 1000,
     claimSecret: 'clave-de-prueba',
+    referrals: true,
   });
 }
 
@@ -509,6 +510,15 @@ describe('Referido (pay_ref)', () => {
     expect(() => service().validateSignedPayment(tx.toXDR(), reader.publicKey(), PAPER)).not.toThrow();
     // No sirve como regalo.
     expect(() => service().validateSignedGift(tx.toXDR(), reader.publicKey(), PAPER)).toThrow(/Solo se acepta la función gift/);
+  });
+
+  it('sin SPLITTER_REFERRALS (contrato sin pay_ref) el referido se ignora y se arma pay', async () => {
+    const svc = new SplitterService({ contractId: CONTRACT, publisher: PUBLISHER, rpcUrl: 'http://rpc.invalid', networkPassphrase: Networks.TESTNET, rpc: preparing() });
+    expect(svc.referralsEnabled).toBe(false);
+    const prepared = await svc.preparePayment(PAPER, reader.publicKey(), undefined, referrer);
+    expect(prepared.referrer).toBeUndefined();
+    expect(fnOf(prepared.transactionXdr)).toBe('pay');
+    expect(service().referralsEnabled).toBe(true);
   });
 
   it('si quien recomienda es la misma wallet que paga, arma pay sin referido', async () => {

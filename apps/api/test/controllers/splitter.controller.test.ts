@@ -70,6 +70,12 @@ describe('Pagos por el contrato de reparto', () => {
     });
     expect(res.body.paper).toBeUndefined();
 
+    // Con SPLITTER_REFERRALS, el 402 avisa que acepta referidos.
+    vi.spyOn(splitterService, 'referralsEnabled', 'get').mockReturnValue(true);
+    const withRefs = await request(app).get(`/api/papers/${PAPER}`);
+    const refHeader = decodeBase64Json<X402PaymentRequiredHeader>(withRefs.headers['payment-required']);
+    expect(refHeader.accepts[0].extra?.splitter?.referrals).toBe(true);
+
     const health = await request(app).get('/api/health');
     expect(health.body.splitterContractId).toBe(CONTRACT);
     // La web cuenta las lecturas de todos: el contrato activo y los anteriores.
