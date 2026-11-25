@@ -2,7 +2,8 @@
 extern crate std;
 
 use super::{
-    Config, Error, Item, Paid, Split, Splitter, SplitterClient, MAX_BATCH_ITEMS, MAX_FEE_BPS,
+    Config, Error, Item, Paid, Split, Splitter, SplitterClient, Tipped, MAX_BATCH_ITEMS,
+    MAX_FEE_BPS,
 };
 use soroban_sdk::{
     testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Events as _},
@@ -701,4 +702,92 @@ fn sin_la_firma_de_quien_paga_no_hay_paquete_de_regalo() {
         .try_gift_batch(&s.payer, &student, &items)
         .is_err());
     assert_eq!(s.usdc.balance(&s.payer), 10 * PRICE);
+}
+
+// ---------- tip ----------
+
+#[test]
+fn una_propina_se_reparte_como_una_lectura_y_no_da_acceso() {
+    let s = setup();
+    let paper_id = paper(&s.env);
+    let split = s.splitter.tip(&s.payer, &paper_id, &s.publisher, &PRICE);
+    let receipts = s.receipts();
+
+    assert_eq!(
+        split,
+        Split {
+            publisher: 4_900_000,
+            fee: 100_000
+        }
+    );
+    assert_eq!(s.usdc.balance(&s.payer), 9 * PRICE);
+    assert_eq!(s.usdc.balance(&s.publisher), 4_900_000);
+    assert_eq!(s.usdc.balance(&s.treasury), 100_000);
+    assert_eq!(
+        s.usdc.balance(&s.splitter.address),
+        0,
+        "el contrato no guarda fondos"
+    );
+
+    // Solo el evento `tipped`: ningún `paid`, así que la API no da acceso por una propina.
+    let expected = Tipped {
+        publisher: s.publisher.clone(),
+        payer: s.payer.clone(),
+        paper_id,
+        amount: PRICE,
+        fee: 100_000,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.splitter.address)]);
+}
+
+#[test]
+fn la_propina_solo_pide_la_firma_de_quien_la_da() {
+    let s = setup();
+    let paper_id = paper(&s.env);
+    s.splitter.tip(&s.payer, &paper_id, &s.publisher, &PRICE);
+
+    assert_eq!(
+        s.env.auths(),
+        std::vec![(
+            s.payer.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.splitter.address.clone(),
+                    Symbol::new(&s.env, "tip"),
+                    (s.payer.clone(), paper_id, s.publisher.clone(), PRICE).into_val(&s.env),
+                )),
+                sub_invocations: std::vec![
+                    s.transfer_auth(&s.payer, &s.publisher, 4_900_000),
+                    s.transfer_auth(&s.payer, &s.treasury, 100_000),
+                ],
+            }
+        )]
+    );
+}
+
+#[test]
+fn la_propina_rechaza_montos_e_ids_invalidos_y_sin_firma_no_se_cobra() {
+    let s = setup();
+    let paper_id = paper(&s.env);
+    assert_eq!(
+        s.splitter.try_tip(&s.payer, &paper_id, &s.publisher, &0),
+        Err(Ok(Error::InvalidAmount.into()))
+    );
+    assert_eq!(
+        s.splitter.try_tip(
+            &s.payer,
+            &String::from_str(&s.env, ""),
+            &s.publisher,
+            &PRICE
+        ),
+        Err(Ok(Error::InvalidPaperId.into()))
+    );
+
+    s.env.set_auths(&[]);
+    assert!(s
+        .splitter
+        .try_tip(&s.payer, &paper_id, &s.publisher, &PRICE)
+        .is_err());
+    assert_eq!(s.usdc.balance(&s.payer), 10 * PRICE);
+    assert_eq!(s.usdc.balance(&s.publisher), 0);
 }

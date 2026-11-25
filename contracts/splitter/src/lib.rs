@@ -12,6 +12,9 @@
 //! - `gift`: un artículo que paga una cuenta y lee otra.
 //! - `gift_batch`: varios artículos que paga una cuenta y lee otra (una lista de lectura).
 //!
+//! Y un movimiento que no da acceso (emite su propio evento, nunca `paid`):
+//! - `tip`: una propina a la editorial por un artículo, con el mismo reparto.
+//!
 //! La configuración (token, tesorería y comisión) se fija al desplegar y no cambia: no hay
 //! admin ni llave que custodiar. Para cambiarla se despliega otro contrato.
 
@@ -104,6 +107,19 @@ pub struct Paid {
     pub fee: i128,
 }
 
+/// Comprobante de una propina. Topics: `["tipped", publisher, payer]`. No da acceso al artículo.
+#[contractevent(topics = ["tipped"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Tipped {
+    #[topic]
+    pub publisher: Address,
+    #[topic]
+    pub payer: Address,
+    pub paper_id: String,
+    pub amount: i128,
+    pub fee: i128,
+}
+
 #[contract]
 pub struct Splitter;
 
@@ -165,6 +181,34 @@ impl Splitter {
     pub fn gift_batch(env: Env, payer: Address, reader: Address, items: Vec<Item>) -> Split {
         payer.require_auth();
         charge_batch(&env, &payer, &reader, items)
+    }
+
+    /// Propina de `payer` a la editorial por un artículo, con el mismo reparto que una lectura.
+    /// Emite `tipped`, no `paid`: una propina no da acceso al artículo. Devuelve el reparto.
+    pub fn tip(
+        env: Env,
+        payer: Address,
+        paper_id: String,
+        publisher: Address,
+        amount: i128,
+    ) -> Split {
+        payer.require_auth();
+        validate_paper_id(&env, &paper_id);
+        let config = read_config(&env);
+        let split = compute_split(&env, amount, config.fee_bps);
+        transfer_split(&env, &config, &payer, &publisher, &split);
+        extend_instance_ttl(&env);
+
+        Tipped {
+            publisher,
+            payer,
+            paper_id,
+            amount,
+            fee: split.fee,
+        }
+        .publish(&env);
+
+        split
     }
 
     /// Cómo se repartiría `amount`, sin mover fondos.
