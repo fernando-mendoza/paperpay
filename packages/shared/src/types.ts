@@ -102,6 +102,9 @@ export interface SplitterPrepareResponse {
   // Comprobante de quien pidió este sobre. Viaja de vuelta en `claim` de PAYMENT-SIGNATURE: con él,
   // reenviar el sobre ya confirmado da acceso hasta 24 h después (sin él, solo 5 min).
   claim?: string;
+  // Quien recomendó, si el sobre es `pay_ref`. Ausente = `pay` (sin referido, o la API lo descartó
+  // porque es la misma wallet o porque esa cuenta no puede cobrar su parte).
+  referrer?: string;
   networkPassphrase: string;
   terms: { contractId: string; publisher: string; amount: string };
 }
@@ -148,6 +151,8 @@ export interface HealthCheckResponse {
   treasuryPublicKey: string;
   /** Contrato de reparto 98/2 activo, o null si la API solo acepta pagos clásicos. */
   splitterContractId: string | null;
+  /** El contrato activo y los anteriores (sus lecturas siguen contando). Vacío sin contrato. */
+  splitterContractIds?: string[];
   timestamp: string;
 }
 

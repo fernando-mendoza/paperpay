@@ -13,9 +13,12 @@ const CONTRACT = 'CAIMQYXIXNYSAXIRQRAAG5ZTWP26476JX4SVAMDAOXRKLRCADUDKHOR5';
 const PUBLISHER = 'GA3MOPOJ374G4APKR4RE7VPXF5CEQKER3FA3LZ2XSAARIRSZEF6QXUZI';
 const reader = Keypair.random();
 
+const LEGACY = 'CDOUF6BBLKAXPT6EJAF2SOAUMKX3RASZFNHD7ORMIQZUTH4G6V66BPOZ';
+
 function enableSplitter() {
   vi.spyOn(splitterService, 'enabled', 'get').mockReturnValue(true);
   vi.spyOn(splitterService, 'terms').mockReturnValue({ contractId: CONTRACT, publisher: PUBLISHER, amount: '5000000' });
+  vi.spyOn(splitterService, 'contractIds').mockReturnValue([CONTRACT, LEGACY]);
 }
 
 function signatureHeader(signature: string, claim?: string): string {
@@ -69,6 +72,8 @@ describe('Pagos por el contrato de reparto', () => {
 
     const health = await request(app).get('/api/health');
     expect(health.body.splitterContractId).toBe(CONTRACT);
+    // La web cuenta las lecturas de todos: el contrato activo y los anteriores.
+    expect(health.body.splitterContractIds).toEqual([CONTRACT, LEGACY]);
   });
 
   describe('POST /api/papers/:id/prepare', () => {
@@ -103,7 +108,7 @@ describe('Pagos por el contrato de reparto', () => {
         networkPassphrase: Networks.TESTNET,
         terms: { contractId: CONTRACT, publisher: PUBLISHER, amount: '5000000' },
       });
-      expect(prepare).toHaveBeenCalledWith(PAPER, reader.publicKey(), undefined);
+      expect(prepare).toHaveBeenCalledWith(PAPER, reader.publicKey(), undefined, undefined);
     });
 
     it('con reader prepara el regalo; reader que no es texto → 400', async () => {
@@ -112,8 +117,26 @@ describe('Pagos por el contrato de reparto', () => {
       const prepare = vi.spyOn(splitterService, 'preparePayment').mockResolvedValueOnce({ transactionXdr: 'GIFT-xdr' });
       const res = await request(app).post(`/api/papers/${PAPER}/prepare`).send({ payer: reader.publicKey(), reader: student });
       expect(res.status).toBe(200);
-      expect(prepare).toHaveBeenCalledWith(PAPER, reader.publicKey(), student);
+      expect(prepare).toHaveBeenCalledWith(PAPER, reader.publicKey(), student, undefined);
       const bad = await request(app).post(`/api/papers/${PAPER}/prepare`).send({ payer: reader.publicKey(), reader: 42 });
+      expect(bad.status).toBe(400);
+    });
+
+    it('con referrer prepara pay_ref y dice si quedó el referido; referrer que no es texto → 400', async () => {
+      enableSplitter();
+      const referrer = Keypair.random().publicKey();
+      const prepare = vi.spyOn(splitterService, 'preparePayment').mockResolvedValueOnce({ transactionXdr: 'REF-xdr', referrer });
+      const res = await request(app).post(`/api/papers/${PAPER}/prepare`).send({ payer: reader.publicKey(), referrer });
+      expect(res.status).toBe(200);
+      expect(res.body.referrer).toBe(referrer);
+      expect(prepare).toHaveBeenCalledWith(PAPER, reader.publicKey(), undefined, referrer);
+
+      // Descartado (misma wallet o no puede cobrar): la respuesta no trae referrer.
+      vi.spyOn(splitterService, 'preparePayment').mockResolvedValueOnce({ transactionXdr: 'PAY-xdr' });
+      const dropped = await request(app).post(`/api/papers/${PAPER}/prepare`).send({ payer: reader.publicKey(), referrer });
+      expect(dropped.body.referrer).toBeUndefined();
+
+      const bad = await request(app).post(`/api/papers/${PAPER}/prepare`).send({ payer: reader.publicKey(), referrer: ['G'] });
       expect(bad.status).toBe(400);
     });
 

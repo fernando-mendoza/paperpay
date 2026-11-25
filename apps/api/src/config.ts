@@ -18,6 +18,8 @@ export interface AppConfig {
   stellarRpcUrl: string;
   /** Contrato de reparto 98/2 (contracts/splitter). Vacío = solo pagos clásicos a la tesorería. */
   splitterContractId: string;
+  /** Contratos de reparto anteriores (C..., separados por coma): sus comprobantes siguen valiendo. */
+  splitterLegacyContractIds: string[];
   /** Cuenta que recibe la parte de la editorial en los pagos por contrato. */
   splitterPublisher: string;
   paymentVerificationMaxAgeSeconds: number;
@@ -55,6 +57,10 @@ export const config: AppConfig = {
   horizonUrl: process.env.STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org',
   stellarRpcUrl: process.env.STELLAR_RPC_URL || STELLAR_RPC_URL,
   splitterContractId: (process.env.SPLITTER_CONTRACT_ID || '').trim(),
+  splitterLegacyContractIds: (process.env.SPLITTER_LEGACY_CONTRACT_IDS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
   splitterPublisher: (process.env.SPLITTER_PUBLISHER_ADDRESS || '').trim(),
   paymentVerificationMaxAgeSeconds: parseInt(process.env.PAYMENT_VERIFICATION_MAX_AGE_SECONDS || '300', 10),
   receiptsDbPath: receiptsDbPath(),

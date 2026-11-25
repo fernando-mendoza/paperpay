@@ -1,4 +1,5 @@
 import {
+  Account,
   Address,
   BASE_FEE,
   Contract,
@@ -22,12 +23,21 @@ import { config } from '../config';
  * Flujo: la API arma y simula la invocación de `pay` (preparePayment) → la wallet del lector la
  * firma → la API revisa lo firmado (validateSignedPayment), lo envía por RPC y solo da acceso si
  * la transacción se confirma con el comprobante `paid` esperado (settle).
+ *
+ * Con un referido (link `?ref=` en la web), el pago es `pay_ref` (contrato v0.4.0 o posterior):
+ * quien paga y la editorial ven lo mismo que en `pay`, y la comisión se parte entre quien recomendó
+ * (la mitad) y la tesorería. Emite el mismo `paid`, así que el acceso no cambia.
  */
 
 export const SPLITTER_PAY_FUNCTION = 'pay';
+/** Pago recomendado por otra cuenta: `pay` más `referrer`, que se lleva la mitad de la comisión. */
+export const SPLITTER_REF_FUNCTION = 'pay_ref';
 /** Regalo: cobra a `payer` y deja el acceso a nombre de `reader` (solo firma `payer`). */
 export const SPLITTER_GIFT_FUNCTION = 'gift';
-type SplitterFunction = typeof SPLITTER_PAY_FUNCTION | typeof SPLITTER_GIFT_FUNCTION;
+type SplitterFunction = typeof SPLITTER_PAY_FUNCTION | typeof SPLITTER_REF_FUNCTION | typeof SPLITTER_GIFT_FUNCTION;
+/** Las funciones que abren el artículo a quien paga. */
+const PAY_FUNCTIONS: readonly SplitterFunction[] = [SPLITTER_PAY_FUNCTION, SPLITTER_REF_FUNCTION];
+const GIFT_FUNCTIONS: readonly SplitterFunction[] = [SPLITTER_GIFT_FUNCTION];
 
 export class SplitterError extends Error {
   public constructor(
@@ -66,6 +76,11 @@ export type SplitterRpc = Pick<
 export interface SplitterOptions {
   /** Vacío = pagos por contrato deshabilitados. */
   contractId: string;
+  /**
+   * Contratos anteriores: sus comprobantes `paid` siguen valiendo para reclamar regalos y la web
+   * sigue contando sus lecturas. Los pagos nuevos van siempre a `contractId`.
+   */
+  legacyContractIds?: string[];
   /** Cuenta de la editorial que recibe el 98% (hoy, una editorial demo para todo el catálogo). */
   publisher: string;
   rpcUrl: string;
@@ -95,6 +110,8 @@ export interface SettledPayment {
 export interface PreparedPayment {
   transactionXdr: string;
   claim?: string;
+  /** Quien recomendó, si el sobre es `pay_ref`. Ausente si se armó `pay` (sin referido o descartado). */
+  referrer?: string;
 }
 
 export class SplitterService {
@@ -122,12 +139,23 @@ export class SplitterService {
     return { contractId: this.opts.contractId, publisher: this.opts.publisher, amount: this.amount };
   }
 
+  /** El contrato activo y los anteriores, en ese orden (ver `legacyContractIds`). */
+  public contractIds(): string[] {
+    if (!this.enabled) return [];
+    return [this.opts.contractId, ...(this.opts.legacyContractIds ?? []).filter((id) => id !== this.opts.contractId)];
+  }
+
   /**
-   * Arma y simula `pay(payer, paperId, publisher, amount)` o, con `reader`, el regalo
+   * Arma y simula `pay(payer, paperId, publisher, amount)`; con `referrer`,
+   * `pay_ref(payer, paperId, publisher, amount, referrer)`; o, con `reader`, el regalo
    * `gift(payer, reader, paperId, publisher, amount)`. Devuelve el XDR listo para firmar y su
    * comprobante (ver `settle`).
+   *
+   * Un referido nunca impide pagar: si es la misma wallet que paga se ignora, y si la simulación de
+   * `pay_ref` falla (por ejemplo, la cuenta que recomienda no tiene trustline de USDC y no puede
+   * cobrar su parte) se arma `pay` sin referido.
    */
-  public async preparePayment(paperId: string, payer: string, reader?: string): Promise<PreparedPayment> {
+  public async preparePayment(paperId: string, payer: string, reader?: string, referrer?: string): Promise<PreparedPayment> {
     this.requireEnabled();
     if (!StrKey.isValidEd25519PublicKey(payer)) {
       throw new SplitterError(400, 'La wallet del lector no es una dirección Stellar válida (G...).');
@@ -135,10 +163,11 @@ export class SplitterService {
     if (reader !== undefined && (!StrKey.isValidEd25519PublicKey(reader) || reader === payer)) {
       throw new SplitterError(400, 'Quien recibe el regalo debe ser otra dirección Stellar válida (G...).');
     }
-    const call =
-      reader === undefined
-        ? new Contract(this.opts.contractId).call(SPLITTER_PAY_FUNCTION, ...this.payArgs(payer, paperId))
-        : new Contract(this.opts.contractId).call(SPLITTER_GIFT_FUNCTION, ...this.giftArgs(payer, reader, paperId));
+    if (referrer !== undefined && (reader !== undefined || !StrKey.isValidEd25519PublicKey(referrer))) {
+      throw new SplitterError(400, 'El referido debe ser una dirección Stellar válida (G...) y no aplica a regalos.');
+    }
+    const contract = new Contract(this.opts.contractId);
+    const ref = referrer !== undefined && referrer !== payer ? referrer : undefined;
 
     const server = this.rpc();
     let account;
@@ -148,19 +177,23 @@ export class SplitterService {
       throw new SplitterError(402, 'Esa wallet todavía no existe en Stellar testnet: fondéala con XLM antes de pagar.');
     }
 
-    // La comisión de inclusión lleva hasta 999 stroops (0.0001 XLM) al azar: así dos pedidos de
-    // /prepare con la misma wallet en el mismo segundo no producen el mismo sobre (ni el mismo
-    // comprobante).
-    const tx = new TransactionBuilder(account, {
-      fee: String(Number(BASE_FEE) + randomInt(0, 1000)),
-      networkPassphrase: this.opts.networkPassphrase,
-    })
-      .addOperation(call)
-      .setTimeout(300)
-      .build();
+    if (ref !== undefined) {
+      try {
+        const prepared = await server.prepareTransaction(
+          this.buildTx(account, contract.call(SPLITTER_REF_FUNCTION, ...this.refArgs(payer, paperId, ref))),
+        );
+        return { transactionXdr: prepared.toXDR(), claim: this.claimFor(prepared.hash()), referrer: ref };
+      } catch (err: unknown) {
+        console.warn('[splitter] La simulación de pay_ref falló; se arma pay sin referido:', err instanceof Error ? err.message : err);
+      }
+    }
 
+    const call =
+      reader === undefined
+        ? contract.call(SPLITTER_PAY_FUNCTION, ...this.payArgs(payer, paperId))
+        : contract.call(SPLITTER_GIFT_FUNCTION, ...this.giftArgs(payer, reader, paperId));
     try {
-      const prepared = await server.prepareTransaction(tx);
+      const prepared = await server.prepareTransaction(this.buildTx(account, call));
       return { transactionXdr: prepared.toXDR(), claim: this.claimFor(prepared.hash()) };
     } catch (err: unknown) {
       console.warn(`[splitter] La simulación de ${reader === undefined ? 'pay' : 'gift'} falló:`, err instanceof Error ? err.message : err);
@@ -169,6 +202,23 @@ export class SplitterService {
         'No se pudo preparar el pago: la wallet necesita 0.50 USDC (con trustline) y un poco de XLM para la comisión de red.',
       );
     }
+  }
+
+  /**
+   * La comisión de inclusión lleva hasta 999 stroops (0.0001 XLM) al azar: así dos pedidos de
+   * /prepare con la misma wallet en el mismo segundo no producen el mismo sobre (ni el mismo
+   * comprobante). Con el fallback de `pay_ref` a `pay`, la misma cuenta arma dos sobres: cada uno
+   * se construye desde la secuencia de la cuenta, no desde el anterior.
+   */
+  private buildTx(account: Awaited<ReturnType<SplitterRpc['getAccount']>>, call: xdr.Operation): Transaction {
+    const source = new Account(account.accountId(), account.sequenceNumber());
+    return new TransactionBuilder(source, {
+      fee: String(Number(BASE_FEE) + randomInt(0, 1000)),
+      networkPassphrase: this.opts.networkPassphrase,
+    })
+      .addOperation(call)
+      .setTimeout(300)
+      .build();
   }
 
   /** ¿Es un sobre que invoca un contrato? Sirve para enrutar entre el pago clásico y este. */
@@ -182,23 +232,23 @@ export class SplitterService {
   }
 
   /**
-   * Revisa, sin tocar la red, que el sobre firmado sea exactamente `pay` de nuestro contrato
-   * para este artículo, con la editorial y el monto que fija la API, y firmado por el lector.
+   * Revisa, sin tocar la red, que el sobre firmado sea exactamente `pay` (o `pay_ref`) de nuestro
+   * contrato para este artículo, con la editorial y el monto que fija la API, y firmado por el lector.
    */
   public validateSignedPayment(transactionXdr: string, signer: string, paperId: string): Transaction {
-    return this.validateSigned(transactionXdr, signer, paperId, SPLITTER_PAY_FUNCTION).tx;
+    return this.validateSigned(transactionXdr, signer, paperId, PAY_FUNCTIONS).tx;
   }
 
   /** Igual que `validateSignedPayment`, pero para `gift`. Devuelve también quién recibe el acceso. */
   public validateSignedGift(transactionXdr: string, signer: string, paperId: string): { tx: Transaction; reader: string } {
-    return this.validateSigned(transactionXdr, signer, paperId, SPLITTER_GIFT_FUNCTION);
+    return this.validateSigned(transactionXdr, signer, paperId, GIFT_FUNCTIONS);
   }
 
   private validateSigned(
     transactionXdr: string,
     signer: string,
     paperId: string,
-    fn: SplitterFunction,
+    allowed: readonly SplitterFunction[],
   ): { tx: Transaction; reader: string } {
     this.requireEnabled();
     let parsed;
@@ -227,7 +277,8 @@ export class SplitterService {
       throw new SplitterError(400, 'La operación no invoca una función de contrato.');
     }
 
-    const reader = this.requireCall(func.invokeContract, signer, paperId, fn);
+    const call = func.invokeContract;
+    const reader = this.requireCall(call, signer, paperId, allowed);
     for (const entry of op.auth ?? []) {
       if (entry.credentials.type !== 'sorobanCredentialsSourceAccount') {
         throw new SplitterError(400, 'La autorización debe ser la de la cuenta que firma la transacción.');
@@ -236,7 +287,10 @@ export class SplitterService {
       if (root.type !== 'sorobanAuthorizedFunctionTypeContractFn') {
         throw new SplitterError(400, 'La autorización no corresponde al pago.');
       }
-      this.requireCall(root.contractFn, signer, paperId, fn);
+      // La autorización tiene que ser exactamente la misma llamada que la operación.
+      if (!Buffer.from(root.contractFn.toXDR()).equals(Buffer.from(call.toXDR()))) {
+        throw new SplitterError(400, 'La autorización no corresponde al pago.');
+      }
     }
 
     const keypair = Keypair.fromPublicKey(signer);
@@ -358,11 +412,12 @@ export class SplitterService {
     return given.length === wanted.length && timingSafeEqual(given, wanted);
   }
 
-  /** Comprobantes `paid` de nuestro contrato, con nuestra editorial y nuestro precio. */
+  /** Comprobantes `paid` de nuestros contratos (el activo o uno anterior), con nuestra editorial y nuestro precio. */
   private paidReceipts(result: rpc.Api.GetSuccessfulTransactionResponse): PaidReceipt[] {
     const events = result.events?.contractEventsXdr.flat() ?? [];
+    const ours = this.contractIds();
     return parsePaidReceipts(events).filter(
-      (r) => r.contractId === this.opts.contractId && r.publisher === this.opts.publisher && r.amount === BigInt(this.amount),
+      (r) => ours.includes(r.contractId) && r.publisher === this.opts.publisher && r.amount === BigInt(this.amount),
     );
   }
 
@@ -393,23 +448,33 @@ export class SplitterService {
     return [payerArg, nativeToScVal(reader, { type: 'address' }), ...rest];
   }
 
-  /** Revisa una llamada `pay` o `gift` y devuelve quién recibe el acceso. */
-  private requireCall(call: xdr.InvokeContractArgs, signer: string, paperId: string, fn: SplitterFunction): string {
+  private refArgs(payer: string, paperId: string, referrer: string): xdr.ScVal[] {
+    return [...this.payArgs(payer, paperId), nativeToScVal(referrer, { type: 'address' })];
+  }
+
+  /** Revisa una llamada `pay`, `pay_ref` o `gift` y devuelve quién recibe el acceso. */
+  private requireCall(call: xdr.InvokeContractArgs, signer: string, paperId: string, allowed: readonly SplitterFunction[]): string {
     const contractId = Address.fromScAddress(call.contractAddress).toString();
     if (contractId !== this.opts.contractId) {
       throw new SplitterError(400, 'La transacción no invoca el contrato de reparto de PaperPay.');
     }
-    if (call.functionName.toString() !== fn) {
-      throw new SplitterError(400, `Solo se acepta la función ${fn} del contrato.`);
+    const fn = call.functionName.toString() as SplitterFunction;
+    if (!allowed.includes(fn)) {
+      throw new SplitterError(400, `Solo se acepta la función ${allowed.join(' o ')} del contrato.`);
     }
-    // pay(payer, paper, publisher, amount) · gift(payer, reader, paper, publisher, amount)
+    // pay(payer, paper, publisher, amount) · pay_ref(payer, paper, publisher, amount, referrer)
+    // · gift(payer, reader, paper, publisher, amount)
     const args = call.args.map((arg) => scValToNative(arg) as unknown);
     const isGift = fn === SPLITTER_GIFT_FUNCTION;
     const [payer, ...rest] = args;
     const reader = isGift ? rest.shift() : signer;
+    const referrer = fn === SPLITTER_REF_FUNCTION ? rest.pop() : undefined;
     const [paper, publisher, amount] = rest;
     if (rest.length !== 3 || payer !== signer) {
       throw new SplitterError(400, 'El pago debe salir de la wallet que firma.');
+    }
+    if (fn === SPLITTER_REF_FUNCTION && (typeof referrer !== 'string' || !StrKey.isValidEd25519PublicKey(referrer) || referrer === signer)) {
+      throw new SplitterError(400, 'Quien recomienda debe ser otra cuenta Stellar.');
     }
     if (typeof reader !== 'string' || !StrKey.isValidEd25519PublicKey(reader) || (isGift && reader === signer)) {
       throw new SplitterError(400, 'Quien recibe el regalo debe ser otra cuenta Stellar.');
@@ -467,6 +532,7 @@ export function parsePaidReceipts(events: xdr.ContractEvent[]): PaidReceipt[] {
 
 export const splitterService = new SplitterService({
   contractId: config.splitterContractId,
+  legacyContractIds: config.splitterLegacyContractIds,
   publisher: config.splitterPublisher,
   rpcUrl: config.stellarRpcUrl,
   networkPassphrase: STELLAR_NETWORK_PASSPHRASE,

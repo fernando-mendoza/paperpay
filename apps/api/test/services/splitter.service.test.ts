@@ -181,8 +181,9 @@ describe('SplitterService.validateSignedPayment', () => {
   });
 
   it('rechaza una autorización para otra llamada', () => {
-    const auth = authFor(CONTRACT, 'gift', payArgs(reader.publicKey()));
-    rejects(build({ auth: [auth] }), /Solo se acepta la función pay/);
+    // Una autorización tiene que ser la misma llamada que la operación, no solo una permitida.
+    rejects(build({ auth: [authFor(CONTRACT, 'gift', payArgs(reader.publicKey()))] }), /La autorización no corresponde/);
+    rejects(build({ auth: [authFor(CONTRACT, 'pay', payArgs(reader.publicKey(), 'otro-articulo'))] }), /La autorización no corresponde/);
   });
 
   it('rechaza XDR que no es una transacción', () => {
@@ -483,5 +484,117 @@ describe('Regalo (gift)', () => {
     expect(gift?.receipt).toMatchObject({ payer: FIXTURE_PAYER, reader: FIXTURE_STUDENT });
     expect(await service(fakeRpc({ getTransaction: vi.fn().mockResolvedValue(confirmed()) })).findGift(fixtures.pay_batch.txHash)).toBeNull();
     expect(await service().findGift('ab'.repeat(32))).toBeNull();
+  });
+});
+
+describe('Referido (pay_ref)', () => {
+  // v0.4.0 en testnet: el primero con pay_ref (contracts/deployments/testnet.json).
+  const V040 = 'CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA';
+  const referrer = Keypair.random().publicKey();
+  const refArgs = (ref = referrer, payer = reader.publicKey()): xdr.ScVal[] => [...payArgs(payer), nativeToScVal(ref, { type: 'address' })];
+  const fnOf = (transactionXdr: string): string => {
+    const op = (TransactionBuilder.fromXDR(transactionXdr, Networks.TESTNET) as Transaction).operations[0] as Operation.InvokeHostFunction;
+    if (op.func.type !== 'hostFunctionTypeInvokeContract') throw new Error('no es invokeContract');
+    return op.func.invokeContract.functionName.toString();
+  };
+  const preparing = (prepareTransaction: unknown = vi.fn(async (t: Transaction) => t)) =>
+    fakeRpc({ getAccount: vi.fn().mockResolvedValue(new Account(reader.publicKey(), '41')), prepareTransaction });
+
+  it('/prepare con referrer arma pay_ref(payer, paper, publisher, amount, referrer) y lo firmado pasa como pago', async () => {
+    const prepared = await service(preparing()).preparePayment(PAPER, reader.publicKey(), undefined, referrer);
+    expect(prepared.referrer).toBe(referrer);
+    expect(fnOf(prepared.transactionXdr)).toBe('pay_ref');
+    const tx = TransactionBuilder.fromXDR(prepared.transactionXdr, Networks.TESTNET) as Transaction;
+    tx.sign(reader);
+    expect(() => service().validateSignedPayment(tx.toXDR(), reader.publicKey(), PAPER)).not.toThrow();
+    // No sirve como regalo.
+    expect(() => service().validateSignedGift(tx.toXDR(), reader.publicKey(), PAPER)).toThrow(/Solo se acepta la función gift/);
+  });
+
+  it('si quien recomienda es la misma wallet que paga, arma pay sin referido', async () => {
+    const prepared = await service(preparing()).preparePayment(PAPER, reader.publicKey(), undefined, reader.publicKey());
+    expect(prepared.referrer).toBeUndefined();
+    expect(fnOf(prepared.transactionXdr)).toBe('pay');
+  });
+
+  it('si la simulación de pay_ref falla (quien recomienda no puede cobrar), arma pay: el referido nunca impide pagar', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const prepareTransaction = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('HostError: Error(Contract, #13) trustline entry is missing'))
+      .mockImplementationOnce(async (t: Transaction) => t);
+    const prepared = await service(preparing(prepareTransaction)).preparePayment(PAPER, reader.publicKey(), undefined, referrer);
+    expect(prepareTransaction).toHaveBeenCalledTimes(2);
+    expect(prepared.referrer).toBeUndefined();
+    expect(fnOf(prepared.transactionXdr)).toBe('pay');
+    // El segundo sobre sale de la secuencia de la cuenta, no de la del primero.
+    expect((TransactionBuilder.fromXDR(prepared.transactionXdr, Networks.TESTNET) as Transaction).sequence).toBe('42');
+    warn.mockRestore();
+  });
+
+  it('402 si tampoco se puede armar pay (al lector le falta saldo)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const prepareTransaction = vi.fn().mockRejectedValue(new Error('HostError: balance is not sufficient'));
+    await expect(service(preparing(prepareTransaction)).preparePayment(PAPER, reader.publicKey(), undefined, referrer)).rejects.toMatchObject({ status: 402 });
+    warn.mockRestore();
+  });
+
+  it('400 con un referido que no es una cuenta G o en un regalo', async () => {
+    await expect(service().preparePayment(PAPER, reader.publicKey(), undefined, 'GNOVALIDA')).rejects.toMatchObject({ status: 400 });
+    await expect(service().preparePayment(PAPER, reader.publicKey(), undefined, CONTRACT)).rejects.toMatchObject({ status: 400 });
+    await expect(service().preparePayment(PAPER, reader.publicKey(), Keypair.random().publicKey(), referrer)).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('validateSignedPayment rechaza pay_ref sin referido, con referido = quien firma o con argumentos de más', () => {
+    const check = (xdrB64: string) => () => service().validateSignedPayment(xdrB64, reader.publicKey(), PAPER);
+    expect(check(build({ fn: 'pay_ref', args: refArgs() }))).not.toThrow();
+    expect(check(build({ fn: 'pay_ref', args: payArgs(reader.publicKey()) }))).toThrow(SplitterError);
+    expect(check(build({ fn: 'pay_ref', args: refArgs(reader.publicKey()) }))).toThrow(/otra cuenta/);
+    expect(check(build({ fn: 'pay_ref', args: [...refArgs(), nativeToScVal(1, { type: 'u32' })] }))).toThrow(SplitterError);
+    expect(check(build({ fn: 'pay_ref', args: [...payArgs(reader.publicKey(), PAPER, PUBLISHER, PRICE - 1n), nativeToScVal(referrer, { type: 'address' })] }))).toThrow(/precio/);
+  });
+
+  it('el pay_ref real de testnet deja un solo paid (comisión completa, acceso de quien paga); referred no es comprobante', () => {
+    const receipts = parsePaidReceipts(decode(fixtures.pay_ref.contractEventsXdr[0]));
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]).toMatchObject({ contractId: V040, publisher: PUBLISHER, paperId: 'autonomous-ai-micropayments', amount: PRICE, fee: 100_000n });
+    expect(receipts[0].reader).toBe(receipts[0].payer);
+  });
+
+  it('settle confirma un pay_ref real con su comprobante', async () => {
+    const [receipt] = parsePaidReceipts(decode(fixtures.pay_ref.contractEventsXdr[0]));
+    const client = fakeRpc({
+      sendTransaction: vi.fn().mockResolvedValue({ status: 'PENDING', hash: fixtures.pay_ref.txHash }),
+      pollTransaction: vi.fn().mockResolvedValue(confirmed(fixtures.pay_ref)),
+    });
+    const svc = new SplitterService({ contractId: V040, publisher: PUBLISHER, rpcUrl: 'http://rpc.invalid', networkPassphrase: Networks.TESTNET, rpc: client });
+    const tx = TransactionBuilder.fromXDR(build({ contract: V040, fn: 'pay_ref', args: refArgs() }), Networks.TESTNET) as Transaction;
+    const result = await svc.settle(tx, receipt.payer, 'autonomous-ai-micropayments');
+    expect(result.txHash).toBe(fixtures.pay_ref.txHash);
+    expect(result.receipt.reader).toBe(receipt.payer);
+  });
+});
+
+describe('Contratos anteriores (SPLITTER_LEGACY_CONTRACT_IDS)', () => {
+  const V040 = 'CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA';
+  const withLegacy = (client: SplitterRpc, legacy?: string[]) =>
+    new SplitterService({ contractId: V040, legacyContractIds: legacy, publisher: PUBLISHER, rpcUrl: 'http://rpc.invalid', networkPassphrase: Networks.TESTNET, rpc: client });
+
+  it('contractIds lista el activo primero y los anteriores sin repetir', () => {
+    expect(withLegacy(fakeRpc(), [CONTRACT, V040]).contractIds()).toEqual([V040, CONTRACT]);
+    expect(withLegacy(fakeRpc()).contractIds()).toEqual([V040]);
+    expect(new SplitterService({ contractId: '', publisher: '', rpcUrl: 'http://rpc.invalid', networkPassphrase: Networks.TESTNET }).contractIds()).toEqual([]);
+  });
+
+  it('un regalo hecho con el contrato anterior se sigue encontrando en la red', async () => {
+    const client = fakeRpc({ getTransaction: vi.fn().mockResolvedValue(confirmed(fixtures.gift)) });
+    expect(await withLegacy(client).findGift(fixtures.gift.txHash)).toBeNull();
+    expect((await withLegacy(client, [CONTRACT]).findGift(fixtures.gift.txHash))?.receipt.reader).toBe(FIXTURE_STUDENT);
+  });
+
+  it('los pagos nuevos solo se aceptan con el contrato activo', () => {
+    const svc = withLegacy(fakeRpc(), [CONTRACT]);
+    expect(() => svc.validateSignedPayment(build(), reader.publicKey(), PAPER)).toThrow(/no invoca el contrato/);
+    expect(() => svc.validateSignedPayment(build({ contract: V040 }), reader.publicKey(), PAPER)).not.toThrow();
   });
 });

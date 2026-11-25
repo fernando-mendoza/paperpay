@@ -26,6 +26,7 @@ export class PapersController {
       mode: config.selfSettle ? 'SELF_SETTLE' : 'FACILITATOR',
       treasuryPublicKey: config.stellarTreasuryPublicKey,
       splitterContractId: splitterService.enabled ? splitterService.terms().contractId : null,
+      splitterContractIds: splitterService.contractIds(),
       timestamp: new Date().toISOString(),
     };
     res.status(200).json(health);
@@ -160,7 +161,8 @@ export class PapersController {
 
   /**
    * Arma y simula el pago por el contrato de reparto para que la wallet del lector lo firme. Con
-   * `reader`, arma el regalo (`gift`): paga `payer` y el acceso queda a nombre de `reader`.
+   * `reader`, arma el regalo (`gift`): paga `payer` y el acceso queda a nombre de `reader`. Con
+   * `referrer`, arma `pay_ref`; la respuesta dice si quedó el referido (ver `preparePayment`).
    */
   public async preparePaperPayment(req: Request, res: Response): Promise<void> {
     const { id } = req.params;
@@ -172,16 +174,21 @@ export class PapersController {
       res.status(404).json({ error: 'SPLITTER_DISABLED', message: 'Esta API no cobra a través del contrato de reparto.' });
       return;
     }
-    const { payer, reader } = (req.body ?? {}) as { payer?: unknown; reader?: unknown };
-    if (typeof payer !== 'string' || (reader !== undefined && typeof reader !== 'string')) {
-      res.status(400).json({ error: 'PREPARE_FAILED', message: 'El cuerpo debe incluir payer (la wallet del lector) y, en un regalo, reader.' });
+    const { payer, reader, referrer } = (req.body ?? {}) as { payer?: unknown; reader?: unknown; referrer?: unknown };
+    if (
+      typeof payer !== 'string' ||
+      (reader !== undefined && typeof reader !== 'string') ||
+      (referrer !== undefined && typeof referrer !== 'string')
+    ) {
+      res.status(400).json({ error: 'PREPARE_FAILED', message: 'El cuerpo debe incluir payer (la wallet del lector) y, opcionales, reader (regalo) o referrer (referido).' });
       return;
     }
     try {
-      const { transactionXdr, claim } = await splitterService.preparePayment(id, payer, reader);
+      const prepared = await splitterService.preparePayment(id, payer, reader, referrer);
       const body: SplitterPrepareResponse = {
-        transactionXdr,
-        claim,
+        transactionXdr: prepared.transactionXdr,
+        claim: prepared.claim,
+        ...(prepared.referrer && { referrer: prepared.referrer }),
         networkPassphrase: STELLAR_NETWORK_PASSPHRASE,
         terms: splitterService.terms(),
       };
