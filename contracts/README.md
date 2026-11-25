@@ -54,6 +54,54 @@ pnpm test:contracts            # cargo test: 43 pruebas con un SAC de USDC simul
 cd contracts && stellar contract build
 ```
 
+### Usarlo desde la terminal
+
+Con `stellar-cli` (v30) se puede desplegar un contrato propio y llamar cada función. Son los mismos comandos con los que se probaron la v0.3.0 y la v0.4.0 en testnet.
+
+**1. Cuentas de prueba con USDC.** Quien cobra (editorial, coautor o referido) necesita la trustline de USDC. Quien paga necesita, además, USDC: en testnet se compra con XLM en el DEX.
+
+```bash
+USDC=USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5
+stellar keys generate lector --network testnet --fund      # Friendbot le da XLM
+LECTOR=$(stellar keys address lector)
+stellar tx new change-trust --line "$USDC" --source lector --network testnet
+stellar tx new path-payment-strict-receive --send-asset native --send-max 5000000000 \
+  --destination "$LECTOR" --dest-asset "$USDC" --dest-amount 20000000 --source lector --network testnet   # 2 USDC
+```
+
+**2. Desplegar** (opcional: también se pueden usar los contratos de la tabla de abajo).
+
+```bash
+cd contracts && stellar contract build
+WASM=target/wasm32v1-none/release/paperpay_splitter.wasm
+stellar contract upload --wasm "$WASM" --source lector --network testnet
+stellar contract deploy --wasm-hash "$(sha256sum "$WASM" | cut -c1-64)" --source lector --network testnet \
+  -- --token CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA \
+     --treasury GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV --fee_bps 200
+```
+
+**3. Llamar cada función.** Los montos van en stroops (7 decimales: `5000000` = 0.50 USDC). Dentro de un JSON, los `i128` van como texto (`"5000000"`) y los `u32` como número. `--source` es la cuenta que firma: quien paga en todas, salvo en `refund`, donde firma la editorial.
+
+```bash
+ID=CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA   # v0.4.0, o el contrato que desplegaste
+inv() { stellar contract invoke --id "$ID" --network testnet "$@"; }
+P=crispr-nanomedicine-biotech
+ED=GA3MOPOJ374G4APKR4RE7VPXF5CEQKER3FA3LZ2XSAARIRSZEF6QXUZI      # editorial demo (tiene trustline)
+
+inv --source lector -- pay        --payer "$LECTOR" --paper_id "$P" --publisher "$ED" --amount 5000000
+inv --source lector -- pay_batch  --payer "$LECTOR" --items "[{\"paper_id\":\"$P\",\"publisher\":\"$ED\",\"amount\":\"5000000\"}]"
+inv --source lector -- gift       --payer "$LECTOR" --reader "$OTRA" --paper_id "$P" --publisher "$ED" --amount 5000000
+inv --source lector -- gift_batch --payer "$LECTOR" --reader "$OTRA" --items "[{\"paper_id\":\"$P\",\"publisher\":\"$ED\",\"amount\":\"5000000\"}]"
+inv --source lector -- tip        --payer "$LECTOR" --paper_id "$P" --publisher "$ED" --amount 5000000
+inv --source lector -- pay_authors --payer "$LECTOR" --paper_id "$P" --amount 5000000 \
+  --authors "[{\"account\":\"$ED\",\"bps\":7000},{\"account\":\"$COAUTOR\",\"bps\":3000}]"
+inv --source lector -- pay_ref    --payer "$LECTOR" --paper_id "$P" --publisher "$ED" --amount 5000000 --referrer "$REFERIDO"
+inv --source editorial -- refund  --publisher "$EDITORIAL" --reader "$LECTOR" --paper_id "$P" --amount 4900000
+inv --source lector --send no -- config                       # solo lee; no envía nada
+```
+
+`$OTRA` es cualquier cuenta: recibir un regalo no pide firma ni trustline, y la cuenta ni siquiera tiene que existir en la red. `$COAUTOR` y `$REFERIDO` sí necesitan la trustline de USDC (paso 1), porque reciben dinero. `refund` necesita una editorial con llave propia (`$EDITORIAL`, cuenta `editorial`) y saldo en USDC.
+
 ### Despliegue en testnet
 
 Datos completos en [`deployments/testnet.json`](deployments/testnet.json).
