@@ -77,6 +77,8 @@ Se activa con `SPLITTER_CONTRACT_ID` (el contrato de [`contracts/splitter`](../.
    - el pago sale de quien firma, y la firma es válida para esa wallet.
 5. Lo envía por RPC y espera la confirmación. Entrega `{ paper, accessToken, txHash }` solo si el ledger trae el evento `paid` de ese artículo, con ese lector, editorial y monto.
 
+**Qué funciones del contrato usa la API.** Solo arma y acepta `pay` (lectura) y `gift` (regalo, sección siguiente); cualquier otra función del sobre firmado se rechaza con `400`. El contrato tiene más funciones (`pay_batch`, `gift_batch`, `tip`, `refund`, `pay_authors` y `pay_ref`; ver el [historial](../../contracts/CHANGELOG.md)), que funcionan en testnet pero que el sitio todavía no ofrece. Además, la API usa la v0.2.0 (`SPLITTER_CONTRACT_ID`), que solo tiene `pay`, `pay_batch` y `gift`.
+
 Respuestas de error:
 
 | Estado | Error | Cuándo |
