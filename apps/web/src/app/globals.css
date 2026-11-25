@@ -186,3 +186,57 @@ body {
   0% { transform: translateY(-100%); }
   100% { transform: translateY(300%); }
 }
+
+/* Intro de /lee (LandingIntro): solo CSS, para no esperar a que React hidrate; funciona sin JS.
+   0–0.8 s: símbolo, letras de la marca y raya de carga. 0.85–1.3 s: la capa sube como cortina.
+   Desde 0.95 s: las palabras del titular suben desde su máscara (.lee-word, escalonadas con --i)
+   y luego entra el resto del hero (.lee-after-intro, con su retraso en --d). */
+.lee-intro { animation: leeCurtain 0.45s cubic-bezier(0.76, 0, 0.24, 1) 0.85s both; }
+.lee-intro-mark { animation: leeMark 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.lee-intro-letter {
+  display: inline-block;
+  animation: leeRise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(0.12s + var(--i, 0) * 0.035s);
+}
+.lee-intro-bar { transform-origin: left; animation: leeBar 0.7s cubic-bezier(0.65, 0, 0.35, 1) 0.1s both; }
+.lee-word {
+  display: inline-block;
+  animation: leeRise 0.75s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(0.95s + var(--i, 0) * 0.06s);
+}
+.lee-after-intro {
+  animation: leeFadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--d, 1.3s);
+}
+
+@keyframes leeCurtain {
+  from { transform: translateY(0); }
+  to { transform: translateY(-100%); visibility: hidden; }
+}
+@keyframes leeMark {
+  from { opacity: 0; transform: scale(0.85); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes leeRise {
+  from { transform: translateY(110%); }
+  to { transform: none; }
+}
+@keyframes leeBar {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@keyframes leeFadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lee-intro { display: none; }
+  .lee-intro-mark,
+  .lee-intro-letter,
+  .lee-intro-bar,
+  .lee-word,
+  .lee-after-intro {
+    animation: none;
+  }
+}

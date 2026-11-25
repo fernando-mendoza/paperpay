@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { LandingHeader } from '@/components/landing/LandingHeader'
+import { LandingIntro } from '@/components/landing/LandingIntro'
 import { LeeHero } from '@/components/landing/LeeHero'
 import { DisciplineRail, type RailDiscipline } from '@/components/landing/DisciplineRail'
 import { Manifesto } from '@/components/landing/Manifesto'
@@ -44,10 +45,12 @@ export const metadata: Metadata = {
   twitter: { title: LEE.metaTitle, description: LEE.metaDescription },
 }
 
-// Landing A ("la historia del pago") para campañas: hero estático, manifiesto y la historia del pago contada con scroll.
+// Landing A ("la historia del pago") para campañas: intro de carga, hero fijo con el símbolo 3D, manifiesto y la
+// historia del pago contada con scroll.
 export default function LeeLandingPage() {
   return (
     <>
+      <LandingIntro />
       <LandingHeader />
       <main>
         <LeeHero />
