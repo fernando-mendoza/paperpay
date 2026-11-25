@@ -50,7 +50,20 @@ cd contracts && stellar contract build
 
 Datos completos en [`deployments/testnet.json`](deployments/testnet.json).
 
-> **v0.3.0** (`gift_batch`, `tip`, `refund`) está en el código, probada y compilada (WASM de 10,635 bytes), pero **todavía no se despliega**: la red y el sitio siguen en v0.2.0.
+> **Dos versiones en la red.** El sitio y la API usan **v0.2.0** (`productionContractId`). La **v0.3.0** suma `gift_batch`, `tip` y `refund`, y está desplegada y probada en testnet, pero el sitio todavía no la usa: cambiarla es cambiar `SPLITTER_CONTRACT_ID` en la API (un despliegue a producción).
+
+| v0.3.0 | Valor |
+| --- | --- |
+| Contrato | [`CCQRUTXBSWOSOHIZIEJ637HIMJZ6CZN5ZYSMTPGBTSMFAEXY6O5QHEQD`](https://stellar.expert/explorer/testnet/contract/CCQRUTXBSWOSOHIZIEJ637HIMJZ6CZN5ZYSMTPGBTSMFAEXY6O5QHEQD) |
+| WASM (sha256) | `2af32e3a2017dedc6105c13e161a4a04bdad328c0ee271edbb2bad1d712318fb` (10,635 bytes), igual al que se baja de la red |
+| Constructor | El mismo de v0.2.0 |
+| `gift_batch` | [`70d30919…`](https://stellar.expert/explorer/testnet/tx/70d309192251ee041afadbbd51cd938c0fcab28fec3b258560241204544d07f9): 2 artículos (1.00 USDC) para una cuenta que no existe en la red. 0.98 a la editorial demo en una sola transferencia, 0.02 a la tesorería y 2 eventos `paid` con esa cuenta como `reader` |
+| `tip` | [`36e14727…`](https://stellar.expert/explorer/testnet/tx/36e14727c832a99a448d80cece792899aa117599a5b301eadde96722434ed5d5): propina de 0.50 USDC a la editorial demo. 0.49 / 0.01 y un evento `tipped`, ningún `paid` |
+| `refund` | [`3bc22905…`](https://stellar.expert/explorer/testnet/tx/3bc229057ea0312ea574dfee50cde01280a7fb647fc58cc5a8d2d37e1c0910db): una editorial desechable devuelve 0.49 USDC del [pago `a10772f8…`](https://stellar.expert/explorer/testnet/tx/a10772f8faa8ab883fba19824caadc69412378b92396d6b6028c30745b9dea3e). Evento `refunded`; la comisión de 0.01 se queda en la tesorería |
+
+Las cuentas de esta prueba son desechables (Friendbot): sus llaves se borraron al terminar y ninguna tiene poder sobre el contrato.
+
+**v0.2.0 (en producción):**
 
 | Dato | Valor |
 | --- | --- |

@@ -1,5 +1,12 @@
 # Estado de QA
 
+## Revisión del 25 de noviembre de 2026: contrato v0.3.0 en testnet (`gift_batch`, `tip`, `refund`)
+
+- `pnpm test:contracts`: 32 pruebas (11 nuevas), `cargo clippy -D warnings` limpio. Mutaciones (7): `gift_batch` da el acceso a quien paga, `gift_batch`/`tip` sin firma, `tip` emite `paid`, `refund` firmado por el lector, `refund` sin validar monto o id. Todas las detecta alguna prueba.
+- Testnet: contrato [`CCQRUT…HEQD`](https://stellar.expert/explorer/testnet/contract/CCQRUTXBSWOSOHIZIEJ637HIMJZ6CZN5ZYSMTPGBTSMFAEXY6O5QHEQD); el WASM de la red tiene el mismo sha256 que el build (`2af32e3a…`).
+- [`gift_batch` `70d30919…`](https://stellar.expert/explorer/testnet/tx/70d309192251ee041afadbbd51cd938c0fcab28fec3b258560241204544d07f9), [`tip` `36e14727…`](https://stellar.expert/explorer/testnet/tx/36e14727c832a99a448d80cece792899aa117599a5b301eadde96722434ed5d5), [`pay` `a10772f8…`](https://stellar.expert/explorer/testnet/tx/a10772f8faa8ab883fba19824caadc69412378b92396d6b6028c30745b9dea3e) y [`refund` `3bc22905…`](https://stellar.expert/explorer/testnet/tx/3bc229057ea0312ea574dfee50cde01280a7fb647fc58cc5a8d2d37e1c0910db): las cuatro `successful`. Horizon muestra los repartos esperados (0.98/0.02, 0.49/0.01, 0.49/0.01 y la devolución de 0.49). `stellar events` muestra 2 `paid` con el estudiante como `reader`, 1 `tipped`, 1 `paid` y 1 `refunded`.
+- Producción no cambió: la API y el sitio siguen en v0.2.0. Ni `tipped` ni `refunded` dan acceso, porque la API solo lee `paid`.
+
 ## Revisión del 24 de noviembre de 2026: pago con memo (`?memo=`)
 
 - Hallazgo: Stellar no admite memo en transacciones de Soroban; `@stellar/stellar-sdk` corta al armarla ("Soroban transactions cannot have a memo"). Con memo, la web paga por la transferencia clásica.
