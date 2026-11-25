@@ -25,6 +25,11 @@ interface Options {
   labels: readonly (HTMLElement | null)[]
   /** 0→1: reposo → capas separadas → se juntan con un giro. */
   progress: () => number
+  /**
+   * true: las capas se separan y se juntan con una vuelta (escritorio).
+   * false: no se separan; el símbolo da media vuelta entre cada escena del hero del celular.
+   */
+  layered: () => boolean
   /** Un cuadro fijo, sin bucle ni puntero. */
   still: boolean
 }
@@ -38,7 +43,7 @@ const smooth = (a: number, b: number, v: number) => {
 }
 
 /** Monta el canvas dentro de `box`. Devuelve null si no hay WebGL (se queda el SVG). */
-export function createLogoScene({ box, colors, labels, progress, still }: Options): { dispose: () => void } | null {
+export function createLogoScene({ box, colors, labels, progress, layered, still }: Options): { dispose: () => void } | null {
   let renderer: WebGLRenderer
   try {
     renderer = new WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'low-power' })
@@ -113,9 +118,12 @@ export function createLogoScene({ box, colors, labels, progress, still }: Option
     pointer.x += (pointer.tx - pointer.x) * 0.06
     pointer.y += (pointer.ty - pointer.y) * 0.06
 
-    const open = smooth(0.1, 0.42, p) * (1 - smooth(0.6, 0.88, p))
-    const spin = smooth(0.6, 0.95, p)
-    group.rotation.y = -0.36 - 0.6 * open + spin * Math.PI * 2 + pointer.x * 0.28 + Math.sin(t * 0.6) * 0.05
+    const withLayers = layered()
+    const open = withLayers ? smooth(0.1, 0.42, p) * (1 - smooth(0.6, 0.88, p)) : 0
+    // Celular: una vuelta completa en cada cambio de escena (mismos tramos que LeeHero), quieto en las
+    // mesetas. Media vuelta lo dejaba de espaldas en la escena 2: la "P" se veía en espejo.
+    const spin = withLayers ? smooth(0.6, 0.95, p) * Math.PI * 2 : (smooth(0.1, 0.3, p) + smooth(0.56, 0.72, p)) * Math.PI * 2
+    group.rotation.y = -0.36 - 0.6 * open + spin + pointer.x * 0.28 + Math.sin(t * 0.6) * 0.05
     group.rotation.x = 0.1 + 0.22 * open + pointer.y * 0.16 + Math.sin(t * 0.45) * 0.025
     group.position.y = Math.sin(t * 0.8) * 0.25 - open * 0.6
     meshes.forEach((mesh, i) => {

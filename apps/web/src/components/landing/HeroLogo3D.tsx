@@ -5,8 +5,10 @@ import { useEffect, useRef, useState } from 'react'
 import { LogoMark } from '@/components/LogoMark'
 
 interface Props {
-  /** 0→1: reposo → capas separadas → se juntan con un giro. */
+  /** 0→1: reposo → capas separadas → se juntan con un giro (o, sin capas, dos medias vueltas). */
   progress: MotionValue<number>
+  /** 1: las capas se separan con el scroll (escritorio). 0: el símbolo solo gira (celular). */
+  layered: MotionValue<number>
   /** Etiqueta de cada capa (tinta, verde, azul) cuando están separadas. */
   labels: readonly [string, string, string]
   /** Sin animación: un solo cuadro fijo. */
@@ -18,7 +20,7 @@ const LAYER_COLORS = ['#0F172A', '#10B981', '#2F5BFF'] as const
 
 // El símbolo de PaperPay en three.js (la escena vive en logo3d-scene.ts). Mientras carga, o sin
 // WebGL / sin JS, se ve el SVG de LogoMark. three llega en su propio chunk: no retrasa el titular.
-export function HeroLogo3D({ progress, labels, still }: Props) {
+export function HeroLogo3D({ progress, layered, labels, still }: Props) {
   const boxRef = useRef<HTMLDivElement>(null)
   const labelRefs = useRef<(HTMLSpanElement | null)[]>([])
   const [ready, setReady] = useState(false)
@@ -32,7 +34,14 @@ export function HeroLogo3D({ progress, labels, still }: Props) {
     import('./logo3d-scene')
       .then(({ createLogoScene }) => {
         if (disposed) return
-        scene = createLogoScene({ box, colors: LAYER_COLORS, labels: labelRefs.current, progress: () => progress.get(), still })
+        scene = createLogoScene({
+          box,
+          colors: LAYER_COLORS,
+          labels: labelRefs.current,
+          progress: () => progress.get(),
+          layered: () => layered.get() === 1,
+          still,
+        })
         if (scene) setReady(true)
       })
       .catch(() => {}) // si el chunk no carga, se queda el SVG
@@ -41,7 +50,7 @@ export function HeroLogo3D({ progress, labels, still }: Props) {
       disposed = true
       scene?.dispose()
     }
-  }, [progress, still])
+  }, [progress, layered, still])
 
   return (
     <div ref={boxRef} className="relative h-full w-full">

@@ -278,6 +278,21 @@ export const COPY = {
         ],
         labels: ['Tu wallet firma $0.50', 'Stellar liquida en ~5 s', 'El artículo se abre 24 h'] as const,
         scrollHint: 'Desliza',
+        // Solo en el celular: el hero se queda fijo y cuenta tres escenas mientras el símbolo gira.
+        // Escena 2: "Lee [símbolo] por $0.50". Escena 3: dos líneas tenues y una fuerte.
+        cinema: {
+          lead: 'Lee',
+          tail: 'por',
+          scene2: 'Pagas con tu wallet y el artículo se abre en unos 5 segundos.',
+          facts: [
+            { value: '~5 s', label: 'Liquidación en Stellar' },
+            { value: '98%', label: 'Para la editorial' },
+          ],
+          lines: ['Sin suscripción.', 'Sin cuenta.', 'Solo pagas lo que lees.'],
+          scene3: 'Tu wallet firma, Stellar liquida y el artículo es tuyo 24 horas.',
+          mobileNote: 'En el celular lees los resúmenes gratis. Para pagar, abre PaperPay en tu compu con Freighter.',
+          ctaSecondaryShort: 'Cómo funciona',
+        },
       },
       // Cada tramo se enciende palabra por palabra con el scroll. Solo afirmaciones que el producto cumple.
       manifesto: [
