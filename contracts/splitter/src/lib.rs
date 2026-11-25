@@ -140,62 +140,7 @@ impl Splitter {
     /// Devuelve la suma del reparto.
     pub fn pay_batch(env: Env, payer: Address, items: Vec<Item>) -> Split {
         payer.require_auth();
-
-        if items.is_empty() {
-            panic_with_error!(&env, Error::EmptyBatch);
-        }
-        if items.len() > MAX_BATCH_ITEMS {
-            panic_with_error!(&env, Error::BatchTooLarge);
-        }
-
-        let config = read_config(&env);
-        let mut seen: Map<String, bool> = Map::new(&env);
-        let mut per_publisher: Map<Address, i128> = Map::new(&env);
-        let mut fees: Vec<i128> = Vec::new(&env);
-        let mut total = Split {
-            publisher: 0,
-            fee: 0,
-        };
-
-        for item in items.iter() {
-            validate_paper_id(&env, &item.paper_id);
-            if seen.contains_key(item.paper_id.clone()) {
-                panic_with_error!(&env, Error::DuplicatePaper);
-            }
-            seen.set(item.paper_id.clone(), true);
-
-            let split = compute_split(&env, item.amount, config.fee_bps);
-            let owed = per_publisher.get(item.publisher.clone()).unwrap_or(0);
-            per_publisher.set(item.publisher.clone(), add(&env, owed, split.publisher));
-            total.publisher = add(&env, total.publisher, split.publisher);
-            total.fee = add(&env, total.fee, split.fee);
-            fees.push_back(split.fee);
-        }
-
-        let usdc = token::Client::new(&env, &config.token);
-        for (publisher, owed) in per_publisher.iter() {
-            if owed > 0 {
-                usdc.transfer(&payer, &publisher, &owed);
-            }
-        }
-        if total.fee > 0 {
-            usdc.transfer(&payer, &config.treasury, &total.fee);
-        }
-        extend_instance_ttl(&env);
-
-        for (item, fee) in items.iter().zip(fees.iter()) {
-            Paid {
-                publisher: item.publisher,
-                reader: payer.clone(),
-                paper_id: item.paper_id,
-                payer: payer.clone(),
-                amount: item.amount,
-                fee,
-            }
-            .publish(&env);
-        }
-
-        total
+        charge_batch(&env, &payer, &payer, items)
     }
 
     /// Cobra un artículo a `payer` y deja el acceso a nombre de `reader` (un profesor que paga
@@ -237,13 +182,7 @@ fn charge(
     let config = read_config(env);
     let split = compute_split(env, amount, config.fee_bps);
 
-    let usdc = token::Client::new(env, &config.token);
-    if split.publisher > 0 {
-        usdc.transfer(payer, &publisher, &split.publisher);
-    }
-    if split.fee > 0 {
-        usdc.transfer(payer, &config.treasury, &split.fee);
-    }
+    transfer_split(env, &config, payer, &publisher, &split);
     extend_instance_ttl(env);
 
     Paid {
@@ -257,6 +196,77 @@ fn charge(
     .publish(env);
 
     split
+}
+
+/// Varios cobros con una firma (`pay_batch`): valida todo antes de mover fondos,
+/// agrupa las transferencias por editorial y emite un `paid` por artículo, a nombre de `reader`.
+fn charge_batch(env: &Env, payer: &Address, reader: &Address, items: Vec<Item>) -> Split {
+    if items.is_empty() {
+        panic_with_error!(env, Error::EmptyBatch);
+    }
+    if items.len() > MAX_BATCH_ITEMS {
+        panic_with_error!(env, Error::BatchTooLarge);
+    }
+
+    let config = read_config(env);
+    let mut seen: Map<String, bool> = Map::new(env);
+    let mut per_publisher: Map<Address, i128> = Map::new(env);
+    let mut fees: Vec<i128> = Vec::new(env);
+    let mut total = Split {
+        publisher: 0,
+        fee: 0,
+    };
+
+    for item in items.iter() {
+        validate_paper_id(env, &item.paper_id);
+        if seen.contains_key(item.paper_id.clone()) {
+            panic_with_error!(env, Error::DuplicatePaper);
+        }
+        seen.set(item.paper_id.clone(), true);
+
+        let split = compute_split(env, item.amount, config.fee_bps);
+        let owed = per_publisher.get(item.publisher.clone()).unwrap_or(0);
+        per_publisher.set(item.publisher.clone(), add(env, owed, split.publisher));
+        total.publisher = add(env, total.publisher, split.publisher);
+        total.fee = add(env, total.fee, split.fee);
+        fees.push_back(split.fee);
+    }
+
+    let usdc = token::Client::new(env, &config.token);
+    for (publisher, owed) in per_publisher.iter() {
+        if owed > 0 {
+            usdc.transfer(payer, &publisher, &owed);
+        }
+    }
+    if total.fee > 0 {
+        usdc.transfer(payer, &config.treasury, &total.fee);
+    }
+    extend_instance_ttl(env);
+
+    for (item, fee) in items.iter().zip(fees.iter()) {
+        Paid {
+            publisher: item.publisher,
+            reader: reader.clone(),
+            paper_id: item.paper_id,
+            payer: payer.clone(),
+            amount: item.amount,
+            fee,
+        }
+        .publish(env);
+    }
+
+    total
+}
+
+/// Mueve un reparto de `payer` a la editorial y a la tesorería (omite montos en cero).
+fn transfer_split(env: &Env, config: &Config, payer: &Address, publisher: &Address, split: &Split) {
+    let usdc = token::Client::new(env, &config.token);
+    if split.publisher > 0 {
+        usdc.transfer(payer, publisher, &split.publisher);
+    }
+    if split.fee > 0 {
+        usdc.transfer(payer, &config.treasury, &split.fee);
+    }
 }
 
 fn read_config(env: &Env) -> Config {
