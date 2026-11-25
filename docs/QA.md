@@ -1,6 +1,6 @@
 # Estado de QA
 
-## Revisión del 24 de noviembre de 2026: recibos persistentes (sin desplegar)
+## Revisión del 24 de noviembre de 2026: recibos persistentes en producción
 
 Cada pago aceptado deja un recibo en SQLite (`node:sqlite`): hash → artículo, wallet, método, monto y hora del ledger.
 
@@ -10,7 +10,9 @@ Cada pago aceptado deja un recibo en SQLite (`node:sqlite`): hash → artículo,
 - Mutaciones: quitar la ventana, pisar recibos, no consultar el almacén o aceptar un hash del contrato en `/verify` rompen 1, 1, 5 y 1 pruebas.
 - Testnet con una API local escribiendo a un archivo: pago por contrato [`00e4300b…`](https://stellar.expert/explorer/testnet/tx/00e4300bbd639d2886c67147cb344aeacd4a77b2329f031ac5de7e8208ecea4c) (0.49 / 0.01). Otra API arrancada después sobre el mismo archivo devolvió el recibo con su artículo, wallet, método `splitter` y hora del ledger.
 
-**No comprobado:** un pago real de Pollar con el recibo en disco, y el comportamiento en la VPS con `StateDirectory=`.
+- Producción (API `4beee9e` en la VPS desde el 24 de noviembre): la unidad nueva crea `/var/lib/paperpay/receipts.db`. `test:e2e` contra [paperpay.blockchains.tf](https://paperpay.blockchains.tf/) pagó por contrato ([`a31fe80f…`](https://stellar.expert/explorer/testnet/tx/a31fe80f1883ee9022b3d08e5cfbb7f28be34e937a335fe71f4320ae4272d963), 4.1 s) y `GET /api/receipts/a31fe80f…` publicado devolvió el recibo. Después de reiniciar el servicio, la API arrancó con 1 recibo y lo siguió sirviendo. Archivo: 56 KB; RAM del servicio recién arrancado: 38 MB.
+
+**No comprobado:** un pago real de Pollar con el recibo en disco.
 
 ## Revisión del 23 de noviembre de 2026: contrato de reparto en producción
 
