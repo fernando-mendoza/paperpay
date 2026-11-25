@@ -159,6 +159,22 @@ export const COPY = {
     history: 'Regalos que enviaste desde este navegador',
     historyPending: 'pendiente',
   },
+  // Referidos (pay_ref): la recompensa es la mitad de la comisión de 2% (0.005 USDC de $0.50).
+  refer: {
+    title: 'Recomiéndalo y gana',
+    subtitle:
+      'Comparte este artículo con el enlace de tu wallet. Si alguien lo paga entrando por él, recibes la mitad de la comisión de PaperPay (0.005 USDC por lectura) en la misma transacción. Quien paga paga lo mismo.',
+    cta: 'Crear mi enlace',
+    connecting: 'Conectando tu wallet…',
+    ready: 'Tu enlace de recomendación',
+    note: 'Para cobrar, tu wallet necesita la trustline de USDC (la misma con la que pagas); si no la tiene, el pago sale sin recomendación. El enlace vale 30 días en el navegador de quien lo abre.',
+    copy: 'Copiar enlace',
+    copied: '¡Copiado!',
+    failed: 'No se pudo conectar tu wallet. Revisa Freighter e intenta de nuevo.',
+    rejected: 'Conexión cancelada.',
+    /** `{cuenta}` = la cuenta que recomendó, acortada. */
+    paywallNote: 'Te lo recomendó {cuenta}: se lleva la mitad del 2% de PaperPay. Tú pagas lo mismo.',
+  },
   giftClaim: {
     metaTitle: 'Te regalaron un artículo',
     eyebrow: 'Un regalo para ti',

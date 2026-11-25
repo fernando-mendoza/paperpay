@@ -1,4 +1,5 @@
 import { COPY } from '@/lib/copy'
+import { shortAccount } from '@/lib/referral'
 import type { PaywallErrorCode, PaywallState, TxReceipt } from '@/lib/types'
 import { ErrorAlert } from './ErrorAlert'
 import { PaymentStepper } from './PaymentStepper'
@@ -12,6 +13,8 @@ interface Props {
   simulated: boolean
   onPay: () => void
   onRetry: () => void
+  /** Entró por el enlace de esta cuenta: el pago será `pay_ref` (ver `useReferral`). */
+  referrer?: string
 }
 
 const isProcessing = (state: PaywallState) =>
@@ -39,7 +42,12 @@ function PayButton({ onPay }: { onPay: () => void }) {
   )
 }
 
-export function PaywallCard({ state, errorCode, receipt, simulated, onPay, onRetry }: Props) {
+function ReferrerNote({ referrer }: { referrer?: string }) {
+  if (!referrer) return null
+  return <p className="text-center text-xs text-muted-foreground">{COPY.refer.paywallNote.replace('{cuenta}', shortAccount(referrer))}</p>
+}
+
+export function PaywallCard({ state, errorCode, receipt, simulated, onPay, onRetry, referrer }: Props) {
   if (state === 'unlocked' && receipt) return <TxReceiptCard receipt={receipt} simulated={simulated} />
 
   return (
@@ -84,6 +92,7 @@ export function PaywallCard({ state, errorCode, receipt, simulated, onPay, onRet
 
             <PayButton onPay={onPay} />
             <p className="text-center text-xs text-muted-foreground">{COPY.paywall.microcopy}</p>
+            <ReferrerNote referrer={referrer} />
           </>
         )}
       </div>
@@ -91,7 +100,7 @@ export function PaywallCard({ state, errorCode, receipt, simulated, onPay, onRet
   )
 }
 
-export function PaywallBarMobile({ state, errorCode, onPay, onRetry }: Props) {
+export function PaywallBarMobile({ state, errorCode, onPay, onRetry, referrer }: Props) {
   if (state === 'unlocked') return null
 
   return (
@@ -110,6 +119,7 @@ export function PaywallBarMobile({ state, errorCode, onPay, onRetry }: Props) {
           </div>
           <PayButton onPay={onPay} />
           <p className="text-center text-xs text-muted-foreground">{COPY.paywall.microcopy}</p>
+          <ReferrerNote referrer={referrer} />
         </div>
       )}
     </div>

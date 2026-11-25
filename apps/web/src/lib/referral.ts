@@ -10,6 +10,8 @@
  */
 
 const KEY = 'paperpay:ref'
+/** Se emite en `window` al guardar un referido nuevo (la captura termina después del primer render). */
+export const REFERRAL_EVENT = 'paperpay:referral'
 export const REFERRAL_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const ACCOUNT_SHAPE = /^G[A-Z2-7]{55}$/
 
@@ -61,6 +63,7 @@ export async function captureReferral(now = Date.now()): Promise<string | null> 
   } catch {
     return null // modo privado sin almacenamiento: no hay referido que recordar
   }
+  window.dispatchEvent?.(new Event(REFERRAL_EVENT))
   return ref
 }
 

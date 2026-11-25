@@ -9,9 +9,11 @@ import { DisciplineChip } from '@/components/DisciplineChip'
 import { GiftPanel } from '@/components/GiftPanel'
 import { MarkdownContent } from '@/components/MarkdownContent'
 import { PaywallBarMobile, PaywallCard } from '@/components/PaywallCard'
+import { ReferPanel } from '@/components/ReferPanel'
 import { Toast } from '@/components/Toast'
 import { UsdcChip } from '@/components/UsdcChip'
 import { usePaywall } from '@/hooks/usePaywall'
+import { useReferral } from '@/hooks/useReferral'
 import { COPY } from '@/lib/copy'
 import { formatLongDate } from '@/lib/format'
 import type { PaperPreview } from '@/lib/types'
@@ -46,6 +48,7 @@ export function ArticleView({ paperId }: { paperId: string }) {
   const [pollar, setPollar] = useState(false)
 
   const { state, errorCode, paper, receipt, startPayment, retry, unlock, fail, forceState } = usePaywall(paperId)
+  const referral = useReferral(paperId)
 
   useEffect(() => {
     setDebug(process.env.NODE_ENV === 'development' && new URLSearchParams(window.location.search).get('debug') === '1')
@@ -137,6 +140,7 @@ export function ArticleView({ paperId }: { paperId: string }) {
     simulated: receipt ? isSimulatedTx(receipt.txHash) : true,
     onPay: () => setShowModal(true),
     onRetry: retry,
+    referrer: referral.referrer,
   }
 
   return (
@@ -234,6 +238,7 @@ export function ArticleView({ paperId }: { paperId: string }) {
                 {/* En móvil la barra de pago tapa el aside: el regalo va bajo la vista previa. */}
                 <div className="lg:hidden">
                   <GiftPanel paperId={paperId} />
+                  {referral.enabled && <ReferPanel paperId={paperId} />}
                 </div>
               </>
             )}
@@ -243,6 +248,7 @@ export function ArticleView({ paperId }: { paperId: string }) {
             <div className="lg:sticky lg:top-24">
               <PaywallCard {...cardProps} />
               <GiftPanel paperId={paperId} />
+              {referral.enabled && <ReferPanel paperId={paperId} />}
             </div>
           </aside>
         </div>
