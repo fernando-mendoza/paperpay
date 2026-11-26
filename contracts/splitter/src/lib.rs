@@ -61,6 +61,11 @@ pub const MAX_RENEWALS: u32 = 12;
 pub const MAX_SUBSCRIPTION_DAYS: u32 = 150;
 /// Una renovación se puede cobrar cuando al pase le falta esto o menos.
 pub const RENEW_WINDOW_SECONDS: u64 = DAY_SECONDS;
+/// Plazo máximo de una campaña de acceso abierto, contado desde que se abre.
+pub const MAX_CAMPAIGN_DAYS: u32 = 90;
+/// Después del plazo, las entradas de una campaña siguen en la red al menos estos días, para que
+/// cada aporte de una campaña fallida se pueda devolver.
+pub const REFUND_GRACE_DAYS: u32 = 30;
 
 // La instancia vive mientras haya pagos: cada cobro extiende su TTL a ~30 días.
 const DAY_IN_LEDGERS: u32 = 17_280;
@@ -108,6 +113,8 @@ pub enum Error {
     NoSubscription = 15,
     /// Al pase le falta más de `RENEW_WINDOW_SECONDS`: todavía no toca renovar.
     RenewTooEarly = 16,
+    /// Plazo de campaña que ya pasó o que queda a más de `MAX_CAMPAIGN_DAYS`.
+    InvalidDeadline = 17,
 }
 
 #[contracttype]
@@ -175,6 +182,20 @@ pub struct Subscription {
     pub allowance_until: u32,
 }
 
+/// Una campaña de acceso abierto: `publisher` se compromete a liberar `paper_id` para todos si
+/// los aportes llegan a `goal` antes de `deadline` (segundos Unix, hora del ledger). `raised` es lo
+/// aportado hasta ahora y `released`, si ya se liberó.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Campaign {
+    pub publisher: Address,
+    pub paper_id: String,
+    pub goal: i128,
+    pub deadline: u64,
+    pub raised: i128,
+    pub released: bool,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -185,6 +206,10 @@ enum DataKey {
     Sub(Address),
     /// Hasta cuándo (segundos Unix) el artículo `paper_id` de `publisher` está abierto para todos.
     Open(Address, String),
+    /// Id de la próxima campaña (instance): los ids son secuenciales desde 0.
+    NextCampaign,
+    /// Una campaña de acceso abierto, por id.
+    Campaign(u32),
 }
 
 /// Comprobante de un artículo pagado. Topics: `["paid", publisher, reader]`.
@@ -292,6 +317,19 @@ pub struct Opened {
     pub amount: i128,
     pub fee: i128,
     pub open_until: u64,
+}
+
+/// Una campaña nueva. Topics: `["campaign", publisher]`. Es la oferta pública de la editorial:
+/// liberar `paper_id` para todos si los aportes llegan a `goal` antes de `deadline`.
+#[contractevent(topics = ["campaign"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CampaignOpened {
+    #[topic]
+    pub publisher: Address,
+    pub campaign_id: u32,
+    pub paper_id: String,
+    pub goal: i128,
+    pub deadline: u64,
 }
 
 /// Comprobante de una propina. Topics: `["tipped", publisher, payer]`. No da acceso al artículo.
@@ -841,6 +879,70 @@ impl Splitter {
             .unwrap_or(0)
     }
 
+    /// `publisher` ofrece liberar `paper_id` para todos si los aportes llegan a `goal` antes de
+    /// `deadline` (segundos Unix, hora del ledger; como mucho `MAX_CAMPAIGN_DAYS` desde ahora). Su
+    /// firma es la oferta pública: nadie más puede abrir una campaña por su artículo. Los ids son
+    /// secuenciales, así que nadie puede ocupar el id de la campaña de otra editorial. No mueve
+    /// fondos. Emite `campaign` y devuelve el id.
+    pub fn open_campaign(
+        env: Env,
+        publisher: Address,
+        paper_id: String,
+        goal: i128,
+        deadline: u64,
+    ) -> u32 {
+        publisher.require_auth();
+        validate_paper_id(&env, &paper_id);
+        if goal <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let now = env.ledger().timestamp();
+        if deadline <= now || deadline - now > MAX_CAMPAIGN_DAYS as u64 * DAY_SECONDS {
+            panic_with_error!(&env, Error::InvalidDeadline);
+        }
+
+        let id: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::NextCampaign)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::NextCampaign, &(id + 1));
+        let key = DataKey::Campaign(id);
+        env.storage().persistent().set(
+            &key,
+            &Campaign {
+                publisher: publisher.clone(),
+                paper_id: paper_id.clone(),
+                goal,
+                deadline,
+                raised: 0,
+                released: false,
+            },
+        );
+        keep_campaign(&env, &key, deadline);
+        extend_instance_ttl(&env);
+
+        CampaignOpened {
+            publisher,
+            campaign_id: id,
+            paper_id,
+            goal,
+            deadline,
+        }
+        .publish(&env);
+
+        id
+    }
+
+    /// La campaña `campaign_id`, si existe.
+    pub fn campaign(env: Env, campaign_id: u32) -> Option<Campaign> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Campaign(campaign_id))
+    }
+
     /// Cómo se repartiría `amount`, sin mover fondos.
     pub fn split(env: Env, amount: i128) -> Split {
         let config = read_config(&env);
@@ -978,6 +1080,12 @@ fn keep_until(env: &Env, key: &DataKey, until: u64) {
     let ledgers = (secs / LEDGER_SECONDS) as u32 + TTL_MARGIN_LEDGERS;
     let ttl = ledgers.min(env.storage().max_ttl());
     env.storage().persistent().extend_ttl(key, ttl, ttl);
+}
+
+/// Las entradas de una campaña viven hasta su plazo y `REFUND_GRACE_DAYS` más (y el margen de
+/// `keep_until`): así cada aporte de una campaña fallida se puede devolver.
+fn keep_campaign(env: &Env, key: &DataKey, deadline: u64) {
+    keep_until(env, key, deadline + REFUND_GRACE_DAYS as u64 * DAY_SECONDS);
 }
 
 /// Ledger en que vence la autorización de una suscripción que cubre `total_days`: al menos un día

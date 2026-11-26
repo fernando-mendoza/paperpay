@@ -2,10 +2,10 @@
 extern crate std;
 
 use super::{
-    Config, DataKey, Error, Item, Opened, Paid, PassBought, RefSplit, Referred, Refunded, Renewed,
-    Share, Split, Splitter, SplitterClient, Subscribed, Subscription, Tipped, Unsubscribed,
-    DAY_SECONDS, MAX_ACCESS_DAYS, MAX_AUTHORS, MAX_BATCH_ITEMS, MAX_FEE_BPS, MAX_PASS_DAYS,
-    MAX_RENEWALS,
+    Campaign, CampaignOpened, Config, DataKey, Error, Item, Opened, Paid, PassBought, RefSplit,
+    Referred, Refunded, Renewed, Share, Split, Splitter, SplitterClient, Subscribed, Subscription,
+    Tipped, Unsubscribed, DAY_SECONDS, MAX_ACCESS_DAYS, MAX_AUTHORS, MAX_BATCH_ITEMS,
+    MAX_CAMPAIGN_DAYS, MAX_FEE_BPS, MAX_PASS_DAYS, MAX_RENEWALS, REFUND_GRACE_DAYS,
 };
 use soroban_sdk::{
     testutils::{
@@ -2161,4 +2161,129 @@ fn la_firma_para_cancelar_tampoco_depende_del_ledger() {
 
     s.splitter.cancel_subscription(&s.payer);
     assert_eq!(s.usdc.allowance(&s.payer, &s.splitter.address), 0);
+}
+
+// ---------- campañas de acceso abierto ----------
+
+/// Meta de las campañas de prueba: 1 USDC.
+const GOAL: i128 = 10_000_000;
+
+#[test]
+fn una_campana_guarda_la_oferta_de_la_editorial_sin_mover_fondos() {
+    let s = setup();
+    let before = s.usdc.balance(&s.publisher);
+    let deadline = START + 7 * DAY;
+    let id = s
+        .splitter
+        .open_campaign(&s.publisher, &paper(&s.env), &GOAL, &deadline);
+    assert_eq!(
+        s.env.auths(),
+        std::vec![(
+            s.publisher.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.splitter.address.clone(),
+                    Symbol::new(&s.env, "open_campaign"),
+                    (s.publisher.clone(), paper(&s.env), GOAL, deadline).into_val(&s.env),
+                )),
+                sub_invocations: std::vec![],
+            }
+        )]
+    );
+    let receipts = s.receipts();
+
+    assert_eq!(id, 0);
+    assert_eq!(
+        s.splitter.campaign(&0),
+        Some(Campaign {
+            publisher: s.publisher.clone(),
+            paper_id: paper(&s.env),
+            goal: GOAL,
+            deadline,
+            raised: 0,
+            released: false,
+        })
+    );
+    let expected = CampaignOpened {
+        publisher: s.publisher.clone(),
+        campaign_id: 0,
+        paper_id: paper(&s.env),
+        goal: GOAL,
+        deadline,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.splitter.address)]);
+    assert_eq!(s.usdc.balance(&s.publisher), before);
+    assert_eq!(s.usdc.balance(&s.splitter.address), 0);
+
+    // Los ids son secuenciales: la de otra editorial (o la misma) toma el siguiente.
+    let other = Address::generate(&s.env);
+    assert_eq!(
+        s.splitter
+            .open_campaign(&other, &paper(&s.env), &GOAL, &deadline),
+        1
+    );
+    assert_eq!(s.splitter.campaign(&1).unwrap().publisher, other);
+    assert_eq!(s.splitter.campaign(&2), None);
+}
+
+#[test]
+fn la_campana_rechaza_meta_plazo_e_id_invalidos_y_sin_firma_no_hay_campana() {
+    let s = setup();
+    let open = |paper_id: &String, goal: i128, deadline: u64| {
+        s.splitter
+            .try_open_campaign(&s.publisher, paper_id, &goal, &deadline)
+    };
+    let p = paper(&s.env);
+    let max = START + MAX_CAMPAIGN_DAYS as u64 * DAY;
+
+    assert_eq!(
+        open(&p, 0, START + DAY),
+        Err(Ok(Error::InvalidAmount.into()))
+    );
+    assert_eq!(
+        open(&p, -1, START + DAY),
+        Err(Ok(Error::InvalidAmount.into()))
+    );
+    assert_eq!(
+        open(&p, GOAL, START),
+        Err(Ok(Error::InvalidDeadline.into()))
+    );
+    assert_eq!(
+        open(&p, GOAL, START - 1),
+        Err(Ok(Error::InvalidDeadline.into()))
+    );
+    assert_eq!(
+        open(&p, GOAL, max + 1),
+        Err(Ok(Error::InvalidDeadline.into()))
+    );
+    assert_eq!(
+        open(&String::from_str(&s.env, ""), GOAL, START + DAY),
+        Err(Ok(Error::InvalidPaperId.into()))
+    );
+    assert_eq!(s.splitter.campaign(&0), None);
+
+    // El plazo puede ser justo MAX_CAMPAIGN_DAYS o un segundo después de ahora.
+    assert_eq!(open(&p, GOAL, max), Ok(Ok(0)));
+    assert_eq!(open(&p, GOAL, START + 1), Ok(Ok(1)));
+
+    s.env.set_auths(&[]);
+    assert!(open(&p, GOAL, START + DAY).is_err());
+    assert_eq!(s.splitter.campaign(&2), None);
+}
+
+#[test]
+fn la_entrada_de_la_campana_vive_hasta_el_plazo_y_la_gracia_para_devolver() {
+    let s = setup();
+    let deadline = START + MAX_CAMPAIGN_DAYS as u64 * DAY;
+    s.splitter
+        .open_campaign(&s.publisher, &paper(&s.env), &GOAL, &deadline);
+
+    let ttl = s.env.as_contract(&s.splitter.address, || {
+        s.env.storage().persistent().get_ttl(&DataKey::Campaign(0))
+    });
+    // Plazo (90 días) + gracia (30 días), a un ledger cada 5 s, más una semana de margen: cabe en
+    // el TTL máximo de testnet.
+    let needed = ((MAX_CAMPAIGN_DAYS + REFUND_GRACE_DAYS) as u64 * DAY / 5) as u32;
+    assert_eq!(ttl, needed + 7 * DAY_LEDGERS);
+    assert!(ttl < 3_110_400);
 }
