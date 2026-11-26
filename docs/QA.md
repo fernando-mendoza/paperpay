@@ -1,5 +1,24 @@
 # Estado de QA
 
+## Revisión del 26 de noviembre de 2026: contrato v0.5.0 (pases, suscripción y artículos abiertos)
+
+- `pnpm test:contracts`: 68 pruebas (25 nuevas), `cargo clippy -D warnings` limpio. Las pruebas corren con los límites de TTL de testnet (máximo 3,110,400 ledgers) y con la hora del ledger fija, para probar vencimientos.
+- Mutaciones (27): se rompió el código de 27 formas a propósito y alguna prueba detectó cada una.
+  - Precios: el constructor acepta 0, `check_price` no compara el monto o acepta 0 o 32 días, `sponsor_open` cobra el precio del pase.
+  - Vencimientos: los días no se suman, un acceso vencido cuenta desde el vencimiento viejo, sin tope de 90 días, TTL sin margen.
+  - Firmas: `buy_pass`, `subscribe`, `cancel_subscription` y `sponsor_open` sin `require_auth`, y el pase a nombre de quien paga.
+  - Suscripción: 0 renovaciones, sin tope de 150 días, allowance de más o sin el día de margen, renovación sin ventana o con la ventana corrida un segundo, sin comisión, sin descontar la renovación, sin terminar con la última, y `cancel` que deja la autorización.
+  - Las dos que encontró la red local (abajo): el vencimiento de la autorización y el `approve` de `cancel` calculados con el ledger exacto.
+- **Red local** (`stellar container start local`, stellar-cli 30.0.1): se desplegó el WASM (`913ac9b4…`, 28,642 bytes) y se usó cada función con el script del run `2026-11-25-paperpay-contrato-v050` del hub (`deploy-v050.sh … local`).
+  - **Falla encontrada:** `subscribe` fallaba en la red con `Unauthorized function call for address` en `approve`. El vencimiento de la autorización salía del ledger del momento. Ese número va dentro de lo que firma quien lee, y la red ya había avanzado entre la simulación y el envío, así que la firma no coincidía. Las pruebas unitarias no lo veían porque `mock_all_auths` acepta cualquier argumento.
+  - **Arreglo:** el vencimiento se redondea al día de ledgers, y `cancel_subscription` aprueba 0 con vencimiento 0. Hay 3 pruebas nuevas que firman con `mock_auths` exacto y avanzan el ledger antes de ejecutar; con el cálculo viejo fallan.
+  - Después del arreglo, en la red local: `buy_pass` (pase de regalo), `subscribe` (1 día, 2 renovaciones), `renew_subscription` enviada por **otra cuenta sin USDC y sin firma del lector**, y `sponsor_open`. Saldos exactos: lector 1 USDC, allowance 1 USDC, contrato 0, editorial 7.84 y tesorería 0.16. Una renovación adelantada falla con `RenewTooEarly` (#16). `cancel_subscription` deja la suscripción en `null` y la allowance en 0, y una renovación posterior falla con `NoSubscription` (#15).
+- **Testnet** (con el mismo script, `deploy-v050.sh … testnet`, el USDC de testnet, la tesorería de PaperPay y la editorial demo): contrato [`CA2QHB…4RT2`](https://stellar.expert/explorer/testnet/contract/CA2QHBXMF6KIBBFT5ATQYMFDP75246RQV6NC6YA55QJZX3CRVFUE4RT2). El WASM que se baja de la red tiene el mismo sha256 que el build (`913ac9b4…`).
+  - Las 6 transacciones (upload, deploy, `buy_pass`, `subscribe`, `renew_subscription`, `sponsor_open`) salieron `successful` en Horizon.
+  - En los efectos de Horizon de cada cobro, el USDC va directo de quien paga a la editorial demo y a la tesorería: 0.98 / 0.02 en el pase, la suscripción y la renovación, y 4.90 / 0.10 en el artículo abierto. El contrato no aparece en ningún movimiento y su saldo es 0.
+  - La renovación la envió otra cuenta sin USDC; después, el lector tiene 1 USDC y la autorización quedó en 1 USDC (1 renovación pendiente). Una renovación adelantada falla con `RenewTooEarly` (#16).
+- Producción no cambia: la API y el sitio siguen en v0.4.0 y no usan los pases.
+
 ## Revisión del 25 de noviembre de 2026: referidos (`pay_ref`) en la API y la web, en producción
 
 - API: `pnpm test` con 136 pruebas en verde (13 nuevas). Cubren:
