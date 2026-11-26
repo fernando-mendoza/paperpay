@@ -33,7 +33,8 @@
 //!   tesorería el 2%, y el artículo queda liberado.
 //!
 //! Si una cuenta no puede recibir lo que le paga el contrato (por ejemplo, una editorial nueva sin
-//! trustline de USDC), su parte no se pierde ni bloquea a nadie: queda pendiente a su nombre.
+//! trustline de USDC), su parte no se pierde ni bloquea a nadie: queda pendiente a su nombre, y
+//! `claim` la cobra con una firma que además le abre la trustline (`trust` del SAC, CAP-73).
 //!
 //! Y dos movimientos que no dan acceso (emiten su propio evento, nunca `paid`):
 //! - `tip`: una propina a la editorial por un artículo, con el mismo reparto.
@@ -136,6 +137,8 @@ pub enum Error {
     OverGoal = 20,
     /// Todavía no se llega a la meta de la campaña.
     GoalNotReached = 21,
+    /// La cuenta no tiene nada pendiente de cobro.
+    NothingToClaim = 22,
 }
 
 #[contracttype]
@@ -388,6 +391,15 @@ pub struct Released {
 #[contractevent(topics = ["credited"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Credited {
+    #[topic]
+    pub account: Address,
+    pub amount: i128,
+}
+
+/// Un cobro de lo pendiente. Topics: `["claimed", account]`.
+#[contractevent(topics = ["claimed"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Claimed {
     #[topic]
     pub account: Address,
     pub amount: i128,
@@ -1083,6 +1095,38 @@ impl Splitter {
         .publish(&env);
 
         split
+    }
+
+    /// `account` cobra todo lo que tiene pendiente en el contrato. Con la misma firma le abre la
+    /// trustline de USDC si no la tiene (`trust` del SAC, CAP-73): así cobra una editorial nueva,
+    /// sin preparar su cuenta antes. La cuenta necesita XLM libre para la reserva de la trustline;
+    /// si no puede recibir, la transacción falla y lo pendiente sigue intacto. Firma `account`.
+    /// Emite `claimed` y devuelve lo cobrado.
+    pub fn claim(env: Env, account: Address) -> i128 {
+        account.require_auth();
+        let key = DataKey::Owed(account.clone());
+        let owed: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+        if owed <= 0 {
+            panic_with_error!(&env, Error::NothingToClaim);
+        }
+        env.storage().persistent().remove(&key);
+
+        let config = read_config(&env);
+        token::StellarAssetClient::new(&env, &config.token).trust(&account);
+        token::Client::new(&env, &config.token).transfer(
+            &env.current_contract_address(),
+            &account,
+            &owed,
+        );
+        extend_instance_ttl(&env);
+
+        Claimed {
+            account,
+            amount: owed,
+        }
+        .publish(&env);
+
+        owed
     }
 
     /// Lo que el contrato le debe a `account` (pagos que no pudo recibir).

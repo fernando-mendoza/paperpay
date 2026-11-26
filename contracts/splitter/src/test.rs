@@ -2,8 +2,8 @@
 extern crate std;
 
 use super::{
-    Campaign, CampaignOpened, Config, Credited, DataKey, Error, Item, Opened, Paid, PassBought,
-    Pledged, RefSplit, Referred, Refunded, Released, Renewed, Share, Split, Splitter,
+    Campaign, CampaignOpened, Claimed, Config, Credited, DataKey, Error, Item, Opened, Paid,
+    PassBought, Pledged, RefSplit, Referred, Refunded, Released, Renewed, Share, Split, Splitter,
     SplitterClient, Subscribed, Subscription, Tipped, Unsubscribed, DAY_SECONDS, MAX_ACCESS_DAYS,
     MAX_AUTHORS, MAX_BATCH_ITEMS, MAX_CAMPAIGN_DAYS, MAX_FEE_BPS, MAX_PASS_DAYS, MAX_RENEWALS,
     REFUND_GRACE_DAYS,
@@ -2659,4 +2659,84 @@ fn si_la_editorial_no_puede_cobrar_su_parte_queda_pendiente_a_su_nombre() {
         3_110_400 - 1,
         "lo pendiente vive el TTL máximo de la red"
     );
+}
+
+#[test]
+fn la_editorial_nueva_cobra_lo_pendiente_y_su_trustline_se_abre_con_la_misma_firma() {
+    let s = setup();
+    let nueva = g_account(&s.env, 8);
+    let id = s.funded_campaign(&nueva);
+    s.splitter.release_pledges(&id);
+
+    let claimed = s.splitter.claim(&nueva);
+    assert_eq!(
+        s.env.auths(),
+        std::vec![(
+            nueva.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.splitter.address.clone(),
+                    Symbol::new(&s.env, "claim"),
+                    (nueva.clone(),).into_val(&s.env),
+                )),
+                sub_invocations: std::vec![AuthorizedInvocation {
+                    function: AuthorizedFunction::Contract((
+                        s.usdc.address.clone(),
+                        Symbol::new(&s.env, "trust"),
+                        (nueva.clone(),).into_val(&s.env),
+                    )),
+                    sub_invocations: std::vec![],
+                }],
+            }
+        )]
+    );
+    let receipts = s.receipts();
+
+    assert_eq!(claimed, 9_800_000);
+    assert_eq!(
+        s.usdc.balance(&nueva),
+        9_800_000,
+        "la trustline existe y cobró"
+    );
+    assert_eq!(s.splitter.owed(&nueva), 0);
+    assert_eq!(s.usdc.balance(&s.splitter.address), 0);
+    assert_eq!(
+        receipts,
+        [Claimed {
+            account: nueva.clone(),
+            amount: 9_800_000,
+        }
+        .to_xdr(&s.env, &s.splitter.address)]
+    );
+
+    // Con la trustline abierta, lo siguiente le llega directo: nada queda pendiente.
+    let id2 = s.funded_campaign(&nueva);
+    s.splitter.release_pledges(&id2);
+    assert_eq!(s.usdc.balance(&nueva), 2 * 9_800_000);
+    assert_eq!(s.splitter.owed(&nueva), 0);
+}
+
+#[test]
+fn no_se_cobra_dos_veces_sin_saldo_ni_sin_firma() {
+    let s = setup();
+    let nueva = g_account(&s.env, 9);
+    assert_eq!(
+        s.splitter.try_claim(&nueva),
+        Err(Ok(Error::NothingToClaim.into()))
+    );
+    let id = s.funded_campaign(&nueva);
+    s.splitter.release_pledges(&id);
+
+    s.env.set_auths(&[]);
+    assert!(s.splitter.try_claim(&nueva).is_err());
+    assert_eq!(s.splitter.owed(&nueva), 9_800_000);
+    assert_eq!(s.usdc.balance(&s.splitter.address), 9_800_000);
+
+    s.env.mock_all_auths();
+    s.splitter.claim(&nueva);
+    assert_eq!(
+        s.splitter.try_claim(&nueva),
+        Err(Ok(Error::NothingToClaim.into()))
+    );
+    assert_eq!(s.usdc.balance(&nueva), 9_800_000);
 }
