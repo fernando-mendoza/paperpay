@@ -2,15 +2,36 @@
 
 El contrato no tiene admin y no se puede actualizar: cada versión es un contrato nuevo en la red, y las anteriores siguen ahí. Las fechas están en hora de la Ciudad de México. Los datos de cada despliegue (hashes del WASM, transacciones, constructor) están en [`deployments/testnet.json`](deployments/testnet.json).
 
-Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tesorería de PaperPay y `fee_bps = 200` (2%). La v0.5.0 suma dos precios por día: `pass_day_price` (1 USDC) y `open_day_price` (5 USDC).
+Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tesorería de PaperPay y `fee_bps = 200` (2%). La v0.5.0 suma dos precios por día: `pass_day_price` (1 USDC) y `open_day_price` (5 USDC). La v0.6.0 usa el mismo constructor que la v0.5.0.
 
 | Versión | Contrato (testnet) | Funciones nuevas | Pruebas | ¿La usa el sitio? |
 | --- | --- | --- | --- | --- |
+| [0.6.0](#060-26-nov-2026) | `CANRPE…QM7` | `pledge`, `release_pledges`, `refund_pledge`, `claim` (más `open_campaign`, de soporte) | 89 | No |
 | [0.5.0](#050-26-nov-2026) | `CA2QHB…4RT2` | `buy_pass`, `subscribe`, `renew_subscription`, `sponsor_open` | 68 | No |
 | [0.4.0](#040-25-nov-2026) | `CC5SIM…ADGA` | `pay_authors`, `pay_ref` | 43 | **Sí, desde el 25 de noviembre** (`pay`, `pay_ref` y `gift`) |
 | [0.3.0](#030-25-nov-2026) | `CCQRUT…HEQD` | `gift_batch`, `tip`, `refund` | 32 | No |
 | [0.2.0](#020-23-nov-2026) | `CAIMQY…HOR5` | `pay_batch`, `gift` | 21 | Del 23 al 25 de noviembre. Sigue como contrato anterior: sus regalos y lecturas valen |
 | [0.1.0](#010-23-nov-2026) | `CDOUF6…BPOZ` | `pay`, `split`, `config` | 11 | No (reemplazada) |
+
+## 0.6.0 (26 nov 2026)
+
+Campañas de acceso abierto: los lectores juntan dinero para liberar un artículo para todos. Es la **primera custodia** del contrato: los aportes quedan en garantía hasta la meta o el plazo, y lo que una cuenta no puede recibir queda pendiente a su nombre. Cada saldo tiene una sola salida (la meta, el plazo o su dueño) y no hay admin que lo pueda mover. `pay`, `gift`, los pases y las demás funciones siguen sin custodia.
+
+- **`open_campaign(publisher, paper_id, goal, deadline)`** (soporte): la oferta pública de la editorial, con plazo de hasta 90 días. Solo firma la editorial y no mueve fondos. Emite `campaign`.
+- **`pledge(backer, campaign_id, amount)`:** un aporte en garantía, mientras la campaña está abierta y sin pasar de lo que falta (`OverGoal`). El monto firmado es el que se cobra, nunca se recorta: así otro aporte entre la simulación y el envío no rompe la firma. Emite `pledged`.
+- **`release_pledges(campaign_id)`:** con la meta cumplida, cualquiera la envía: 98% a la editorial y 2% a la tesorería, una sola vez. Si la editorial no puede recibir, su parte queda pendiente (`credited`). Emite `released`.
+- **`refund_pledge(campaign_id, backer)`:** si la campaña venció sin la meta, cualquiera la envía y el aporte vuelve completo, sin comisión, a quien lo hizo. Emite `unpledged`.
+- **`claim(account)`:** cobra lo pendiente y, con la misma firma, abre la trustline de USDC con `trust` del SAC (CAP-73). Emite `claimed`.
+- De lectura: `campaign`, `pledge_of` y `owed`.
+- Errores nuevos: `InvalidDeadline` (17), `NoCampaign` (18), `CampaignClosed` (19), `OverGoal` (20), `GoalNotReached` (21), `NothingToClaim` (22), `CampaignNotFailed` (23) y `NothingToRefund` (24).
+- Código: `8e5e364` (`open_campaign`), `41235f1` (`pledge`), `7a889d1` (`release_pledges`), `43249e3` (`claim`), `2a63833` (`refund_pledge`) y `67f02d5` (el invariante de custodia). Versión en `36e1bec`.
+- En la red (primero en una red Stellar local, después en testnet):
+  - contrato [`CANRPEZT2DUNB3IP6ZDFDMAOH2H5R4AFPYRLYEMLTN4EE6O4QYSS6QM7`](https://stellar.expert/explorer/testnet/contract/CANRPEZT2DUNB3IP6ZDFDMAOH2H5R4AFPYRLYEMLTN4EE6O4QYSS6QM7), WASM `b9e66f54…`;
+  - [`pledge` `2498a459…`](https://stellar.expert/explorer/testnet/tx/2498a4590283b59bb704694f140fea2471c20a7f89d2fd524329237ba97ea189) (0.60 en garantía);
+  - [`release_pledges` `52040846…`](https://stellar.expert/explorer/testnet/tx/5204084632dc76ef9107b0cbdde478df45f0ecb7a9a1aea39dec86e324c74010) (la editorial sin trustline: sus 0.98 quedan pendientes);
+  - [`claim` `cd62df31…`](https://stellar.expert/explorer/testnet/tx/cd62df31632cef23b99ca2d7cc8013717f947a0843392e1bdc5530d0594f19f8) (trustline nueva y cobro en la misma transacción);
+  - [`refund_pledge` `acdbb11b…`](https://stellar.expert/explorer/testnet/tx/acdbb11b6d7f32ade0f92abe75c33f4d426fc982f9b1ec23a4711d1e558b4706) (campaña vencida: 0.30 de vuelta).
+- Pruebas: 21 nuevas, 89 en total, incluida una que comprueba después de cada paso que el saldo del contrato es lo que está en garantía más lo pendiente. Se rompió el código de 26 formas a propósito y alguna prueba detectó cada una (detalle en [`docs/QA.md`](../docs/QA.md)).
 
 ## 0.5.0 (26 nov 2026)
 
