@@ -341,10 +341,10 @@ export const COPY = {
           },
           {
             title: 'Stellar lo liquida',
-            description: 'El pago se confirma en la red en unos 5 segundos y queda verificable on-chain.',
+            description: 'El contrato reparte tus 50 centavos en ~5\u00a0s: 49 a la editorial y 1 a PaperPay.',
             chips: [
               { label: 'Liquidado en', value: '~5 s' },
-              { label: 'Comisión de red', value: '< $0.01' },
+              { label: 'Reparto', value: '98% / 2%' },
             ],
           },
           {

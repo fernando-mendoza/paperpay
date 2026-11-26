@@ -1,7 +1,9 @@
 'use client'
 
 import { AnimatePresence, motion, useMotionValueEvent, useTransform, type MotionValue } from 'motion/react'
-import { useState } from 'react'
+import { useRef, useState, type RefObject } from 'react'
+import { CoinRain } from './CoinRain'
+import { landed, usdc } from './coin-rain'
 
 export interface StoryPaper {
   discipline: string
@@ -22,7 +24,10 @@ interface Props {
 }
 
 const EASE = [0.22, 1, 0.36, 1] as const
-const TREASURY_SHORT = 'GAB2…CWRV'
+// El contrato de reparto que usa el sitio (v0.4.0): Freighter muestra la llamada a `pay` sobre él.
+const SPLITTER_SHORT = 'CC5S…ADGA'
+// Un pago real de $0.50 firmado en Freighter: 0.49 a la editorial y 0.01 a la tesorería.
+const REAL_TX = '3d7b2c5625e5869a174925aa8ca1d221c5edb9e54843f6638eaf25060b9c88f4'
 
 // Lo que se ilumina en cada paso. Lo demás se atenúa para que el ojo vaya a un solo lugar.
 function spot(on: boolean, dimmed: boolean) {
@@ -33,6 +38,10 @@ function spot(on: boolean, dimmed: boolean) {
 // Ventana de navegador con un artículo de PaperPay, hecha en HTML. Cambia con cada paso de la historia.
 export function StoryWindow({ active, progress, steps, paper }: Props) {
   const unlocked = active === 3
+  // Progreso dentro del paso de liquidación (índice 2): mueve el cronómetro, las monedas y el reparto.
+  const settle = useTransform(progress, (v) => Math.min(1, Math.max(0, v * steps - 2)))
+  const publisherRef = useRef<HTMLDivElement>(null)
+  const treasuryRef = useRef<HTMLDivElement>(null)
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-card text-foreground shadow-[0_40px_100px_rgba(0,0,0,0.5)]">
@@ -112,9 +121,12 @@ export function StoryWindow({ active, progress, steps, paper }: Props) {
 
         <AnimatePresence>
           {active === 1 && <FreighterPopup key="freighter" />}
-          {active === 2 && <SettlementCard key="settle" progress={progress} steps={steps} />}
+          {active === 2 && (
+            <SettlementCard key="settle" local={settle} publisherRef={publisherRef} treasuryRef={treasuryRef} />
+          )}
           {unlocked && <AccessBadge key="access" />}
         </AnimatePresence>
+        <CoinRain progress={settle} active={active === 2} publisherRef={publisherRef} treasuryRef={treasuryRef} />
       </div>
     </div>
   )
@@ -142,7 +154,7 @@ function FreighterPopup() {
       <p className="mb-3 text-xs font-semibold">paperpay.blockchains.tf</p>
       <dl className="mb-4 space-y-1.5 rounded-lg bg-muted px-3 py-2.5 text-[11px]">
         <Row label="Pago" value="0.50 USDC" strong />
-        <Row label="Destino" value={TREASURY_SHORT} mono />
+        <Row label="Contrato" value={`${SPLITTER_SHORT} · pay`} mono />
         <Row label="Comisión de red" value="< $0.01" />
       </dl>
       <div className="grid grid-cols-2 gap-2">
@@ -155,12 +167,25 @@ function FreighterPopup() {
   )
 }
 
-function SettlementCard({ progress, steps }: { progress: MotionValue<number>; steps: number }) {
-  // Progreso dentro del paso 3 (índice 2): el cronómetro llega a ~5 s y se confirma.
-  const local = useTransform(progress, (v) => Math.min(1, Math.max(0, v * steps - 2)))
+function SettlementCard({
+  local,
+  publisherRef,
+  treasuryRef,
+}: {
+  local: MotionValue<number>
+  publisherRef: RefObject<HTMLDivElement | null>
+  treasuryRef: RefObject<HTMLDivElement | null>
+}) {
+  // El cronómetro llega a ~5 s y se confirma en 0.70, cuando cae la última moneda.
   const seconds = useTransform(local, (v) => `${(Math.min(v / 0.7, 1) * 4.8).toFixed(1)} s`)
   const [confirmed, setConfirmed] = useState(() => local.get() >= 0.7)
-  useMotionValueEvent(local, 'change', (v) => setConfirmed(v >= 0.7))
+  // Cada moneda es un centavo: los contadores suben a medida que llegan (49 → 0.49, 1 → 0.01).
+  const [cents, setCents] = useState(() => landed(local.get()))
+  useMotionValueEvent(local, 'change', (v) => {
+    setConfirmed(v >= 0.7)
+    const next = landed(v)
+    setCents((current) => (current.publisher === next.publisher && current.treasury === next.treasury ? current : next))
+  })
 
   return (
     <motion.div
@@ -179,9 +204,24 @@ function SettlementCard({ progress, steps }: { progress: MotionValue<number>; st
         <Check done label="Transacción enviada a la red" />
         <Check done={confirmed} label={confirmed ? 'Confirmada en el ledger' : 'Esperando confirmación…'} />
       </ol>
-      <p className="mt-3 truncate rounded-md bg-muted px-2.5 py-1.5 font-mono text-[10px] text-muted-foreground">
-        tx 9c41e7…b20f · verificable en stellar.expert
-      </p>
+      <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+        <div ref={publisherRef} data-split="editorial" className="rounded-lg bg-success-bg px-3 py-1.5">
+          <p className="text-[10px] font-semibold tracking-wider text-success-strong/80 uppercase">Editorial · 98%</p>
+          <p className="font-mono text-sm font-semibold text-success-strong tabular-nums">{usdc(cents.publisher)} USDC</p>
+        </div>
+        <div ref={treasuryRef} data-split="paperpay" className="rounded-lg bg-muted px-3 py-1.5">
+          <p className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">PaperPay · 2%</p>
+          <p className="font-mono text-sm font-semibold text-foreground tabular-nums">{usdc(cents.treasury)} USDC</p>
+        </div>
+      </div>
+      <a
+        href={`https://stellar.expert/explorer/testnet/tx/${REAL_TX}`}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-2 block truncate rounded-md bg-muted px-2.5 py-1.5 font-mono text-[10px] text-muted-foreground hover:text-foreground"
+      >
+        tx {REAL_TX.slice(0, 6)}…{REAL_TX.slice(-4)} · un pago real, en stellar.expert
+      </a>
     </motion.div>
   )
 }
