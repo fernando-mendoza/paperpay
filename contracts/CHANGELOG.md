@@ -2,14 +2,36 @@
 
 El contrato no tiene admin y no se puede actualizar: cada versión es un contrato nuevo en la red, y las anteriores siguen ahí. Las fechas están en hora de la Ciudad de México. Los datos de cada despliegue (hashes del WASM, transacciones, constructor) están en [`deployments/testnet.json`](deployments/testnet.json).
 
-Todas las versiones usan el mismo constructor: SAC de USDC de testnet, la tesorería de PaperPay y `fee_bps = 200` (2%).
+Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tesorería de PaperPay y `fee_bps = 200` (2%). La v0.5.0 suma dos precios por día: `pass_day_price` (1 USDC) y `open_day_price` (5 USDC).
 
 | Versión | Contrato (testnet) | Funciones nuevas | Pruebas | ¿La usa el sitio? |
 | --- | --- | --- | --- | --- |
+| [0.5.0](#050-26-nov-2026) | `CA2QHB…4RT2` | `buy_pass`, `subscribe`, `renew_subscription`, `sponsor_open` | 68 | No |
 | [0.4.0](#040-25-nov-2026) | `CC5SIM…ADGA` | `pay_authors`, `pay_ref` | 43 | **Sí, desde el 25 de noviembre** (`pay`, `pay_ref` y `gift`) |
 | [0.3.0](#030-25-nov-2026) | `CCQRUT…HEQD` | `gift_batch`, `tip`, `refund` | 32 | No |
 | [0.2.0](#020-23-nov-2026) | `CAIMQY…HOR5` | `pay_batch`, `gift` | 21 | Del 23 al 25 de noviembre. Sigue como contrato anterior: sus regalos y lecturas valen |
 | [0.1.0](#010-23-nov-2026) | `CDOUF6…BPOZ` | `pay`, `split`, `config` | 11 | No (reemplazada) |
+
+## 0.5.0 (26 nov 2026)
+
+Accesos con vencimiento, a precio fijo por día. El contrato guarda fechas y los términos de cada suscripción, pero **sigue sin guardar fondos**: cada cobro va directo de quien paga a la editorial (98%) y a la tesorería (2%).
+
+- **`buy_pass(payer, reader, publisher, days, amount)`:** un pase de 1 a 31 días a todo el catálogo de una editorial. Cobra exactamente `days × pass_day_price`. Los días se suman al pase vigente, con un tope de 90 días desde ahora. Puede ser de regalo (`reader` ≠ `payer`). Emite `pass`.
+- **`subscribe(reader, publisher, days, renewals, amount)`:** cobra el primer periodo y, con la misma firma, autoriza al contrato (`approve` del token) a cobrar de 1 a 12 renovaciones del mismo precio. Las renovaciones se quedan en la wallet del lector hasta cada cobro. Emite `pass` y `subscribed`.
+- **`renew_subscription(reader)`:** cobra una renovación con `transfer_from`, sin firma del lector; la puede enviar cualquiera. Solo procede cuando al pase le falta un día o menos, así que nunca se cobra más de un periodo por adelantado. Emite `pass` y `renewed`.
+- **`sponsor_open(sponsor, paper_id, publisher, days, amount)`:** alguien paga `days × open_day_price` para que un artículo quede abierto para todos de 1 a 31 días. Emite `opened` (no `paid`).
+- De soporte (borran o solo leen): `cancel_subscription` (deja la autorización en 0; el pase pagado sigue), `pass_until`, `subscription` y `open_until`.
+- Constructor: `pass_day_price` y `open_day_price`, mayores que 0.
+- Errores nuevos: `InvalidDays` (11), `WrongPrice` (12), `TooLong` (13), `InvalidRenewals` (14), `NoSubscription` (15) y `RenewTooEarly` (16).
+- Encontrado en una red local antes de testnet: el vencimiento de la autorización salía del ledger exacto. Es un argumento que firma el lector, y la red lo rechazaba porque avanzó entre la simulación y el envío. Ahora se redondea al día de ledgers (detalle en [`docs/QA.md`](../docs/QA.md)).
+- Código: `6979bd7` (precios), `379fdb9` (`buy_pass`), `d626093` (suscripción), `94ccc7f` (`sponsor_open`) y `1afa41b` (el arreglo de la firma). Versión en `901171c`.
+- En la red:
+  - contrato [`CA2QHBXMF6KIBBFT5ATQYMFDP75246RQV6NC6YA55QJZX3CRVFUE4RT2`](https://stellar.expert/explorer/testnet/contract/CA2QHBXMF6KIBBFT5ATQYMFDP75246RQV6NC6YA55QJZX3CRVFUE4RT2), WASM `913ac9b4…`;
+  - [`buy_pass` `747d2015…`](https://stellar.expert/explorer/testnet/tx/747d20154da627c210dde94b99a99b45042c98fb8985aa34cbbc69d4257b57a8) (pase de regalo de 1 día);
+  - [`subscribe` `e4b2b08d…`](https://stellar.expert/explorer/testnet/tx/e4b2b08dc02e763d27be68bef87e3947d4446fc3cd8f903585bc320fe5f6b549) (1 día por periodo, 2 renovaciones);
+  - [`renew_subscription` `3f586bef…`](https://stellar.expert/explorer/testnet/tx/3f586befa2582e47633812238990ab691facb51e22c5c47b21fb8395a18aeff5) (enviada por otra cuenta, sin firma del lector);
+  - [`sponsor_open` `a49b8687…`](https://stellar.expert/explorer/testnet/tx/a49b86873d7cc33103787f9b7af5cb474469efc2494f6a4594cc437f87b313fc) (un artículo abierto 1 día).
+- Pruebas: 25 nuevas, 68 en total. Se rompió el código de 27 formas a propósito y alguna prueba detectó cada una.
 
 ## 0.4.0 (25 nov 2026)
 
