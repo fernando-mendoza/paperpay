@@ -1,5 +1,15 @@
 # Estado de QA
 
+## Revisión del 26 de noviembre de 2026: `/boveda`, la tarjeta de regalo (reto exprés Bóveda, en producción)
+
+- Contrato `contracts/boveda`: 10 pruebas y 13 de 13 mutaciones detectadas. La primera corrida dejó viva "deposit devuelve el monto y no el saldo" (todas las pruebas depositaban en una bóveda vacía); se agregó la aserción.
+- Web: `pnpm --filter @paperpay/web test`, 68 pruebas (5 nuevas en `test/boveda.test.ts`); `typecheck` limpio.
+- E2E del servicio contra una bóveda de ensayo en testnet (`test/e2e/boveda.testnet.test.ts`, con `BOVEDA_E2E_CONTRACT`): cuenta sin activar → `NO_ACCOUNT`; Friendbot; "Ship It now" → `WRONG_CODE`; «ship it» con espacios cobra todo; otra vez → `EMPTY`.
+- Navegador (Chrome headless con un Freighter simulado que responde los mensajes de `@stellar/freighter-api` 6), en `next dev` y en el export estático servido en local, celular y escritorio: sin scroll horizontal ni errores; flujo completo con cuenta nueva (Friendbot, código mal sin pedir firma, «ship it» cobra, saldo a 0). Este arnés encontró un error: el campo del código aparecía antes de saber si la cuenta existía.
+- Producción: desplegado el 26-nov a las 12:01 por el script de lanzamiento, con el OK del owner (Pages `e3b6b86d`, fork `a6fee92`; la API no cambió). Contrato creado a las 12:00:05 y 5555 XLM depositados a las 12:00:13. Revisión en modo solo lectura contra [paperpay.blockchains.tf/boveda](https://paperpay.blockchains.tf/boveda): 5,555 XLM en celular y escritorio, sin scroll horizontal ni errores. En la primera pasada, el celular todavía decía "Leyendo…" a los 30 s; repetida a las 12:03, bien.
+- La revisión del reto cobró a las 12:32:18 ([`e0d3e3d7…`](https://stellar.expert/explorer/testnet/tx/e0d3e3d7fbadf27ad9ff3c16c1ce67d91b147094431ded52c0fe0a3d2ffda10e)) y la vigilancia la rellenó a las 12:32:26. Fue el único cobro de la ventana.
+- **No probado:** la extensión Freighter real firmando en `/boveda` (solo el simulador y la firma por SDK del e2e), ni un iPhone real.
+
 ## Revisión del 26 de noviembre de 2026: monedas 3D en la historia del pago de `/lee` (en producción)
 
 - `pnpm --filter @paperpay/web test`: 63 pruebas (4 nuevas en `test/coin-rain.test.ts`: 49 + 1 monedas = 0.49 / 0.01, todas llegan en 0.70 cuando se confirma, los contadores nunca bajan al avanzar, la lluvia es igual en cada visita). `typecheck` limpio y export estático (`STATIC_EXPORT=1`) sin errores.
