@@ -49,6 +49,33 @@
     },
     "checks": "al final: saldo del contrato 0, tesorería +200000, owed de la editorial 0; un segundo claim falla con NothingToClaim (#22)"
   },
+  "boveda": {
+    "version": "0.1.0",
+    "contractId": "CAYVRBBV5CSX5K6AHXZHI3KJS72O7OVHSHWX27MYA5HNVTP4N5OHG6VS",
+    "wasmSha256": "9fbd26163cf8301cc4a1892e8c27a6e9c9090cd6530ea7dd6d4780de11cc9595",
+    "source": "contracts/boveda @ a6fee92, soroban-sdk 29.0.1, stellar-cli 30.0.1; igual al WASM que se baja de la red con stellar contract fetch",
+    "constructor": {
+      "token": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+      "code_hash": "7121f6ba9548cb8cf29a1d8dafcae8cefd0f5b97dbb5af2532eb6ffcb799e66e"
+    },
+    "deployTx": "1ff98795eb35284646298f69bbcf563d83e461c189d2a276ff831ffed65559db",
+    "deployedAt": "2026-11-26T18:00:05Z",
+    "wasmUpload": "el WASM ya estaba en testnet desde el ensayo de la mañana (bóveda de ensayo CA6UX6U2WMC6QTSAB53H7VA4NIXPXAFTYBV5BBOENXT6JL563WZYTPEI), así que el despliegue solo creó el contrato",
+    "status": "en producción en paperpay.blockchains.tf/boveda desde el 26 de noviembre de 2026 (reto exprés Bóveda de Ship It, 12:00–16:00 CDMX)",
+    "custody": "guarda XLM nativo; sale completo solo con claim y el código cuyo sha256 es code_hash («Ship It»); sin admin ni retiro",
+    "usage": {
+      "deposit": {
+        "tx": "fbf208f031465f5bb158374ce65296b7394a27545989ec1c49757b874eec09ab",
+        "what": "GCOOKSWJB23NXE2WYDEKCBZ2533XYRPD6WSOQV5ANEPWZOGJFAQ73DCZ deposita 55550000000 (5555 XLM) a las 12:00:13 CDMX",
+        "result": "evento deposited con balance 55550000000"
+      },
+      "claim": {
+        "tx": "e0d3e3d7fbadf27ad9ff3c16c1ce67d91b147094431ded52c0fe0a3d2ffda10e",
+        "what": "GBHJNGAKAKZQNZF4DHS3EDQ7EPT6CWCW46FGAX4Z3GA5Z2GAUP46HCR5, una cuenta que no es de PaperPay (la revisión del reto), cobra con el código a las 12:32:18 CDMX",
+        "result": "55550000000 de la bóveda a esa cuenta; evento claimed. La vigilancia la rellenó a las 12:32:26: 138328bbf4054bd8311098e981f40b6cf79cbdf39b0689090479bead9d251560 (deposit de GDWG5O76QX44JDHWSJDSRC7FVO6M5VSIOH4U43EWH43TZUXSGO33J244)"
+      }
+    }
+  },
   "demoPublisher": {
     "address": "GA3MOPOJ374G4APKR4RE7VPXF5CEQKER3FA3LZ2XSAARIRSZEF6QXUZI",
     "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."

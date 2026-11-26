@@ -1,5 +1,7 @@
 # Contratos Soroban
 
+Dos contratos: [`splitter`](#splitter-reparto-98-editorial--2-paperpay) (los pagos de lectura) y [`boveda`](#boveda-tarjeta-de-regalo-con-código) (la tarjeta de regalo de `/boveda`).
+
 ## `splitter`: reparto 98% editorial / 2% PaperPay
 
 Cobra lecturas y las reparte en la misma transacción. El USDC va directo de la cuenta que paga a la editorial (monto − comisión) y a la tesorería de PaperPay (comisión): los pagos no pasan por el contrato. La única excepción, desde la v0.6.0, son las campañas de acceso abierto (abajo), que guardan los aportes en garantía.
@@ -236,3 +238,29 @@ La v0.1.0 ([`CDOUF6…BPOZ`](https://stellar.expert/explorer/testnet/contract/CD
 ### Estado
 
 Desplegado en testnet y **activo** desde el 23 de noviembre de 2026 en la API de la VPS y en [paperpay.blockchains.tf](https://paperpay.blockchains.tf/): con Freighter, cada lectura paga por `pay`. Prueba de punta a punta contra el sitio publicado: [`96dd614e…`](https://stellar.expert/explorer/testnet/tx/96dd614e5a3b13c2e0d7dfc58d1e5b6457f554dc22754e25ce89a719293e74d9), 0.49 a la editorial y 0.01 a la tesorería. Desde el 24 de noviembre, el sitio también ofrece `gift` ("Regálalo"): quien regala paga y comparte un enlace con el que otra persona lee sin wallet (ver [la API](../apps/api/README.md#regalo-por-enlace-gift)); prueba contra el sitio publicado: [`3fe887ee…`](https://stellar.expert/explorer/testnet/tx/3fe887ee932f4e260267dc80b4a2a7c5d31ecf1d6b776a7eea7bc6931d517f7e). Pollar y el sitio de Vercel siguen con transferencias completas a la tesorería. `pay_batch` funciona en la red, pero el sitio todavía no lo ofrece.
+
+## `boveda`: tarjeta de regalo con código
+
+Guarda XLM y lo entrega completo a quien presente el código. Es la bóveda del reto exprés de Ship It (26 de noviembre de 2026, 12:00–16:00 CDMX) y, en PaperPay, la tarjeta de regalo de lectura: el regalo por enlace regala un artículo; la tarjeta regala saldo con un código. La pantalla es [`/boveda`](https://paperpay.blockchains.tf/boveda).
+
+- **`__constructor(token, code_hash)`:** guarda el SAC del token y el sha256 del código, nunca el texto.
+- **`deposit(from, amount) -> saldo`:** firma `from`; el monto tiene que ser mayor que 0 (`InvalidAmount`, 1). Emite `deposited` con el monto y el saldo.
+- **`claim(claimer, code) -> monto`:** firma `claimer`. Si el sha256 del código no coincide, `WrongCode` (2); si no hay saldo, `Empty` (3). Si coincide, le transfiere todo el saldo y emite `claimed`.
+- De lectura: `balance` y `config`.
+- Sin admin ni retiro: los XLM solo salen con el código. Cada uso extiende el TTL al máximo.
+- Pruebas: 10 (`cargo test -p paperpay-boveda`), con el árbol de autorización de `deposit` y `claim`, 6 códigos parecidos que fallan, bóveda vacía, relleno y TTL. Mutaciones: 13 de 13 detectadas.
+
+La pantalla perdona mayúsculas, comillas y espacios de más («ship it» → `Ship It`); el contrato solo acepta el código exacto. Si la cuenta de quien cobra no existe en testnet, la pantalla ofrece activarla con Friendbot.
+
+### En testnet
+
+| Dato | Valor |
+| --- | --- |
+| Contrato (v0.1.0) | [`CAYVRBBV5CSX5K6AHXZHI3KJS72O7OVHSHWX27MYA5HNVTP4N5OHG6VS`](https://stellar.expert/explorer/testnet/contract/CAYVRBBV5CSX5K6AHXZHI3KJS72O7OVHSHWX27MYA5HNVTP4N5OHG6VS), creado el 26 de noviembre a las 12:00:05 CDMX ([`1ff98795…`](https://stellar.expert/explorer/testnet/tx/1ff98795eb35284646298f69bbcf563d83e461c189d2a276ff831ffed65559db)) |
+| Constructor | token = SAC de XLM nativo de testnet (`CDLZFC3S…`), `code_hash` = `7121f6ba…` (sha256 de «Ship It») |
+| WASM (sha256) | `9fbd26163cf8301cc4a1892e8c27a6e9c9090cd6530ea7dd6d4780de11cc9595`, igual al que se baja de la red con `stellar contract fetch` |
+| `deposit` | [`fbf208f0…`](https://stellar.expert/explorer/testnet/tx/fbf208f031465f5bb158374ce65296b7394a27545989ec1c49757b874eec09ab): 5555 XLM a las 12:00:13 |
+| `claim` | [`e0d3e3d7…`](https://stellar.expert/explorer/testnet/tx/e0d3e3d7fbadf27ad9ff3c16c1ce67d91b147094431ded52c0fe0a3d2ffda10e): una cuenta ajena a PaperPay (la revisión del reto) cobró los 5555 XLM a las 12:32:18 |
+| Relleno | [`138328bb…`](https://stellar.expert/explorer/testnet/tx/138328bbf4054bd8311098e981f40b6cf79cbdf39b0689090479bead9d251560): otros 5555 XLM a las 12:32:26, de una vigilancia que corrió hasta las 16:00 |
+
+Los datos completos están en [`deployments/testnet.json`](deployments/testnet.json) (`boveda`).
