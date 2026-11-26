@@ -10,7 +10,7 @@ use super::{
 use soroban_sdk::{
     testutils::{
         storage::Persistent as _, Address as _, AuthorizedFunction, AuthorizedInvocation,
-        Events as _, Ledger as _,
+        Events as _, Ledger as _, MockAuth, MockAuthInvoke,
     },
     token::{StellarAssetClient, TokenClient},
     vec, Address, Env, Event, IntoVal, String, Symbol, Vec,
@@ -1545,8 +1545,9 @@ fn una_suscripcion_cobra_el_primer_periodo_y_autoriza_las_renovaciones() {
         s.usdc.allowance(&s.payer, &s.splitter.address),
         3 * pass_price(7)
     );
-    // 7 días × 4 periodos + 1 día de margen.
-    let allowance_until = seq + 29 * DAY_LEDGERS;
+    // 7 días × 4 periodos, más 2 días contados desde el inicio del día de ledgers actual.
+    let allowance_until = (seq / DAY_LEDGERS + 28 + 2) * DAY_LEDGERS;
+    assert!(allowance_until - seq >= 29 * DAY_LEDGERS);
     assert_eq!(
         s.splitter.subscription(&s.payer),
         Some(Subscription {
@@ -1620,7 +1621,7 @@ fn la_suscripcion_pide_una_sola_firma_para_el_cobro_y_la_autorizacion() {
                                 s.payer.clone(),
                                 s.splitter.address.clone(),
                                 2 * pass_price(1),
-                                seq + 4 * DAY_LEDGERS
+                                (seq / DAY_LEDGERS + 3 + 2) * DAY_LEDGERS
                             )
                                 .into_val(&s.env),
                         )),
@@ -2046,4 +2047,118 @@ fn el_patrocinio_rechaza_datos_invalidos_y_sin_firma_no_abre_nada() {
     let other = String::from_str(&s.env, "autonomous-ai-micropayments");
     assert!(open(&other, 1, open_price(1)).is_err());
     assert_eq!(s.splitter.open_until(&s.publisher, &other), 0);
+}
+
+/// Lo que firma quien lee al suscribirse (1 día por periodo, 2 renovaciones), calculado con el
+/// ledger del momento: así lo arma la simulación antes de que la wallet firme.
+fn subscribe_auth_args(s: &Setup) -> (soroban_sdk::Vec<soroban_sdk::Val>, u32) {
+    let until = (s.env.ledger().sequence() / DAY_LEDGERS + 3 + 2) * DAY_LEDGERS;
+    let args = (
+        s.payer.clone(),
+        s.splitter.address.clone(),
+        2 * pass_price(1),
+        until,
+    )
+        .into_val(&s.env);
+    (args, until)
+}
+
+#[test]
+fn la_firma_de_la_suscripcion_sigue_valiendo_si_la_red_avanza_entre_simular_y_enviar() {
+    let s = setup();
+    s.fund(&s.payer, pass_price(10));
+    // Se simula (y se firma) en un ledger...
+    let (approve_args, until) = subscribe_auth_args(&s);
+    let subscribe_args = (
+        s.payer.clone(),
+        s.publisher.clone(),
+        1u32,
+        2u32,
+        pass_price(1),
+    )
+        .into_val(&s.env);
+    let transfer = |to: &Address, amount: i128| MockAuthInvoke {
+        contract: &s.usdc.address,
+        fn_name: "transfer",
+        args: (s.payer.clone(), to.clone(), amount).into_val(&s.env),
+        sub_invokes: &[],
+    };
+    let sub_invokes = [
+        transfer(&s.publisher, 9_800_000),
+        transfer(&s.treasury, 200_000),
+        MockAuthInvoke {
+            contract: &s.usdc.address,
+            fn_name: "approve",
+            args: approve_args,
+            sub_invokes: &[],
+        },
+    ];
+    // ...y la red lo ejecuta 3 ledgers después. Solo vale la firma exacta (sin mock_all_auths).
+    s.env.ledger().with_mut(|li| li.sequence_number += 3);
+    s.env.mock_auths(&[MockAuth {
+        address: &s.payer,
+        invoke: &MockAuthInvoke {
+            contract: &s.splitter.address,
+            fn_name: "subscribe",
+            args: subscribe_args,
+            sub_invokes: &sub_invokes,
+        },
+    }]);
+
+    s.splitter
+        .subscribe(&s.payer, &s.publisher, &1, &2, &pass_price(1));
+    assert_eq!(
+        s.splitter.subscription(&s.payer).unwrap().allowance_until,
+        until
+    );
+}
+
+#[test]
+fn la_autorizacion_cubre_la_suscripcion_en_cualquier_ledger_del_dia() {
+    // Justo en el cambio de día de ledgers, justo antes y en medio.
+    for seq in [
+        347 * DAY_LEDGERS,
+        347 * DAY_LEDGERS - 1,
+        347 * DAY_LEDGERS + DAY_LEDGERS / 2,
+    ] {
+        let s = setup();
+        s.env.ledger().with_mut(|li| li.sequence_number = seq);
+        s.fund(&s.payer, pass_price(40));
+        s.splitter
+            .subscribe(&s.payer, &s.publisher, &7, &3, &pass_price(7));
+        let until = s.splitter.subscription(&s.payer).unwrap().allowance_until;
+        // 4 periodos de 7 días y al menos 1 día más, sin pasar del TTL máximo de testnet.
+        assert!(until - seq >= 29 * DAY_LEDGERS, "seq {seq}: {until}");
+        assert!(until - seq <= 30 * DAY_LEDGERS, "seq {seq}: {until}");
+        assert!(until - seq < 3_110_400);
+    }
+}
+
+#[test]
+fn la_firma_para_cancelar_tampoco_depende_del_ledger() {
+    let s = setup();
+    s.fund(&s.payer, pass_price(10));
+    s.splitter
+        .subscribe(&s.payer, &s.publisher, &1, &2, &pass_price(1));
+
+    let cancel_args = (s.payer.clone(),).into_val(&s.env);
+    let approve_args = (s.payer.clone(), s.splitter.address.clone(), 0i128, 0u32).into_val(&s.env);
+    s.env.ledger().with_mut(|li| li.sequence_number += 3);
+    s.env.mock_auths(&[MockAuth {
+        address: &s.payer,
+        invoke: &MockAuthInvoke {
+            contract: &s.splitter.address,
+            fn_name: "cancel_subscription",
+            args: cancel_args,
+            sub_invokes: &[MockAuthInvoke {
+                contract: &s.usdc.address,
+                fn_name: "approve",
+                args: approve_args,
+                sub_invokes: &[],
+            }],
+        },
+    }]);
+
+    s.splitter.cancel_subscription(&s.payer);
+    assert_eq!(s.usdc.allowance(&s.payer, &s.splitter.address), 0);
 }

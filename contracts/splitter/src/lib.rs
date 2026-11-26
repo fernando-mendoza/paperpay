@@ -643,7 +643,7 @@ impl Splitter {
         transfer_split(&env, &config, &reader, &publisher, &split);
         let valid_until = grant_pass(&env, &reader, &publisher, days);
 
-        let allowance_until = env.ledger().sequence() + (total_days + 1) * DAY_IN_LEDGERS;
+        let allowance_until = allowance_until(&env, total_days);
         token::Client::new(&env, &config.token).approve(
             &reader,
             &env.current_contract_address(),
@@ -768,11 +768,13 @@ impl Splitter {
         };
         env.storage().persistent().remove(&key);
         let config = read_config(&env);
+        // Monto 0 con vencimiento 0: el token lo acepta y la llamada firmada no depende del
+        // ledger en que se envía.
         token::Client::new(&env, &config.token).approve(
             &reader,
             &env.current_contract_address(),
             &0,
-            &env.ledger().sequence(),
+            &0,
         );
         extend_instance_ttl(&env);
 
@@ -976,6 +978,15 @@ fn keep_until(env: &Env, key: &DataKey, until: u64) {
     let ledgers = (secs / LEDGER_SECONDS) as u32 + TTL_MARGIN_LEDGERS;
     let ttl = ledgers.min(env.storage().max_ttl());
     env.storage().persistent().extend_ttl(key, ttl, ttl);
+}
+
+/// Ledger en que vence la autorización de una suscripción que cubre `total_days`: al menos un día
+/// después de la última renovación. Se redondea al día de ledgers porque es un argumento de
+/// `approve`, que quien lee firma: si dependiera del ledger exacto, el valor simulado y el
+/// ejecutado no coincidirían y la red rechazaría la firma. Solo cambia si entre simular y enviar
+/// la red cruza un múltiplo de `DAY_IN_LEDGERS` (una vez al día); entonces basta reintentar.
+fn allowance_until(env: &Env, total_days: u32) -> u32 {
+    (env.ledger().sequence() / DAY_IN_LEDGERS + total_days + 2) * DAY_IN_LEDGERS
 }
 
 /// Días entre 1 y `MAX_PASS_DAYS`, y `amount` exactamente `days × day_price`.
