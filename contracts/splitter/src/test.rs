@@ -2886,3 +2886,67 @@ fn si_quien_aporto_no_puede_recibir_su_aporte_queda_pendiente_y_lo_cobra_despues
     assert_eq!(s.usdc.balance(&ana), GOAL);
     assert_eq!(s.splitter.owed(&ana), 0);
 }
+
+/// El USDC del contrato es exactamente lo que está en garantía (lo juntado por las campañas sin
+/// liberar) más lo pendiente de cobro: ni un stroop sin dueño.
+fn assert_custody(s: &Setup, campaigns: &[u32], accounts: &[&Address]) {
+    let mut held: i128 = 0;
+    for id in campaigns {
+        let campaign = s.splitter.campaign(id).unwrap();
+        if !campaign.released {
+            held += campaign.raised;
+        }
+    }
+    for account in accounts {
+        held += s.splitter.owed(account);
+    }
+    assert_eq!(s.usdc.balance(&s.splitter.address), held);
+}
+
+#[test]
+fn el_saldo_del_contrato_es_siempre_lo_que_esta_en_garantia_mas_lo_pendiente() {
+    let s = setup();
+    let nueva = g_account(&s.env, 11);
+    let ana = s.backer(GOAL);
+    let beto = s.backer(GOAL);
+    let all = [&nueva, &ana, &beto, &s.publisher, &s.treasury];
+
+    let ok = s.open_campaign();
+    let to_new = s
+        .splitter
+        .open_campaign(&nueva, &paper(&s.env), &GOAL, &(s.now() + DAY));
+    let fails = s.open_campaign();
+    let ids = [ok, to_new, fails];
+    assert_custody(&s, &ids, &all);
+
+    s.splitter.pledge(&ana, &ok, &6_000_000);
+    s.splitter.pledge(&beto, &fails, &2_000_000);
+    s.splitter.pledge(&s.backer(GOAL), &to_new, &GOAL);
+    s.splitter.pledge(&ana, &fails, &3_000_000);
+    assert_custody(&s, &ids, &all);
+    assert_eq!(s.usdc.balance(&s.splitter.address), 21_000_000);
+
+    s.splitter.release_pledges(&to_new);
+    assert_custody(&s, &ids, &all);
+    assert_eq!(s.splitter.owed(&nueva), 9_800_000);
+
+    s.splitter.pledge(&beto, &ok, &4_000_000);
+    s.splitter.release_pledges(&ok);
+    assert_custody(&s, &ids, &all);
+
+    s.advance(7 * DAY);
+    s.splitter.refund_pledge(&fails, &ana);
+    assert_custody(&s, &ids, &all);
+    s.splitter.claim(&nueva);
+    assert_custody(&s, &ids, &all);
+    s.splitter.refund_pledge(&fails, &beto);
+    assert_custody(&s, &ids, &all);
+    assert_eq!(s.usdc.balance(&s.splitter.address), 0);
+
+    // Y nadie perdió nada: cada aporte fue a su editorial (98/2) o volvió a su dueño.
+    assert_eq!(s.usdc.balance(&ana), GOAL - 6_000_000);
+    assert_eq!(s.usdc.balance(&beto), GOAL - 4_000_000);
+    assert_eq!(s.usdc.balance(&s.publisher), 9_800_000);
+    assert_eq!(s.usdc.balance(&nueva), 9_800_000);
+    assert_eq!(s.usdc.balance(&s.treasury), 400_000);
+}
