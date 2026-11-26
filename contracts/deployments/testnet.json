@@ -4,10 +4,10 @@
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "productionContractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
   "splitter": {
-    "version": "0.5.0",
-    "contractId": "CA2QHBXMF6KIBBFT5ATQYMFDP75246RQV6NC6YA55QJZX3CRVFUE4RT2",
-    "wasmSha256": "913ac9b4b43766bcc60e685d6a985e82dad677dc17d2c7f6a6aa892ca7b3bd17",
-    "source": "contracts/splitter @ 901171c, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+    "version": "0.6.0",
+    "contractId": "CANRPEZT2DUNB3IP6ZDFDMAOH2H5R4AFPYRLYEMLTN4EE6O4QYSS6QM7",
+    "wasmSha256": "b9e66f54e6e88f65d34250262803f574fed86b762b4eecc7b085d08e6e13c3df",
+    "source": "contracts/splitter @ 36e1bec, soroban-sdk 29.0.1, stellar-cli 30.0.1",
     "constructor": {
       "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
@@ -15,39 +15,85 @@
       "pass_day_price": 10000000,
       "open_day_price": 50000000
     },
-    "uploadTx": "5ed12013129b9771d9e59962a82ab4b052f2cef748be542d2e759ed81388f54d",
-    "deployTx": "498adc0a6f60d46e1fdc763bb064ccd7ebe1c5f69fe309fb82447df8425e0304",
-    "deployedAt": "2026-11-26T05:04:38Z",
+    "uploadTx": "d2f6eede12d314ee3c476e0c97ea74e919cb78ab34787129c05401d2343d2cfa",
+    "deployTx": "f5f14fdc78d0e6f574f68a6a16e3fa324eaa79a2a4dea2ce1e3ffd7c64684d4e",
+    "deployedAt": "2026-11-26T06:18:28Z",
     "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
+    "custody": "guarda los aportes de las campañas sin liberar y lo pendiente de cobro (Owed); cada saldo sale solo por la meta (release_pledges), el plazo (refund_pledge) o su dueño (claim); sin admin",
     "usage": {
-      "buy_pass": {
-        "tx": "747d20154da627c210dde94b99a99b45042c98fb8985aa34cbbc69d4257b57a8",
-        "what": "GA2VHXJP5WVEWKA6CWJRDVSA25AWSS5BAGYG2TPZQPRBEUQJPJXTURHX le regala a GAPZFLFQGM6NL2HEF3RV24DMGU5QVPUZDQ56LRDGSQZKVEKBJTMPQV6X un pase de 1 día al catálogo de la editorial demo (1.00 USDC)",
-        "result": "9800000 a la editorial demo y 200000 a la tesorería; evento pass con reader = la cuenta que recibe el regalo; pass_until = 1795755883"
+      "open_campaign": {
+        "tx": "6993e9533f98516b8b70d55927b999d0cb39ba8f111f020686652775b34866f1",
+        "what": "GDLXWAHTSWYSW7NXPJRCSE7BJM3AYGZY2MJMAGVBV7BA6AZP2YTUI5XI (editorial nueva, sin trustline de USDC) ofrece liberar crispr-nanomedicine-biotech por 10000000 con plazo de 1 h",
+        "result": "campaña 0; evento campaign; soporte, no se reclama"
       },
-      "subscribe": {
-        "tx": "e4b2b08dc02e763d27be68bef87e3947d4446fc3cd8f903585bc320fe5f6b549",
-        "what": "GA2VHXJP5WVEWKA6CWJRDVSA25AWSS5BAGYG2TPZQPRBEUQJPJXTURHX se suscribe a la editorial demo: 1 día por periodo, 2 renovaciones de 1.00 USDC",
-        "result": "9800000 a la editorial demo y 200000 a la tesorería por el primer día; approve del lector al contrato por 20000000; eventos pass y subscribed"
+      "pledge": {
+        "tx": "2498a4590283b59bb704694f140fea2471c20a7f89d2fd524329237ba97ea189",
+        "what": "GCH3A3NRLUWMHZOFEIJ76K6QCFLOKFJFJRNB5BF4NZZ3WQ5R5QVJFTOA aporta 6000000 a la campaña 0",
+        "result": "6000000 del aportante al contrato (en garantía); evento pledged con raised 6000000. Segundo aporte, b1a2bd6f7a8c26e757470e893469b25bbb4d04a43e8a109eb03d44346339cc31: 4000000 de GCR7FV74T3V4OFU4BMEFCMW3XBEYJY7ZSDNWH66BS3YROUWFVUKCL4MU, completa la meta"
       },
-      "renew_subscription": {
-        "tx": "3f586befa2582e47633812238990ab691facb51e22c5c47b21fb8395a18aeff5",
-        "what": "la envía GAODJP4EKIMUXPLBPQQEAJ52F5VDLWAVKDHOFKKKTGQB4WFNQ7U5QB3D, una cuenta sin USDC; el lector no firma",
-        "result": "9800000 a la editorial demo y 200000 a la tesorería con transfer_from desde el lector; pass_until = 1795842288; queda 1 renovación y la allowance en 10000000; eventos pass y renewed"
+      "release_pledges": {
+        "tx": "5204084632dc76ef9107b0cbdde478df45f0ecb7a9a1aea39dec86e324c74010",
+        "what": "la envía GB4WX2XGM7QVV3JI63SV33B27OP2JALEWWMEP2JL3DM3BGICSFILB4AV, sin otras firmas",
+        "result": "200000 a la tesorería; la editorial no tiene trustline, así que 9800000 quedan pendientes a su nombre (evento credited); evento released"
       },
-      "sponsor_open": {
-        "tx": "a49b86873d7cc33103787f9b7af5cb474469efc2494f6a4594cc437f87b313fc",
-        "what": "GCT6AKUOA2T4DALMOOJBG5IZ5J6G4OHMOI5LORWHPLQJMO2CL7F7X2IV abre crispr-nanomedicine-biotech para todos 1 día (5.00 USDC)",
-        "result": "49000000 a la editorial demo y 1000000 a la tesorería; evento opened; open_until = 1795755898"
+      "claim": {
+        "tx": "cd62df31632cef23b99ca2d7cc8013717f947a0843392e1bdc5530d0594f19f8",
+        "what": "la editorial nueva cobra lo pendiente con una firma",
+        "result": "en la misma transacción: trustline_created de USDC y 9800000 del contrato a la editorial; evento claimed"
+      },
+      "refund_pledge": {
+        "tx": "acdbb11b6d7f32ade0f92abe75c33f4d426fc982f9b1ec23a4711d1e558b4706",
+        "what": "campaña 1 (plazo de 90 s) con un aporte de 3000000 de GDV2OP4FNTYY5TBXLRH6NM7WQH5KZIN35AXGEQL6T5OMHSRKBPQQ26CB (a0e7f9d9eec27331f91e37fc0379f30b25fc1e7e65a665c8ba8422bddeea20e1); vencida sin la meta, la envía otra cuenta",
+        "result": "3000000 del contrato a quien aportó; evento unpledged"
       }
     },
-    "checks": "después de las cuatro: saldo del contrato 0, lector 10000000, allowance 10000000; una renovación adelantada falla con RenewTooEarly (#16)"
+    "checks": "al final: saldo del contrato 0, tesorería +200000, owed de la editorial 0; un segundo claim falla con NothingToClaim (#22)"
   },
   "demoPublisher": {
     "address": "GA3MOPOJ374G4APKR4RE7VPXF5CEQKER3FA3LZ2XSAARIRSZEF6QXUZI",
     "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."
   },
   "previous": [
+    {
+      "version": "0.5.0",
+      "contractId": "CA2QHBXMF6KIBBFT5ATQYMFDP75246RQV6NC6YA55QJZX3CRVFUE4RT2",
+      "wasmSha256": "913ac9b4b43766bcc60e685d6a985e82dad677dc17d2c7f6a6aa892ca7b3bd17",
+      "source": "contracts/splitter @ 901171c, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200,
+        "pass_day_price": 10000000,
+        "open_day_price": 50000000
+      },
+      "uploadTx": "5ed12013129b9771d9e59962a82ab4b052f2cef748be542d2e759ed81388f54d",
+      "deployTx": "498adc0a6f60d46e1fdc763bb064ccd7ebe1c5f69fe309fb82447df8425e0304",
+      "deployedAt": "2026-11-26T05:04:38Z",
+      "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
+      "usage": {
+        "buy_pass": {
+          "tx": "747d20154da627c210dde94b99a99b45042c98fb8985aa34cbbc69d4257b57a8",
+          "what": "GA2VHXJP5WVEWKA6CWJRDVSA25AWSS5BAGYG2TPZQPRBEUQJPJXTURHX le regala a GAPZFLFQGM6NL2HEF3RV24DMGU5QVPUZDQ56LRDGSQZKVEKBJTMPQV6X un pase de 1 día al catálogo de la editorial demo (1.00 USDC)",
+          "result": "9800000 a la editorial demo y 200000 a la tesorería; evento pass con reader = la cuenta que recibe el regalo; pass_until = 1795755883"
+        },
+        "subscribe": {
+          "tx": "e4b2b08dc02e763d27be68bef87e3947d4446fc3cd8f903585bc320fe5f6b549",
+          "what": "GA2VHXJP5WVEWKA6CWJRDVSA25AWSS5BAGYG2TPZQPRBEUQJPJXTURHX se suscribe a la editorial demo: 1 día por periodo, 2 renovaciones de 1.00 USDC",
+          "result": "9800000 a la editorial demo y 200000 a la tesorería por el primer día; approve del lector al contrato por 20000000; eventos pass y subscribed"
+        },
+        "renew_subscription": {
+          "tx": "3f586befa2582e47633812238990ab691facb51e22c5c47b21fb8395a18aeff5",
+          "what": "la envía GAODJP4EKIMUXPLBPQQEAJ52F5VDLWAVKDHOFKKKTGQB4WFNQ7U5QB3D, una cuenta sin USDC; el lector no firma",
+          "result": "9800000 a la editorial demo y 200000 a la tesorería con transfer_from desde el lector; pass_until = 1795842288; queda 1 renovación y la allowance en 10000000; eventos pass y renewed"
+        },
+        "sponsor_open": {
+          "tx": "a49b86873d7cc33103787f9b7af5cb474469efc2494f6a4594cc437f87b313fc",
+          "what": "GCT6AKUOA2T4DALMOOJBG5IZ5J6G4OHMOI5LORWHPLQJMO2CL7F7X2IV abre crispr-nanomedicine-biotech para todos 1 día (5.00 USDC)",
+          "result": "49000000 a la editorial demo y 1000000 a la tesorería; evento opened; open_until = 1795755898"
+        }
+      },
+      "checks": "después de las cuatro: saldo del contrato 0, lector 10000000, allowance 10000000; una renovación adelantada falla con RenewTooEarly (#16)"
+    },
     {
       "version": "0.4.0",
       "contractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
