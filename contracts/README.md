@@ -2,7 +2,7 @@
 
 ## `splitter`: reparto 98% editorial / 2% PaperPay
 
-Cobra lecturas y las reparte en la misma transacción. El USDC va directo de la cuenta que paga a la editorial (monto − comisión) y a la tesorería de PaperPay (comisión). El contrato nunca guarda fondos.
+Cobra lecturas y las reparte en la misma transacción. El USDC va directo de la cuenta que paga a la editorial (monto − comisión) y a la tesorería de PaperPay (comisión): los pagos no pasan por el contrato. La única excepción, desde la v0.6.0, son las campañas de acceso abierto (abajo), que guardan los aportes en garantía.
 
 Desde la v0.3.0 también regala listas de lectura (`gift_batch`), cobra propinas (`tip`) y registra devoluciones (`refund`). Las propinas y las devoluciones emiten su propio evento, nunca `paid`, así que no dan acceso a ningún artículo.
 
@@ -17,6 +17,16 @@ La v0.5.0 suma **accesos con vencimiento**, a precio fijo por día:
 - `sponsor_open`: alguien paga para que un artículo quede abierto para todos N días.
 
 El contrato guarda fechas (hasta cuándo vale cada pase o artículo abierto) y los términos de cada suscripción, pero **sigue sin guardar fondos**: cada cobro va directo de quien paga a la editorial y a la tesorería, también la renovación.
+
+La v0.6.0 suma **campañas de acceso abierto**: los lectores juntan dinero para liberar un artículo para todos. Es la **primera custodia** del contrato:
+
+- `open_campaign`: la editorial ofrece liberar un artículo si los aportes llegan a una meta antes de un plazo;
+- `pledge`: un aporte, que queda **guardado en el contrato** en garantía;
+- `release_pledges`: con la meta cumplida, la editorial cobra el 98% y la tesorería el 2%;
+- `refund_pledge`: si vence el plazo sin llegar, cada aporte vuelve completo a quien lo hizo;
+- `claim`: quien no pudo recibir su parte (por ejemplo, una editorial nueva sin trustline de USDC) la cobra después, y la misma firma le abre la trustline.
+
+Cada saldo en custodia tiene **una sola salida**, sin admin que lo pueda mover: la meta (`release_pledges`), el plazo (`refund_pledge`) o su dueño (`claim`). El saldo del contrato siempre es lo juntado por las campañas sin liberar más lo pendiente de cobro (hay una prueba que lo comprueba paso a paso). `pay`, `gift`, los pases y las demás funciones siguen sin custodia.
 
 | Función | Qué hace |
 | --- | --- |
@@ -37,6 +47,12 @@ El contrato guarda fechas (hasta cuándo vale cada pase o artículo abierto) y l
 | `subscription(reader) -> Option<Subscription>` | La suscripción vigente: `{ publisher, days, amount, renewals_left, allowance_until }`. Solo lee. *(v0.5.0)* |
 | `sponsor_open(sponsor, paper_id, publisher, days, amount) -> u64` | Un laboratorio, una fundación o la misma editorial paga para que `paper_id` quede **abierto para todos** `days` días (1 a 31). Cobra exactamente `days × open_day_price` y lo reparte 98/2. Los días se suman a la apertura vigente, con el mismo tope de 90 días. Solo firma `sponsor`. Emite `opened`, no `paid`: no es la lectura de una cuenta. Devuelve hasta cuándo queda abierto. *(v0.5.0)* |
 | `open_until(publisher, paper_id) -> u64` | Hasta cuándo está abierto para todos el artículo; 0 si nunca se abrió. Solo lee. *(v0.5.0)* |
+| `open_campaign(publisher, paper_id, goal, deadline) -> u32` | La oferta pública de la editorial: liberar `paper_id` para todos si los aportes llegan a `goal` antes de `deadline` (segundos Unix, hora del ledger; como mucho 90 días desde ahora, si no `InvalidDeadline`). Solo firma `publisher` y no mueve fondos. Los ids son secuenciales desde 0, así que nadie ocupa la campaña de otra editorial. Emite `campaign` y devuelve el id. *(v0.6.0)* |
+| `pledge(backer, campaign_id, amount) -> i128` | Un aporte: pasa `amount` de la wallet de `backer` al contrato, **en garantía**. Solo mientras la campaña está abierta (antes del plazo, sin la meta cumplida y sin liberar; si no, `CampaignClosed`) y sin pasar de lo que falta (`OverGoal`). El monto firmado es el que se cobra, nunca se recorta. Solo firma `backer`. Emite `pledged` y devuelve lo juntado hasta ahora. *(v0.6.0)* |
+| `release_pledges(campaign_id) -> Split` | Con la meta cumplida (si no, `GoalNotReached`), paga lo juntado: 98% a la editorial y 2% a la tesorería, y marca la campaña como liberada (una sola vez: `CampaignClosed`). **No pide firmas**: el dinero solo puede ir a la editorial de la campaña y a la tesorería. Vale antes o después del plazo. Si la editorial no puede recibir, su parte queda pendiente a su nombre (`credited`). Emite `released`. *(v0.6.0)* |
+| `refund_pledge(campaign_id, backer) -> i128` | Si la campaña falló (venció sin llegar a la meta; si no, `CampaignNotFailed`), devuelve completo, sin comisión, el aporte de `backer` (si no tiene, `NothingToRefund`). **No pide firmas**: el dinero solo puede volver a `backer`. Si `backer` ya no puede recibir, queda pendiente para `claim`. Emite `unpledged`. *(v0.6.0)* |
+| `claim(account) -> i128` | Cobra todo lo pendiente de `account` (si no hay, `NothingToClaim`) y, con la misma firma, le abre la trustline de USDC con `trust` del SAC (CAP-73) si no la tiene. La cuenta necesita ~0.5 XLM libres para la reserva; si no puede recibir, la transacción falla y lo pendiente sigue intacto. Firma `account`. Emite `claimed`. *(v0.6.0)* |
+| `campaign(campaign_id) -> Option<Campaign>` · `pledge_of(campaign_id, backer) -> i128` · `owed(account) -> i128` | La campaña (`{ publisher, paper_id, goal, deadline, raised, released }`), lo que aportó una cuenta y lo que tiene pendiente. Solo leen. *(v0.6.0)* |
 | `split(amount) -> Split` | El reparto que aplicaría `pay`, sin mover fondos. |
 | `config() -> Config` | La configuración fijada al desplegar. |
 
@@ -55,19 +71,28 @@ El contrato guarda fechas (hasta cuándo vale cada pase o artículo abierto) y l
   - `renewed`: topics `["renewed", publisher, reader]`; datos `{ days, amount, fee, valid_until, renewals_left }`;
   - `unsubscribed`: topics `["unsubscribed", publisher, reader]`; datos `{ renewals_left }`.
 - **Evento `opened`** (v0.5.0): topics `["opened", publisher, sponsor]`; datos `{ paper_id, days, amount, fee, open_until }`.
+- **Eventos de las campañas** (v0.6.0):
+  - `campaign`: topics `["campaign", publisher]`; datos `{ campaign_id, paper_id, goal, deadline }`;
+  - `pledged`: topics `["pledged", backer]`; datos `{ campaign_id, amount, raised }`;
+  - `released`: topics `["released", publisher]`; datos `{ campaign_id, paper_id, raised, fee }`. Es distinto de `opened` (`sponsor_open`), que abre un artículo por días;
+  - `unpledged`: topics `["unpledged", backer]`; datos `{ campaign_id, amount }`;
+  - `credited`: topics `["credited", account]`; datos `{ amount }`: un pago que la cuenta no pudo recibir y quedó pendiente;
+  - `claimed`: topics `["claimed", account]`; datos `{ amount }`.
 - **Qué guarda la v0.5.0:** en almacenamiento `persistent`, el vencimiento de cada pase (`reader`, `publisher`) y de cada artículo abierto (`publisher`, `paper_id`), y la suscripción de cada lector. Cada entrada se extiende hasta su vencimiento y una semana más. Por eso los topes: 31 días por compra, 90 de acceso acumulado y 150 por suscripción caben en el TTL máximo de testnet (~180 días).
+- **Qué guarda la v0.6.0:** cada campaña y cada aporte (`persistent`, hasta el plazo y 30 días más para poder devolver, más la semana de margen: como mucho ~127 días, dentro del TTL máximo) y lo pendiente de cada cuenta (TTL máximo de la red en cada abono). Una entrada que vence se archiva y se puede restaurar con su saldo intacto.
+- **La firma de `pledge` no depende del estado de la campaña:** el monto del `transfer` que firma quien aporta es el que pidió, nunca "lo que falte". Si otro aporte entra entre la simulación y el envío, el aporte falla limpio (`OverGoal` o `CampaignClosed`) sin mover nada, en vez de fallar por una firma que ya no coincide.
 - **La firma de `subscribe` no depende del ledger exacto:** el vencimiento de la autorización es un argumento de `approve` que quien lee firma. Si dependiera del ledger del momento, la red avanzaría entre la simulación y el envío y rechazaría la firma (pasó en la red local; está en [`docs/QA.md`](../docs/QA.md)). Por eso se redondea al día de ledgers (17 280). Solo cambia si entre simular y enviar la red cruza ese múltiplo, una vez al día; entonces basta reintentar.
 - **`pay_authors` en la red:** el `paid` lleva solo al primer autor; lo que recibió cada coautor se ve en las transferencias del token de esa transacción.
-- **Acceso:** la API solo da acceso por eventos `paid` (`paidReceipts` en `apps/api/src/services/splitter.service.ts`). Una propina o una devolución nunca abren un artículo. Los pases y los artículos abiertos (v0.5.0) existen en testnet, pero la API todavía no los usa.
+- **Acceso:** la API solo da acceso por eventos `paid` (`paidReceipts` en `apps/api/src/services/splitter.service.ts`). Una propina o una devolución nunca abren un artículo. Los pases y los artículos abiertos (v0.5.0) y las campañas (v0.6.0) existen en testnet, pero la API todavía no los usa.
 - **Quién valida qué:** el contrato garantiza el reparto. La API sigue decidiendo el precio y la editorial de cada artículo, y valida que el evento coincida antes de dar acceso.
-- **Errores:** `FeeTooHigh` (1), `InvalidAmount` (2), `InvalidPaperId` (3; vacío o de más de 64 bytes), `AmountOverflow` (4), `EmptyBatch` (5), `BatchTooLarge` (6), `DuplicatePaper` (7), `InvalidShares` (8; partes vacías, en 0, de más del 100%, que no suman 100% o con un autor repetido), `TooManyAuthors` (9; más de 10 coautores), `SelfReferral` (10; `referrer` igual a `payer`), `InvalidDays` (11; 0 o más de 31 días), `WrongPrice` (12; `amount` distinto de días × precio por día), `TooLong` (13; un acceso que vencería a más de 90 días o una suscripción de más de 150), `InvalidRenewals` (14; 0 o más de 12), `NoSubscription` (15) y `RenewTooEarly` (16; al pase le falta más de un día).
+- **Errores:** `FeeTooHigh` (1), `InvalidAmount` (2), `InvalidPaperId` (3; vacío o de más de 64 bytes), `AmountOverflow` (4), `EmptyBatch` (5), `BatchTooLarge` (6), `DuplicatePaper` (7), `InvalidShares` (8; partes vacías, en 0, de más del 100%, que no suman 100% o con un autor repetido), `TooManyAuthors` (9; más de 10 coautores), `SelfReferral` (10; `referrer` igual a `payer`), `InvalidDays` (11; 0 o más de 31 días), `WrongPrice` (12; `amount` distinto de días × precio por día), `TooLong` (13; un acceso que vencería a más de 90 días o una suscripción de más de 150), `InvalidRenewals` (14; 0 o más de 12), `NoSubscription` (15), `RenewTooEarly` (16; al pase le falta más de un día), `InvalidDeadline` (17; plazo pasado o a más de 90 días), `NoCampaign` (18), `CampaignClosed` (19; la campaña ya no recibe aportes o ya se liberó), `OverGoal` (20; el aporte pasa de lo que falta), `GoalNotReached` (21), `NothingToClaim` (22), `CampaignNotFailed` (23; todavía no vence, llegó a la meta o se liberó) y `NothingToRefund` (24).
 
 ### Probar
 
 Requiere Rust estable y el target `wasm32v1-none` (`rustup target add wasm32v1-none`).
 
 ```bash
-pnpm test:contracts            # cargo test: 68 pruebas con un SAC de USDC simulado
+pnpm test:contracts            # cargo test: 89 pruebas con un SAC de USDC simulado
 ```
 
 ### Compilar el WASM
@@ -80,7 +105,7 @@ cd contracts && stellar contract build
 
 ### Usarlo desde la terminal
 
-Con `stellar-cli` (v30) se puede desplegar un contrato propio y llamar cada función. Son los mismos comandos con los que se probaron la v0.3.0, la v0.4.0 y la v0.5.0 en testnet.
+Con `stellar-cli` (v30) se puede desplegar un contrato propio y llamar cada función. Son los mismos comandos con los que se probaron la v0.3.0, la v0.4.0, la v0.5.0 y la v0.6.0 en testnet.
 
 **1. Cuentas de prueba con USDC.** Quien cobra (editorial, coautor o referido) necesita la trustline de USDC. Quien paga necesita, además, USDC: en testnet se compra con XLM en el DEX.
 
@@ -132,6 +157,14 @@ inv --source lector -- cancel_subscription --reader "$LECTOR"
 inv --source lector -- sponsor_open --sponsor "$LECTOR" --paper_id "$P" --publisher "$ED" --days 1 --amount 50000000
 inv --source lector --send no -- pass_until --reader "$LECTOR" --publisher "$ED"
 inv --source lector --send no -- open_until --publisher "$ED" --paper_id "$P"
+
+# v0.6.0: campaña de acceso abierto (la editorial firma la oferta; meta 1 USDC, plazo en 1 h)
+inv --source editorial -- open_campaign --publisher "$EDITORIAL" --paper_id "$P" --goal 10000000 --deadline "$(($(date +%s) + 3600))"
+inv --source lector -- pledge --backer "$LECTOR" --campaign_id 0 --amount 10000000   # queda en garantía
+inv --source otra   -- release_pledges --campaign_id 0              # meta cumplida: cualquiera la envía
+inv --source otra   -- refund_pledge --campaign_id 1 --backer "$LECTOR"   # otra campaña, vencida sin llegar a la meta
+inv --source editorial -- claim --account "$EDITORIAL"              # lo pendiente, y abre la trustline
+inv --source lector --send no -- campaign --campaign_id 0
 ```
 
 `$OTRA` es cualquier cuenta: recibir un regalo no pide firma ni trustline, y la cuenta ni siquiera tiene que existir en la red. `$COAUTOR` y `$REFERIDO` sí necesitan la trustline de USDC (paso 1), porque reciben dinero. `refund` necesita una editorial con llave propia (`$EDITORIAL`, cuenta `editorial`) y saldo en USDC. `renew_subscription` la puede enviar cualquier cuenta con XLM para la comisión de red (`otra`), sin USDC.
@@ -140,7 +173,20 @@ inv --source lector --send no -- open_until --publisher "$ED" --paper_id "$P"
 
 Datos completos en [`deployments/testnet.json`](deployments/testnet.json).
 
-> **Qué versión usa el sitio.** El sitio y la API usan la **v0.4.0** (`productionContractId`) desde el 25 de noviembre de 2026 (CDMX; 00:18 UTC del 26), con `pay`, `pay_ref` (referidos) y `gift`. La v0.4.0 tiene todo lo de la v0.3.0 (`gift_batch`, `tip` y `refund`) más `pay_authors` y `pay_ref`. La v0.2.0, que usó el sitio del 23 al 25 de noviembre, quedó en `SPLITTER_LEGACY_CONTRACT_IDS`: sus regalos se pueden reclamar y sus lecturas siguen en el contador. Los pagos nuevos van solo a la v0.4.0. La **v0.5.0** (pases, suscripción y artículos abiertos) está desplegada y probada en testnet desde el 25 de noviembre de 2026 (CDMX; 05:04 UTC del 26), pero el sitio y la API todavía no la usan.
+> **Qué versión usa el sitio.** El sitio y la API usan la **v0.4.0** (`productionContractId`) desde el 25 de noviembre de 2026 (CDMX; 00:18 UTC del 26), con `pay`, `pay_ref` (referidos) y `gift`. La v0.4.0 tiene todo lo de la v0.3.0 (`gift_batch`, `tip` y `refund`) más `pay_authors` y `pay_ref`. La v0.2.0, que usó el sitio del 23 al 25 de noviembre, quedó en `SPLITTER_LEGACY_CONTRACT_IDS`: sus regalos se pueden reclamar y sus lecturas siguen en el contador. Los pagos nuevos van solo a la v0.4.0. La **v0.5.0** (pases, suscripción y artículos abiertos) está desplegada y probada en testnet desde el 25 de noviembre de 2026 (CDMX; 05:04 UTC del 26), pero el sitio y la API todavía no la usan. La **v0.6.0** (campañas de acceso abierto y `claim`) está desplegada y probada en testnet desde el 26 de noviembre de 2026 (00:18 CDMX); el sitio y la API tampoco la usan.
+
+| v0.6.0 | Valor |
+| --- | --- |
+| Contrato | [`CANRPEZT2DUNB3IP6ZDFDMAOH2H5R4AFPYRLYEMLTN4EE6O4QYSS6QM7`](https://stellar.expert/explorer/testnet/contract/CANRPEZT2DUNB3IP6ZDFDMAOH2H5R4AFPYRLYEMLTN4EE6O4QYSS6QM7) |
+| WASM (sha256) | `b9e66f54e6e88f65d34250262803f574fed86b762b4eecc7b085d08e6e13c3df` (39,403 bytes), igual al que se baja de la red |
+| Constructor | El mismo de v0.5.0 |
+| `open_campaign` (soporte) | [`6993e953…`](https://stellar.expert/explorer/testnet/tx/6993e9533f98516b8b70d55927b999d0cb39ba8f111f020686652775b34866f1): una editorial nueva, **sin trustline de USDC**, ofrece liberar `crispr-nanomedicine-biotech` por 1.00 USDC con plazo de 1 h (campaña 0) |
+| `pledge` | [`2498a459…`](https://stellar.expert/explorer/testnet/tx/2498a4590283b59bb704694f140fea2471c20a7f89d2fd524329237ba97ea189): 0.60 en garantía (el USDC pasa al contrato). Después, [`b1a2bd6f…`](https://stellar.expert/explorer/testnet/tx/b1a2bd6f7a8c26e757470e893469b25bbb4d04a43e8a109eb03d44346339cc31): otra cuenta aporta 0.40 y completa la meta |
+| `release_pledges` | [`52040846…`](https://stellar.expert/explorer/testnet/tx/5204084632dc76ef9107b0cbdde478df45f0ecb7a9a1aea39dec86e324c74010): la envía una tercera cuenta, sin firma de nadie más. 0.02 a la tesorería; la editorial no puede recibir, así que sus 0.98 quedan pendientes a su nombre (`credited`) y se emite `released` |
+| `claim` | [`cd62df31…`](https://stellar.expert/explorer/testnet/tx/cd62df31632cef23b99ca2d7cc8013717f947a0843392e1bdc5530d0594f19f8): la editorial nueva firma una vez. En la misma transacción se crea su trustline de USDC y recibe 0.98 |
+| `refund_pledge` | Campaña 1 con plazo de 90 s y un aporte de 0.30 ([`a0e7f9d9…`](https://stellar.expert/explorer/testnet/tx/a0e7f9d9eec27331f91e37fc0379f30b25fc1e7e65a665c8ba8422bddeea20e1)). Vencida sin la meta, [`acdbb11b…`](https://stellar.expert/explorer/testnet/tx/acdbb11b6d7f32ade0f92abe75c33f4d426fc982f9b1ec23a4711d1e558b4706) la envía otra cuenta y los 0.30 vuelven completos a quien aportó (`unpledged`) |
+
+Al final, el contrato tiene saldo 0, la tesorería recibió 0.02 y un segundo `claim` falla con `NothingToClaim` (#22). Las cuentas son desechables (Friendbot) y ninguna tiene poder sobre el contrato.
 
 | v0.5.0 | Valor |
 | --- | --- |
