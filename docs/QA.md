@@ -1,5 +1,26 @@
 # Estado de QA
 
+## Revisión del 26 de noviembre de 2026: contrato v0.6.0 (campañas de acceso abierto y `claim`)
+
+- `pnpm test:contracts`: 89 pruebas (21 nuevas), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
+  - **Invariante de custodia:** una prueba recorre tres campañas (cumplida, de una editorial sin trustline y fallida). Después de cada paso, el saldo del contrato es exactamente lo juntado por las campañas sin liberar más lo pendiente; al final queda en 0.
+  - **Cuenta sin trustline:** las direcciones de prueba (`Address::generate`) son contratos y siempre pueden recibir. Para probar a una editorial nueva se inyecta en el ledger una cuenta G de verdad, con XLM y sin trustline: `release_pledges` deja su parte pendiente y `claim` le crea la trustline (árbol de autorización `claim → trust`).
+  - **Quien aportó ya no puede recibir:** con un emisor revocable (`setup_with(true)`) se desautoriza a quien aportó; `refund_pledge` deja su aporte pendiente y lo cobra con `claim` cuando lo vuelven a autorizar.
+  - **Firma de `pledge`:** una prueba firma con `mock_auths` exacto, deja que otro aporte entre antes y avanza el ledger; la firma sigue valiendo porque el monto firmado no depende del estado de la campaña.
+  - **Sin cubrir en pruebas unitarias:** `mock_auths` no puede firmar como cuenta G, así que la firma real de `claim` se comprobó en la red local y en testnet (abajo).
+- Mutaciones (26), con `tools/mutaciones-v060.py` del run `2026-11-26-paperpay-contrato-v060` del hub: se rompió el código de 26 formas a propósito y alguna prueba detectó cada una.
+  - Campaña: sin firma de la editorial, meta 0, plazo sin tope o igual a ahora, entradas sin la gracia para devolver.
+  - Aportes: sin firma, en el segundo del plazo, con la meta cumplida, sin `OverGoal`, sin sumar o sin acumular.
+  - Liberación: antes de la meta, dos veces, sin marcar, sin comisión, pago directo sin pendiente, `payout` que no deja pendiente.
+  - Cobro y devolución: `claim` sin firma, sin borrar o sin `trust`; devolver antes del plazo, con la meta cumplida, dos veces, sin restar o sin pendiente; lo pendiente sin TTL máximo.
+  - Una revisión que no se puede romper sin que nada cambie: en `pledge`, "la campaña ya se liberó" siempre coincide con "la meta está cumplida", que ya se revisa. Se deja como defensa.
+- **Red local** (`stellar container start local`) con `tools/deploy-v060.sh … local`: todo pasó a la primera. `claim` creó la trustline de una cuenta G real con CAP-73.
+- **Testnet** (mismo script, preaprobado por el owner): contrato [`CANRPE…QM7`](https://stellar.expert/explorer/testnet/contract/CANRPEZT2DUNB3IP6ZDFDMAOH2H5R4AFPYRLYEMLTN4EE6O4QYSS6QM7). El WASM que se baja de la red tiene el mismo sha256 que el build (`b9e66f54…`).
+  - Las 10 transacciones salieron `successful` en Horizon.
+  - Efectos de Horizon: `pledge` mueve 0.60 de quien aporta al contrato; `release_pledges` paga 0.02 a la tesorería y deja los 0.98 de la editorial en el contrato; `claim` tiene `trustline_created` y el pago de 0.98 en la misma transacción; `refund_pledge` devuelve 0.30 a quien aportó.
+  - Al final: saldo del contrato 0, tesorería +0.02, nada pendiente, y un segundo `claim` falla con `NothingToClaim` (#22).
+- Producción no cambia: la API y el sitio siguen en v0.4.0 y no usan las campañas.
+
 ## Revisión del 26 de noviembre de 2026: contrato v0.5.0 (pases, suscripción y artículos abiertos)
 
 - `pnpm test:contracts`: 68 pruebas (25 nuevas), `cargo clippy -D warnings` limpio. Las pruebas corren con los límites de TTL de testnet (máximo 3,110,400 ledgers) y con la hora del ledger fija, para probar vencimientos.
