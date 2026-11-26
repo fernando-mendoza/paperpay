@@ -2,10 +2,11 @@
 extern crate std;
 
 use super::{
-    Campaign, CampaignOpened, Config, DataKey, Error, Item, Opened, Paid, PassBought, Pledged,
-    RefSplit, Referred, Refunded, Renewed, Share, Split, Splitter, SplitterClient, Subscribed,
-    Subscription, Tipped, Unsubscribed, DAY_SECONDS, MAX_ACCESS_DAYS, MAX_AUTHORS, MAX_BATCH_ITEMS,
-    MAX_CAMPAIGN_DAYS, MAX_FEE_BPS, MAX_PASS_DAYS, MAX_RENEWALS, REFUND_GRACE_DAYS,
+    Campaign, CampaignOpened, Config, Credited, DataKey, Error, Item, Opened, Paid, PassBought,
+    Pledged, RefSplit, Referred, Refunded, Released, Renewed, Share, Split, Splitter,
+    SplitterClient, Subscribed, Subscription, Tipped, Unsubscribed, DAY_SECONDS, MAX_ACCESS_DAYS,
+    MAX_AUTHORS, MAX_BATCH_ITEMS, MAX_CAMPAIGN_DAYS, MAX_FEE_BPS, MAX_PASS_DAYS, MAX_RENEWALS,
+    REFUND_GRACE_DAYS,
 };
 use soroban_sdk::{
     testutils::{
@@ -2468,4 +2469,194 @@ fn la_entrada_del_aporte_vive_tanto_como_su_campana() {
     let needed = ((7 + REFUND_GRACE_DAYS) as u64 * DAY / 5) as u32 + 7 * DAY_LEDGERS;
     assert_eq!(campaign_ttl, needed);
     assert_eq!(pledge_ttl, needed);
+}
+
+/// Una cuenta G de verdad (no un contrato), con XLM y sin trustline de USDC: como una editorial
+/// nueva creada con Friendbot. `Address::generate` da direcciones C, que siempre pueden recibir.
+fn g_account(env: &Env, seed: u8) -> Address {
+    use soroban_sdk::xdr;
+    use std::rc::Rc;
+    let id = xdr::AccountId(xdr::PublicKey::PublicKeyTypeEd25519(xdr::Uint256(
+        [seed; 32],
+    )));
+    let key = Rc::new(xdr::LedgerKey::Account(xdr::LedgerKeyAccount {
+        account_id: id.clone(),
+    }));
+    let entry = Rc::new(xdr::LedgerEntry {
+        data: xdr::LedgerEntryData::Account(xdr::AccountEntry {
+            account_id: id.clone(),
+            balance: 100_000_000,
+            flags: 0,
+            home_domain: Default::default(),
+            inflation_dest: None,
+            num_sub_entries: 0,
+            seq_num: xdr::SequenceNumber(0),
+            thresholds: xdr::Thresholds([1; 4]),
+            signers: xdr::VecM::default(),
+            ext: xdr::AccountEntryExt::V0,
+        }),
+        last_modified_ledger_seq: 0,
+        ext: xdr::LedgerEntryExt::V0,
+    });
+    env.host().add_ledger_entry(&key, &entry, None).unwrap();
+    <Address as soroban_sdk::TryFromVal<Env, xdr::ScAddress>>::try_from_val(
+        env,
+        &xdr::ScAddress::Account(id),
+    )
+    .unwrap()
+}
+
+impl Setup<'_> {
+    /// Una campaña de `publisher` con la meta ya cumplida por dos aportes (0.60 y 0.40).
+    fn funded_campaign(&self, publisher: &Address) -> u32 {
+        let id = self.splitter.open_campaign(
+            publisher,
+            &paper(&self.env),
+            &GOAL,
+            &(self.now() + 7 * DAY),
+        );
+        self.splitter.pledge(&self.backer(GOAL), &id, &6_000_000);
+        self.splitter.pledge(&self.backer(GOAL), &id, &4_000_000);
+        id
+    }
+}
+
+#[test]
+fn con_la_meta_cumplida_la_editorial_cobra_98_2_y_el_articulo_se_libera() {
+    let s = setup();
+    let id = s.funded_campaign(&s.publisher);
+    let split = s.splitter.release_pledges(&id);
+    let receipts = s.receipts();
+
+    assert_eq!(
+        split,
+        Split {
+            publisher: 9_800_000,
+            fee: 200_000
+        }
+    );
+    assert_eq!(s.usdc.balance(&s.publisher), 9_800_000);
+    assert_eq!(s.usdc.balance(&s.treasury), 200_000);
+    assert_eq!(
+        s.usdc.balance(&s.splitter.address),
+        0,
+        "la garantía de esa campaña se vacía"
+    );
+    assert!(s.splitter.campaign(&id).unwrap().released);
+    let expected = Released {
+        publisher: s.publisher.clone(),
+        campaign_id: id,
+        paper_id: paper(&s.env),
+        raised: GOAL,
+        fee: 200_000,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.splitter.address)]);
+}
+
+#[test]
+fn cualquiera_libera_la_campana_sin_firmas() {
+    let s = setup();
+    let id = s.funded_campaign(&s.publisher);
+    s.env.set_auths(&[]);
+
+    s.splitter.release_pledges(&id);
+    assert_eq!(s.env.auths(), std::vec![]);
+    assert_eq!(s.usdc.balance(&s.publisher), 9_800_000);
+}
+
+#[test]
+fn no_se_libera_antes_de_la_meta_ni_dos_veces_y_despues_no_hay_aportes() {
+    let s = setup();
+    let id = s.open_campaign();
+    let ana = s.backer(GOAL);
+    assert_eq!(
+        s.splitter.try_release_pledges(&id),
+        Err(Ok(Error::GoalNotReached.into()))
+    );
+    s.splitter.pledge(&ana, &id, &9_999_999);
+    assert_eq!(
+        s.splitter.try_release_pledges(&id),
+        Err(Ok(Error::GoalNotReached.into()))
+    );
+    assert_eq!(
+        s.splitter.try_release_pledges(&99),
+        Err(Ok(Error::NoCampaign.into()))
+    );
+
+    s.splitter.pledge(&ana, &id, &1);
+    // Con la meta cumplida se puede liberar aunque ya haya pasado el plazo.
+    s.advance(30 * DAY);
+    s.splitter.release_pledges(&id);
+    assert_eq!(
+        s.splitter.try_release_pledges(&id),
+        Err(Ok(Error::CampaignClosed.into()))
+    );
+    assert_eq!(s.usdc.balance(&s.publisher), 9_800_000);
+}
+
+#[test]
+fn una_campana_liberada_no_recibe_mas_aportes() {
+    let s = setup();
+    let id = s.funded_campaign(&s.publisher);
+    s.splitter.release_pledges(&id);
+    let ana = s.backer(GOAL);
+    assert_eq!(
+        s.splitter.try_pledge(&ana, &id, &1),
+        Err(Ok(Error::CampaignClosed.into()))
+    );
+    assert_eq!(s.usdc.balance(&ana), GOAL);
+}
+
+#[test]
+fn si_la_editorial_no_puede_cobrar_su_parte_queda_pendiente_a_su_nombre() {
+    let s = setup();
+    let nueva = g_account(&s.env, 7);
+    let id = s.funded_campaign(&nueva);
+    let split = s.splitter.release_pledges(&id);
+    let receipts = s.receipts();
+
+    assert_eq!(split.publisher, 9_800_000);
+    assert_eq!(s.splitter.owed(&nueva), 9_800_000);
+    assert_eq!(
+        s.usdc.balance(&s.splitter.address),
+        9_800_000,
+        "lo pendiente sigue en el contrato"
+    );
+    assert_eq!(s.usdc.balance(&s.treasury), 200_000);
+    assert!(s.splitter.campaign(&id).unwrap().released);
+    assert_eq!(
+        receipts,
+        [
+            Credited {
+                account: nueva.clone(),
+                amount: 9_800_000,
+            }
+            .to_xdr(&s.env, &s.splitter.address),
+            Released {
+                publisher: nueva.clone(),
+                campaign_id: id,
+                paper_id: paper(&s.env),
+                raised: GOAL,
+                fee: 200_000,
+            }
+            .to_xdr(&s.env, &s.splitter.address),
+        ]
+    );
+
+    // Un segundo pendiente se suma al primero.
+    let id2 = s.funded_campaign(&nueva);
+    s.splitter.release_pledges(&id2);
+    assert_eq!(s.splitter.owed(&nueva), 2 * 9_800_000);
+    let ttl = s.env.as_contract(&s.splitter.address, || {
+        s.env
+            .storage()
+            .persistent()
+            .get_ttl(&DataKey::Owed(nueva.clone()))
+    });
+    // `max_ttl()` es el máximo de la red menos 1: el ledger actual cuenta.
+    assert_eq!(
+        ttl,
+        3_110_400 - 1,
+        "lo pendiente vive el TTL máximo de la red"
+    );
 }

@@ -29,6 +29,11 @@
 //! - `pledge`: un aporte hacia la meta. Queda guardado en el contrato hasta que se cumple la meta
 //!   (va a la editorial) o vence el plazo sin cumplirla (vuelve a quien aportó). No hay admin: ese
 //!   dinero no tiene otra salida.
+//! - `release_pledges`: con la meta cumplida, cualquiera la ejecuta; la editorial cobra el 98% y la
+//!   tesorería el 2%, y el artículo queda liberado.
+//!
+//! Si una cuenta no puede recibir lo que le paga el contrato (por ejemplo, una editorial nueva sin
+//! trustline de USDC), su parte no se pierde ni bloquea a nadie: queda pendiente a su nombre.
 //!
 //! Y dos movimientos que no dan acceso (emiten su propio evento, nunca `paid`):
 //! - `tip`: una propina a la editorial por un artículo, con el mismo reparto.
@@ -129,6 +134,8 @@ pub enum Error {
     /// El aporte supera lo que falta para la meta. El monto que se firma no se recorta: si otro
     /// aporte entra antes, este falla sin mover nada y se vuelve a intentar con lo que falte.
     OverGoal = 20,
+    /// Todavía no se llega a la meta de la campaña.
+    GoalNotReached = 21,
 }
 
 #[contracttype]
@@ -226,6 +233,8 @@ enum DataKey {
     Campaign(u32),
     /// Lo que aportó `backer` a la campaña `u32` y sigue en garantía.
     Pledge(u32, Address),
+    /// Lo que el contrato le debe a una cuenta que no pudo recibir un pago.
+    Owed(Address),
 }
 
 /// Comprobante de un artículo pagado. Topics: `["paid", publisher, reader]`.
@@ -358,6 +367,30 @@ pub struct Pledged {
     pub campaign_id: u32,
     pub amount: i128,
     pub raised: i128,
+}
+
+/// Una campaña cumplida. Topics: `["released", publisher]`. `paper_id` queda liberado para todos;
+/// `raised` es lo que se juntó y `fee` la comisión. Es distinto de `opened` (`sponsor_open`), que
+/// abre un artículo por días.
+#[contractevent(topics = ["released"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Released {
+    #[topic]
+    pub publisher: Address,
+    pub campaign_id: u32,
+    pub paper_id: String,
+    pub raised: i128,
+    pub fee: i128,
+}
+
+/// Un pago del contrato que la cuenta no pudo recibir y quedó pendiente a su nombre.
+/// Topics: `["credited", account]`.
+#[contractevent(topics = ["credited"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Credited {
+    #[topic]
+    pub account: Address,
+    pub amount: i128,
 }
 
 /// Comprobante de una propina. Topics: `["tipped", publisher, payer]`. No da acceso al artículo.
@@ -1016,6 +1049,50 @@ impl Splitter {
         campaign.raised
     }
 
+    /// Con la meta cumplida, paga lo juntado: el 98% a la editorial y la comisión a la tesorería,
+    /// y marca la campaña como liberada (el artículo queda abierto para todos). No pide firmas:
+    /// la puede enviar cualquiera, porque el dinero solo puede ir a la editorial de la campaña y a
+    /// la tesorería. Se puede liberar en cuanto se llega a la meta, antes o después del plazo, y
+    /// una sola vez. Si la editorial no puede recibir (sin trustline), su parte queda pendiente a
+    /// su nombre (`credited`). Emite `released` y devuelve el reparto.
+    pub fn release_pledges(env: Env, campaign_id: u32) -> Split {
+        let key = DataKey::Campaign(campaign_id);
+        let mut campaign = read_campaign(&env, campaign_id);
+        if campaign.released {
+            panic_with_error!(&env, Error::CampaignClosed);
+        }
+        if campaign.raised < campaign.goal {
+            panic_with_error!(&env, Error::GoalNotReached);
+        }
+        campaign.released = true;
+        env.storage().persistent().set(&key, &campaign);
+
+        let config = read_config(&env);
+        let split = compute_split(&env, campaign.raised, config.fee_bps);
+        payout(&env, &config, &campaign.publisher, split.publisher);
+        payout(&env, &config, &config.treasury, split.fee);
+        extend_instance_ttl(&env);
+
+        Released {
+            publisher: campaign.publisher,
+            campaign_id,
+            paper_id: campaign.paper_id,
+            raised: campaign.raised,
+            fee: split.fee,
+        }
+        .publish(&env);
+
+        split
+    }
+
+    /// Lo que el contrato le debe a `account` (pagos que no pudo recibir).
+    pub fn owed(env: Env, account: Address) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Owed(account))
+            .unwrap_or(0)
+    }
+
     /// Lo que aportó `backer` a la campaña `campaign_id` y sigue en garantía.
     pub fn pledge_of(env: Env, campaign_id: u32, backer: Address) -> i128 {
         env.storage()
@@ -1168,6 +1245,40 @@ fn keep_until(env: &Env, key: &DataKey, until: u64) {
     let ledgers = (secs / LEDGER_SECONDS) as u32 + TTL_MARGIN_LEDGERS;
     let ttl = ledgers.min(env.storage().max_ttl());
     env.storage().persistent().extend_ttl(key, ttl, ttl);
+}
+
+/// Paga `amount` desde la custodia del contrato. Si `to` no puede recibir (sin trustline, cuenta
+/// inexistente o desautorizada), no tumba la operación: lo deja pendiente a su nombre y emite
+/// `credited`. Devuelve si pagó.
+fn payout(env: &Env, config: &Config, to: &Address, amount: i128) -> bool {
+    if amount <= 0 {
+        return true;
+    }
+    let usdc = token::Client::new(env, &config.token);
+    match usdc.try_transfer(&env.current_contract_address(), to, &amount) {
+        Ok(Ok(())) => true,
+        _ => {
+            credit(env, to, amount);
+            false
+        }
+    }
+}
+
+/// Suma `amount` a lo que el contrato le debe a `to`. La entrada no tiene vencimiento: se lleva al
+/// TTL máximo en cada abono (y si se archiva, se restaura con el saldo intacto).
+fn credit(env: &Env, to: &Address, amount: i128) {
+    let key = DataKey::Owed(to.clone());
+    let owed: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+    env.storage()
+        .persistent()
+        .set(&key, &add(env, owed, amount));
+    let max = env.storage().max_ttl();
+    env.storage().persistent().extend_ttl(&key, max, max);
+    Credited {
+        account: to.clone(),
+        amount,
+    }
+    .publish(env);
 }
 
 fn read_campaign(env: &Env, campaign_id: u32) -> Campaign {
