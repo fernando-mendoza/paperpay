@@ -4,14 +4,14 @@ extern crate std;
 use super::{
     Campaign, CampaignOpened, Claimed, Config, Credited, DataKey, Error, Item, Opened, Paid,
     PassBought, Pledged, RefSplit, Referred, Refunded, Released, Renewed, Share, Split, Splitter,
-    SplitterClient, Subscribed, Subscription, Tipped, Unsubscribed, DAY_SECONDS, MAX_ACCESS_DAYS,
-    MAX_AUTHORS, MAX_BATCH_ITEMS, MAX_CAMPAIGN_DAYS, MAX_FEE_BPS, MAX_PASS_DAYS, MAX_RENEWALS,
-    REFUND_GRACE_DAYS,
+    SplitterClient, Subscribed, Subscription, Tipped, Unpledged, Unsubscribed, DAY_SECONDS,
+    MAX_ACCESS_DAYS, MAX_AUTHORS, MAX_BATCH_ITEMS, MAX_CAMPAIGN_DAYS, MAX_FEE_BPS, MAX_PASS_DAYS,
+    MAX_RENEWALS, REFUND_GRACE_DAYS,
 };
 use soroban_sdk::{
     testutils::{
         storage::Persistent as _, Address as _, AuthorizedFunction, AuthorizedInvocation,
-        Events as _, Ledger as _, MockAuth, MockAuthInvoke,
+        Events as _, IssuerFlags, Ledger as _, MockAuth, MockAuthInvoke,
     },
     token::{StellarAssetClient, TokenClient},
     vec, Address, Env, Event, IntoVal, String, Symbol, Vec,
@@ -37,6 +37,11 @@ struct Setup<'a> {
 }
 
 fn setup() -> Setup<'static> {
+    setup_with(false)
+}
+
+/// `revocable`: el emisor del USDC puede desautorizar cuentas, para probar a quien no puede recibir.
+fn setup_with(revocable: bool) -> Setup<'static> {
     let env = Env::default();
     env.mock_all_auths();
     // Los límites de TTL de testnet (protocolo 30), para que las pruebas de vencimiento valgan allá.
@@ -49,7 +54,11 @@ fn setup() -> Setup<'static> {
     });
 
     let issuer = Address::generate(&env);
-    let usdc = env.register_stellar_asset_contract_v2(issuer).address();
+    let sac = env.register_stellar_asset_contract_v2(issuer);
+    if revocable {
+        sac.issuer().set_flag(IssuerFlags::RevocableFlag);
+    }
+    let usdc = sac.address();
     let payer = Address::generate(&env);
     let publisher = Address::generate(&env);
     let treasury = Address::generate(&env);
@@ -2739,4 +2748,141 @@ fn no_se_cobra_dos_veces_sin_saldo_ni_sin_firma() {
         Err(Ok(Error::NothingToClaim.into()))
     );
     assert_eq!(s.usdc.balance(&nueva), 9_800_000);
+}
+
+impl Setup<'_> {
+    /// Una campaña con plazo en 7 días que junta 0.30 de `ana` y 0.20 de `beto` (no llega a 1.00).
+    fn failing_campaign(&self, ana: &Address, beto: &Address) -> u32 {
+        let id = self.open_campaign();
+        self.splitter.pledge(ana, &id, &3_000_000);
+        self.splitter.pledge(beto, &id, &2_000_000);
+        id
+    }
+}
+
+#[test]
+fn una_campana_fallida_devuelve_cada_aporte_completo_despues_del_plazo() {
+    let s = setup();
+    let ana = s.backer(GOAL);
+    let beto = s.backer(GOAL);
+    let id = s.failing_campaign(&ana, &beto);
+    s.advance(7 * DAY);
+
+    let refunded = s.splitter.refund_pledge(&id, &ana);
+    let receipts = s.receipts();
+    assert_eq!(refunded, 3_000_000);
+    assert_eq!(
+        s.usdc.balance(&ana),
+        GOAL,
+        "le vuelve completo, sin comisión"
+    );
+    assert_eq!(s.splitter.pledge_of(&id, &ana), 0);
+    assert_eq!(s.splitter.campaign(&id).unwrap().raised, 2_000_000);
+    assert_eq!(s.usdc.balance(&s.splitter.address), 2_000_000);
+    assert_eq!(
+        receipts,
+        [Unpledged {
+            backer: ana.clone(),
+            campaign_id: id,
+            amount: 3_000_000,
+        }
+        .to_xdr(&s.env, &s.splitter.address)]
+    );
+
+    // El aporte de Beto no cambió hasta su propia devolución.
+    assert_eq!(s.splitter.pledge_of(&id, &beto), 2_000_000);
+    s.splitter.refund_pledge(&id, &beto);
+    assert_eq!(s.usdc.balance(&beto), GOAL);
+    assert_eq!(s.usdc.balance(&s.splitter.address), 0);
+    assert_eq!(s.usdc.balance(&s.publisher), 0);
+    assert_eq!(s.usdc.balance(&s.treasury), 0);
+}
+
+#[test]
+fn cualquiera_ejecuta_la_devolucion_pero_el_dinero_solo_vuelve_a_quien_aporto() {
+    let s = setup();
+    let ana = s.backer(GOAL);
+    let beto = s.backer(GOAL);
+    let id = s.failing_campaign(&ana, &beto);
+    s.advance(7 * DAY);
+    s.env.set_auths(&[]);
+
+    s.splitter.refund_pledge(&id, &ana);
+    assert_eq!(s.env.auths(), std::vec![]);
+    assert_eq!(s.usdc.balance(&ana), GOAL);
+    assert_eq!(s.usdc.balance(&beto), GOAL - 2_000_000);
+}
+
+#[test]
+fn no_se_devuelve_antes_del_plazo_con_la_meta_cumplida_ni_dos_veces() {
+    let s = setup();
+    let ana = s.backer(GOAL);
+    let beto = s.backer(GOAL);
+    let id = s.failing_campaign(&ana, &beto);
+
+    assert_eq!(
+        s.splitter.try_refund_pledge(&id, &ana),
+        Err(Ok(Error::CampaignNotFailed.into()))
+    );
+    // Un segundo antes del plazo todavía no; en el plazo, sí.
+    s.env.ledger().with_mut(|li| li.timestamp += 7 * DAY - 1);
+    assert_eq!(
+        s.splitter.try_refund_pledge(&id, &ana),
+        Err(Ok(Error::CampaignNotFailed.into()))
+    );
+    s.env.ledger().with_mut(|li| li.timestamp += 1);
+    s.splitter.refund_pledge(&id, &ana);
+    assert_eq!(
+        s.splitter.try_refund_pledge(&id, &ana),
+        Err(Ok(Error::NothingToRefund.into()))
+    );
+    let nadie = Address::generate(&s.env);
+    assert_eq!(
+        s.splitter.try_refund_pledge(&id, &nadie),
+        Err(Ok(Error::NothingToRefund.into()))
+    );
+    assert_eq!(
+        s.splitter.try_refund_pledge(&99, &ana),
+        Err(Ok(Error::NoCampaign.into()))
+    );
+
+    // Con la meta cumplida no hay devolución, aunque venza el plazo sin liberarla.
+    let full = s.funded_campaign(&s.publisher);
+    s.advance(8 * DAY);
+    let backer = s.backer(1);
+    assert_eq!(
+        s.splitter.try_refund_pledge(&full, &backer),
+        Err(Ok(Error::CampaignNotFailed.into()))
+    );
+    s.splitter.release_pledges(&full);
+    assert_eq!(
+        s.splitter.try_refund_pledge(&full, &backer),
+        Err(Ok(Error::CampaignNotFailed.into()))
+    );
+}
+
+#[test]
+fn si_quien_aporto_no_puede_recibir_su_aporte_queda_pendiente_y_lo_cobra_despues() {
+    let s = setup_with(true);
+    let ana = s.backer(GOAL);
+    let beto = s.backer(GOAL);
+    let id = s.failing_campaign(&ana, &beto);
+    s.advance(7 * DAY);
+    let issuer = StellarAssetClient::new(&s.env, &s.usdc.address);
+    issuer.set_authorized(&ana, &false);
+
+    assert_eq!(s.splitter.refund_pledge(&id, &ana), 3_000_000);
+    assert_eq!(s.splitter.owed(&ana), 3_000_000);
+    assert_eq!(s.splitter.pledge_of(&id, &ana), 0);
+    assert_eq!(s.usdc.balance(&s.splitter.address), 5_000_000);
+    assert_eq!(
+        s.splitter.try_refund_pledge(&id, &ana),
+        Err(Ok(Error::NothingToRefund.into()))
+    );
+
+    // Cuando vuelve a poder recibir, cobra lo suyo (una dirección C ya tiene dónde recibir).
+    issuer.set_authorized(&ana, &true);
+    assert_eq!(s.splitter.claim(&ana), 3_000_000);
+    assert_eq!(s.usdc.balance(&ana), GOAL);
+    assert_eq!(s.splitter.owed(&ana), 0);
 }

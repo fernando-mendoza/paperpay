@@ -31,6 +31,8 @@
 //!   dinero no tiene otra salida.
 //! - `release_pledges`: con la meta cumplida, cualquiera la ejecuta; la editorial cobra el 98% y la
 //!   tesorería el 2%, y el artículo queda liberado.
+//! - `refund_pledge`: si vence el plazo sin llegar a la meta, cualquiera la ejecuta y cada aporte
+//!   vuelve completo a quien lo hizo.
 //!
 //! Si una cuenta no puede recibir lo que le paga el contrato (por ejemplo, una editorial nueva sin
 //! trustline de USDC), su parte no se pierde ni bloquea a nadie: queda pendiente a su nombre, y
@@ -139,6 +141,10 @@ pub enum Error {
     GoalNotReached = 21,
     /// La cuenta no tiene nada pendiente de cobro.
     NothingToClaim = 22,
+    /// La campaña no falló: todavía no vence, llegó a la meta o ya se liberó.
+    CampaignNotFailed = 23,
+    /// Esa cuenta no tiene aporte en garantía en la campaña (nunca aportó o ya se le devolvió).
+    NothingToRefund = 24,
 }
 
 #[contracttype]
@@ -393,6 +399,16 @@ pub struct Released {
 pub struct Credited {
     #[topic]
     pub account: Address,
+    pub amount: i128,
+}
+
+/// Un aporte devuelto porque la campaña falló. Topics: `["unpledged", backer]`.
+#[contractevent(topics = ["unpledged"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Unpledged {
+    #[topic]
+    pub backer: Address,
+    pub campaign_id: u32,
     pub amount: i128,
 }
 
@@ -1095,6 +1111,42 @@ impl Splitter {
         .publish(&env);
 
         split
+    }
+
+    /// Devuelve el aporte de `backer` a una campaña que falló: venció el plazo sin llegar a la
+    /// meta. No pide firmas: la puede enviar cualquiera (el sitio, la editorial o quien aportó),
+    /// porque el dinero solo puede volver a `backer`. Si `backer` ya no puede recibir, el aporte
+    /// queda pendiente a su nombre (`credited`) para `claim`. Emite `unpledged` y devuelve el monto.
+    pub fn refund_pledge(env: Env, campaign_id: u32, backer: Address) -> i128 {
+        let key = DataKey::Campaign(campaign_id);
+        let mut campaign = read_campaign(&env, campaign_id);
+        if campaign.released
+            || campaign.raised >= campaign.goal
+            || env.ledger().timestamp() < campaign.deadline
+        {
+            panic_with_error!(&env, Error::CampaignNotFailed);
+        }
+        let pledge_key = DataKey::Pledge(campaign_id, backer.clone());
+        let pledged: i128 = env.storage().persistent().get(&pledge_key).unwrap_or(0);
+        if pledged <= 0 {
+            panic_with_error!(&env, Error::NothingToRefund);
+        }
+        env.storage().persistent().remove(&pledge_key);
+        campaign.raised -= pledged;
+        env.storage().persistent().set(&key, &campaign);
+
+        let config = read_config(&env);
+        payout(&env, &config, &backer, pledged);
+        extend_instance_ttl(&env);
+
+        Unpledged {
+            backer,
+            campaign_id,
+            amount: pledged,
+        }
+        .publish(&env);
+
+        pledged
     }
 
     /// `account` cobra todo lo que tiene pendiente en el contrato. Con la misma firma le abre la
