@@ -14,6 +14,9 @@
 //! - `pay_authors`: un artículo cuya parte de editorial se reparte entre coautores.
 //! - `pay_ref`: un artículo recomendado por otra cuenta, que se lleva la mitad de la comisión.
 //!
+//! Accesos con vencimiento, que guardan su fecha en el contrato (sin guardar fondos):
+//! - `buy_pass`: un pase de N días al catálogo de una editorial, a precio fijo por día.
+//!
 //! Y dos movimientos que no dan acceso (emiten su propio evento, nunca `paid`):
 //! - `tip`: una propina a la editorial por un artículo, con el mismo reparto.
 //! - `refund`: la editorial le devuelve dinero a un lector; firma la editorial.
@@ -38,11 +41,21 @@ pub const MAX_BATCH_ITEMS: u32 = 10;
 pub const MAX_AUTHORS: u32 = 10;
 /// Parte de la comisión que recibe quien recomienda en `pay_ref` (5 000 = la mitad).
 pub const REFERRAL_SHARE_BPS: i128 = 5_000;
+/// Días por compra de un pase (y por compra de un artículo abierto).
+pub const MAX_PASS_DAYS: u32 = 31;
+/// Un acceso acumulado (pase o artículo abierto) no vence más allá de esto, contado desde ahora:
+/// así su entrada en la red siempre cabe en el TTL máximo (~180 días en testnet).
+pub const MAX_ACCESS_DAYS: u32 = 90;
+/// Segundos de un día, en la hora del ledger.
+pub const DAY_SECONDS: u64 = 86_400;
 
 // La instancia vive mientras haya pagos: cada cobro extiende su TTL a ~30 días.
 const DAY_IN_LEDGERS: u32 = 17_280;
 const INSTANCE_TTL_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
 const INSTANCE_TTL_EXTEND_TO: u32 = 30 * DAY_IN_LEDGERS;
+// Un ledger cada ~5 s. Las entradas con vencimiento viven hasta él y una semana más.
+const LEDGER_SECONDS: u64 = 5;
+const TTL_MARGIN_LEDGERS: u32 = 7 * DAY_IN_LEDGERS;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -69,6 +82,12 @@ pub enum Error {
     TooManyAuthors = 9,
     /// `pay_ref` con `referrer` igual a `payer`: sería un descuento, no una recomendación.
     SelfReferral = 10,
+    /// Días fuera de rango: 0 o más de `MAX_PASS_DAYS`.
+    InvalidDays = 11,
+    /// `amount` distinto de días × precio por día de la configuración.
+    WrongPrice = 12,
+    /// El acceso acumulado vencería después de `MAX_ACCESS_DAYS`.
+    TooLong = 13,
 }
 
 #[contracttype]
@@ -127,6 +146,8 @@ pub struct Share {
 #[derive(Clone)]
 enum DataKey {
     Config,
+    /// Vencimiento (segundos Unix) del pase de `reader` al catálogo de `publisher`.
+    Pass(Address, Address),
 }
 
 /// Comprobante de un artículo pagado. Topics: `["paid", publisher, reader]`.
@@ -159,6 +180,23 @@ pub struct Referred {
     pub publisher: Address,
     pub amount: i128,
     pub reward: i128,
+}
+
+/// Comprobante de un pase. Topics: `["pass", publisher, reader]`. `reader` puede leer todo el
+/// catálogo de `publisher` hasta `valid_until` (segundos Unix, hora del ledger). `amount` es lo que
+/// se cobró por `days` días y `fee` la comisión.
+#[contractevent(topics = ["pass"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PassBought {
+    #[topic]
+    pub publisher: Address,
+    #[topic]
+    pub reader: Address,
+    pub payer: Address,
+    pub days: u32,
+    pub amount: i128,
+    pub fee: i128,
+    pub valid_until: u64,
 }
 
 /// Comprobante de una propina. Topics: `["tipped", publisher, payer]`. No da acceso al artículo.
@@ -429,6 +467,52 @@ impl Splitter {
         .publish(&env);
     }
 
+    /// Compra un pase de `days` días (1 a `MAX_PASS_DAYS`) para leer todo el catálogo de
+    /// `publisher`. El contrato cobra exactamente `days × pass_day_price` (`amount` tiene que ser
+    /// ese monto, así quien firma lo ve) y lo reparte como una lectura, sin guardar fondos. Los
+    /// días se suman al pase vigente de `reader`; si ya venció, cuentan desde ahora. Un pase no
+    /// vence más allá de `MAX_ACCESS_DAYS` desde ahora. `reader` puede ser otra cuenta (un pase de
+    /// regalo): solo firma `payer`. Emite `pass` y devuelve el vencimiento nuevo (segundos Unix,
+    /// hora del ledger).
+    pub fn buy_pass(
+        env: Env,
+        payer: Address,
+        reader: Address,
+        publisher: Address,
+        days: u32,
+        amount: i128,
+    ) -> u64 {
+        payer.require_auth();
+        let config = read_config(&env);
+        check_price(&env, days, config.pass_day_price, amount);
+        let split = compute_split(&env, amount, config.fee_bps);
+        transfer_split(&env, &config, &payer, &publisher, &split);
+        let valid_until = grant_pass(&env, &reader, &publisher, days);
+        extend_instance_ttl(&env);
+
+        PassBought {
+            publisher,
+            reader,
+            payer,
+            days,
+            amount,
+            fee: split.fee,
+            valid_until,
+        }
+        .publish(&env);
+
+        valid_until
+    }
+
+    /// Hasta cuándo (segundos Unix) puede leer `reader` el catálogo de `publisher`; 0 si nunca
+    /// tuvo pase. Un valor menor que la hora del ledger es un pase vencido.
+    pub fn pass_until(env: Env, reader: Address, publisher: Address) -> u64 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Pass(reader, publisher))
+            .unwrap_or(0)
+    }
+
     /// Cómo se repartiría `amount`, sin mover fondos.
     pub fn split(env: Env, amount: i128) -> Split {
         let config = read_config(&env);
@@ -537,6 +621,48 @@ fn transfer_split(env: &Env, config: &Config, payer: &Address, publisher: &Addre
     }
     if split.fee > 0 {
         usdc.transfer(payer, &config.treasury, &split.fee);
+    }
+}
+
+/// Suma `days` días al pase de `reader` con `publisher` y devuelve el vencimiento nuevo.
+fn grant_pass(env: &Env, reader: &Address, publisher: &Address, days: u32) -> u64 {
+    extend_access(env, &DataKey::Pass(reader.clone(), publisher.clone()), days)
+}
+
+/// Suma `days` días a un acceso con vencimiento: desde el vencimiento vigente si sigue en pie, o
+/// desde ahora si ya venció. Lo guarda con un TTL que lo cubre y devuelve el vencimiento nuevo.
+fn extend_access(env: &Env, key: &DataKey, days: u32) -> u64 {
+    let now = env.ledger().timestamp();
+    let current: u64 = env.storage().persistent().get(key).unwrap_or(0);
+    let until = current.max(now) + days as u64 * DAY_SECONDS;
+    if until - now > MAX_ACCESS_DAYS as u64 * DAY_SECONDS {
+        panic_with_error!(env, Error::TooLong);
+    }
+    env.storage().persistent().set(key, &until);
+    keep_until(env, key, until);
+    until
+}
+
+/// Extiende el TTL de una entrada persistente para que siga en la red hasta `until` (segundos
+/// Unix) y `TTL_MARGIN_LEDGERS` más, sin pasar del máximo de la red.
+fn keep_until(env: &Env, key: &DataKey, until: u64) {
+    let secs = until.saturating_sub(env.ledger().timestamp());
+    let ledgers = (secs / LEDGER_SECONDS) as u32 + TTL_MARGIN_LEDGERS;
+    let ttl = ledgers.min(env.storage().max_ttl());
+    env.storage().persistent().extend_ttl(key, ttl, ttl);
+}
+
+/// Días entre 1 y `MAX_PASS_DAYS`, y `amount` exactamente `days × day_price`.
+fn check_price(env: &Env, days: u32, day_price: i128, amount: i128) {
+    if days == 0 || days > MAX_PASS_DAYS {
+        panic_with_error!(env, Error::InvalidDays);
+    }
+    let expected = match day_price.checked_mul(days as i128) {
+        Some(total) => total,
+        None => panic_with_error!(env, Error::AmountOverflow),
+    };
+    if amount != expected {
+        panic_with_error!(env, Error::WrongPrice);
     }
 }
 

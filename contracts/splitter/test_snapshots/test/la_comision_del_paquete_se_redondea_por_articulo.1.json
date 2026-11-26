@@ -181,13 +181,13 @@
   ],
   "ledger": {
     "protocol_version": 29,
-    "sequence_number": 0,
-    "timestamp": 0,
+    "sequence_number": 6000000,
+    "timestamp": 1795672800,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
-    "min_persistent_entry_ttl": 4096,
-    "min_temp_entry_ttl": 16,
-    "max_entry_ttl": 6312000,
+    "min_persistent_entry_ttl": 120960,
+    "min_temp_entry_ttl": 720,
+    "max_entry_ttl": 3110400,
     "ledger_entries": [
       {
         "entry": {
@@ -228,7 +228,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 6311999
+        "live_until": 9110399
       },
       {
         "entry": {
@@ -248,7 +248,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 6311999
+        "live_until": 9110399
       },
       {
         "entry": {
@@ -268,7 +268,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 6311999
+        "live_until": 9110399
       },
       {
         "entry": {
@@ -345,7 +345,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 518400
+        "live_until": 6518400
       },
       {
         "entry": {
@@ -397,7 +397,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 518400
+        "live_until": 6518400
       },
       {
         "entry": {
@@ -449,7 +449,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 518400
+        "live_until": 6518400
       },
       {
         "entry": {
@@ -552,7 +552,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 120960
+        "live_until": 6120959
       },
       {
         "entry": {
@@ -566,7 +566,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 518400
+        "live_until": 6518400
       }
     ]
   },

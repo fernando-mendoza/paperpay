@@ -2,11 +2,15 @@
 extern crate std;
 
 use super::{
-    Config, Error, Item, Paid, RefSplit, Referred, Refunded, Share, Split, Splitter,
-    SplitterClient, Tipped, MAX_AUTHORS, MAX_BATCH_ITEMS, MAX_FEE_BPS,
+    Config, DataKey, Error, Item, Paid, PassBought, RefSplit, Referred, Refunded, Share, Split,
+    Splitter, SplitterClient, Tipped, DAY_SECONDS, MAX_ACCESS_DAYS, MAX_AUTHORS, MAX_BATCH_ITEMS,
+    MAX_FEE_BPS, MAX_PASS_DAYS,
 };
 use soroban_sdk::{
-    testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Events as _},
+    testutils::{
+        storage::Persistent as _, Address as _, AuthorizedFunction, AuthorizedInvocation,
+        Events as _, Ledger as _,
+    },
     token::{StellarAssetClient, TokenClient},
     vec, Address, Env, Event, IntoVal, String, Symbol, Vec,
 };
@@ -18,6 +22,8 @@ const FEE_BPS: u32 = 200;
 const PASS_DAY_PRICE: i128 = 10_000_000;
 /// Un día de un artículo abierto para todos: 5 USDC.
 const OPEN_DAY_PRICE: i128 = 50_000_000;
+/// Hora del ledger al empezar cada prueba (26-nov-2026 06:00 UTC).
+const START: u64 = 1_795_672_800;
 
 struct Setup<'a> {
     env: Env,
@@ -31,6 +37,14 @@ struct Setup<'a> {
 fn setup() -> Setup<'static> {
     let env = Env::default();
     env.mock_all_auths();
+    // Los límites de TTL de testnet (protocolo 30), para que las pruebas de vencimiento valgan allá.
+    env.ledger().with_mut(|li| {
+        li.timestamp = START;
+        li.sequence_number = 6_000_000;
+        li.max_entry_ttl = 3_110_400;
+        li.min_persistent_entry_ttl = 120_960;
+        li.min_temp_entry_ttl = 720;
+    });
 
     let issuer = Address::generate(&env);
     let usdc = env.register_stellar_asset_contract_v2(issuer).address();
@@ -73,6 +87,18 @@ impl Setup<'_> {
             )),
             sub_invocations: std::vec![],
         }
+    }
+
+    /// Adelanta la hora del ledger (y la secuencia, a un ledger cada 5 s).
+    fn advance(&self, seconds: u64) {
+        self.env.ledger().with_mut(|li| {
+            li.timestamp += seconds;
+            li.sequence_number += (seconds / 5) as u32;
+        });
+    }
+
+    fn now(&self) -> u64 {
+        self.env.ledger().timestamp()
     }
 
     fn receipts(&self) -> soroban_sdk::testutils::ContractEvents {
@@ -1299,4 +1325,188 @@ fn la_editorial_puede_recomendar_su_propio_articulo() {
     assert_eq!(split.referral, 50_000);
     assert_eq!(s.usdc.balance(&s.publisher), 4_950_000);
     assert_eq!(s.usdc.balance(&s.treasury), 50_000);
+}
+
+// ---------- buy_pass ----------
+
+const DAY: u64 = DAY_SECONDS;
+
+fn pass_price(days: u32) -> i128 {
+    PASS_DAY_PRICE * days as i128
+}
+
+#[test]
+fn un_pase_cobra_dias_por_precio_reparte_98_2_y_guarda_el_vencimiento() {
+    let s = setup();
+    s.fund(&s.payer, pass_price(10));
+    let before = s.usdc.balance(&s.payer);
+    let until = s
+        .splitter
+        .buy_pass(&s.payer, &s.payer, &s.publisher, &7, &pass_price(7));
+    let receipts = s.receipts();
+
+    assert_eq!(until, START + 7 * DAY);
+    assert_eq!(s.splitter.pass_until(&s.payer, &s.publisher), until);
+    assert_eq!(s.usdc.balance(&s.payer), before - 70_000_000);
+    assert_eq!(s.usdc.balance(&s.publisher), 68_600_000);
+    assert_eq!(s.usdc.balance(&s.treasury), 1_400_000);
+    assert_eq!(
+        s.usdc.balance(&s.splitter.address),
+        0,
+        "el contrato no guarda fondos"
+    );
+
+    let expected = PassBought {
+        publisher: s.publisher.clone(),
+        reader: s.payer.clone(),
+        payer: s.payer.clone(),
+        days: 7,
+        amount: 70_000_000,
+        fee: 1_400_000,
+        valid_until: until,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.splitter.address)]);
+}
+
+#[test]
+fn los_dias_se_suman_al_pase_vigente_y_si_vencio_cuentan_desde_ahora() {
+    let s = setup();
+    s.fund(&s.payer, pass_price(10));
+    s.splitter
+        .buy_pass(&s.payer, &s.payer, &s.publisher, &3, &pass_price(3));
+
+    // Renueva a la mitad: los 2 días se suman a los 3 que tenía.
+    s.advance(DAY);
+    let until = s
+        .splitter
+        .buy_pass(&s.payer, &s.payer, &s.publisher, &2, &pass_price(2));
+    assert_eq!(until, START + 5 * DAY);
+
+    // Ya vencido: el día nuevo cuenta desde ahora, no desde el vencimiento viejo.
+    s.advance(9 * DAY);
+    let until = s
+        .splitter
+        .buy_pass(&s.payer, &s.payer, &s.publisher, &1, &pass_price(1));
+    assert_eq!(until, s.now() + DAY);
+    assert_eq!(until, START + 11 * DAY);
+}
+
+#[test]
+fn un_pase_de_regalo_queda_a_nombre_de_quien_lee_y_vale_solo_con_esa_editorial() {
+    let s = setup();
+    s.fund(&s.payer, pass_price(10));
+    let student = Address::generate(&s.env);
+    let other_publisher = Address::generate(&s.env);
+    let until = s
+        .splitter
+        .buy_pass(&s.payer, &student, &s.publisher, &7, &pass_price(7));
+
+    assert_eq!(s.splitter.pass_until(&student, &s.publisher), until);
+    assert_eq!(s.splitter.pass_until(&s.payer, &s.publisher), 0);
+    assert_eq!(s.splitter.pass_until(&student, &other_publisher), 0);
+    assert_eq!(s.usdc.balance(&student), 0, "quien lee no paga nada");
+}
+
+#[test]
+fn el_pase_solo_pide_la_firma_de_quien_paga() {
+    let s = setup();
+    s.fund(&s.payer, pass_price(10));
+    let student = Address::generate(&s.env);
+    s.splitter
+        .buy_pass(&s.payer, &student, &s.publisher, &2, &pass_price(2));
+
+    assert_eq!(
+        s.env.auths(),
+        std::vec![(
+            s.payer.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.splitter.address.clone(),
+                    Symbol::new(&s.env, "buy_pass"),
+                    (
+                        s.payer.clone(),
+                        student.clone(),
+                        s.publisher.clone(),
+                        2u32,
+                        pass_price(2)
+                    )
+                        .into_val(&s.env),
+                )),
+                sub_invocations: std::vec![
+                    s.transfer_auth(&s.payer, &s.publisher, 19_600_000),
+                    s.transfer_auth(&s.payer, &s.treasury, 400_000),
+                ],
+            }
+        )]
+    );
+}
+
+#[test]
+fn el_pase_rechaza_dias_precios_y_vencimientos_invalidos_sin_mover_nada() {
+    let s = setup();
+    s.fund(&s.payer, pass_price(100));
+    let before = s.usdc.balance(&s.payer);
+    let buy = |days: u32, amount: i128| {
+        s.splitter
+            .try_buy_pass(&s.payer, &s.payer, &s.publisher, &days, &amount)
+    };
+
+    assert_eq!(buy(0, 0), Err(Ok(Error::InvalidDays.into())));
+    assert_eq!(
+        buy(MAX_PASS_DAYS + 1, pass_price(MAX_PASS_DAYS + 1)),
+        Err(Ok(Error::InvalidDays.into()))
+    );
+    assert_eq!(buy(7, pass_price(7) - 1), Err(Ok(Error::WrongPrice.into())));
+    assert_eq!(buy(7, pass_price(6)), Err(Ok(Error::WrongPrice.into())));
+    assert_eq!(s.usdc.balance(&s.payer), before);
+    assert_eq!(s.splitter.pass_until(&s.payer, &s.publisher), 0);
+
+    // Hasta MAX_ACCESS_DAYS (90) se acumula; un día más ya no.
+    assert!(buy(31, pass_price(31)).is_ok());
+    assert!(buy(31, pass_price(31)).is_ok());
+    assert!(buy(28, pass_price(28)).is_ok());
+    assert_eq!(
+        s.splitter.pass_until(&s.payer, &s.publisher),
+        START + MAX_ACCESS_DAYS as u64 * DAY
+    );
+    let spent = s.usdc.balance(&s.payer);
+    assert_eq!(buy(1, pass_price(1)), Err(Ok(Error::TooLong.into())));
+    assert_eq!(s.usdc.balance(&s.payer), spent);
+
+    s.env.set_auths(&[]);
+    assert!(buy(1, pass_price(1)).is_err());
+}
+
+#[test]
+fn sin_la_firma_de_quien_paga_no_hay_pase() {
+    let s = setup();
+    s.fund(&s.payer, pass_price(10));
+    let before = s.usdc.balance(&s.payer);
+    s.env.set_auths(&[]);
+
+    assert!(s
+        .splitter
+        .try_buy_pass(&s.payer, &s.payer, &s.publisher, &1, &pass_price(1))
+        .is_err());
+    assert_eq!(s.usdc.balance(&s.payer), before);
+    assert_eq!(s.splitter.pass_until(&s.payer, &s.publisher), 0);
+}
+
+#[test]
+fn la_entrada_del_pase_vive_en_la_red_hasta_que_vence() {
+    let s = setup();
+    s.fund(&s.payer, pass_price(31));
+    s.splitter
+        .buy_pass(&s.payer, &s.payer, &s.publisher, &31, &pass_price(31));
+
+    let ttl = s.env.as_contract(&s.splitter.address, || {
+        s.env
+            .storage()
+            .persistent()
+            .get_ttl(&DataKey::Pass(s.payer.clone(), s.publisher.clone()))
+    });
+    // 31 días a un ledger cada 5 s, más una semana de margen.
+    let needed = (31 * DAY / 5) as u32;
+    assert!(ttl >= needed, "TTL {ttl} < {needed}");
+    assert_eq!(ttl, needed + 7 * 17_280);
 }
