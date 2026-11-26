@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import {
   BOVEDA_CONTRACT_ID,
@@ -35,7 +36,10 @@ function errorMessage(err: unknown): string {
   return err instanceof Error && err.message ? `${T.failed} ${err.message}` : T.failed
 }
 
-/** `/boveda`: conecta Freighter (testnet), escribe el código y abre la bóveda del reto Ship It. */
+/**
+ * `/boveda`: tarjeta de regalo con código (la bóveda del reto Ship It). Conecta Freighter (testnet),
+ * escribe el código y cobra todo el saldo.
+ */
 export function BovedaView() {
   const [balance, setBalance] = useState<bigint | null | 'error'>(null)
   const [address, setAddress] = useState<string | null>(null)
@@ -214,6 +218,18 @@ export function BovedaView() {
               <a href={explorerUrl('tx', result.hash)} target="_blank" rel="noreferrer" className="inline-block text-xs font-semibold text-primary hover:underline">
                 {T.tx} · {result.hash.slice(0, 8)}…
               </a>
+              <Link
+                href="/"
+                className="mt-3 flex min-h-[48px] w-full items-center justify-center rounded-xl bg-primary text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary-hover"
+              >
+                {T.read}
+              </Link>
+              <p className="pt-1 text-xs text-muted-foreground">
+                {T.readNote}{' '}
+                <a href="https://faucet.circle.com" target="_blank" rel="noreferrer" className="font-semibold text-primary hover:underline">
+                  {T.usdcFaucet}
+                </a>
+              </p>
             </div>
           )}
 
