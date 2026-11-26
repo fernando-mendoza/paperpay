@@ -1,5 +1,20 @@
 # Estado de QA
 
+## Revisión del 26 de noviembre de 2026: monedas 3D en la historia del pago de `/lee` (en dev, sin desplegar)
+
+- `pnpm --filter @paperpay/web test`: 63 pruebas (4 nuevas en `test/coin-rain.test.ts`: 49 + 1 monedas = 0.49 / 0.01, todas llegan en 0.70 cuando se confirma, los contadores nunca bajan al avanzar, la lluvia es igual en cada visita). `typecheck` limpio y export estático (`STATIC_EXPORT=1`) sin errores.
+- Capturas con Chrome headless (SwiftShader) sobre el export local, con `tools/coins-shots.mjs` del run `2026-11-25-paperpay-lee-cinematico` del hub. Pantallas: 390×664, 375×548, 1440×860, más 390×664 con reduced-motion. En cada una se revisaron 4 puntos del paso de liquidación (0.30, 0.50, 0.62 y 0.90):
+  - los contadores coinciden con las monedas que ya cayeron (0.00/0.00 → 0.20/0.00 → 0.37/0.01 → 0.49/0.01);
+  - hay canvas de monedas, salvo con reduced-motion;
+  - la tarjeta no se sale de la ventana y no hay scroll horizontal;
+  - la consola no tiene errores, fuera del 404 de `/api` del servidor local.
+- Lo que cambió en la historia, para que diga la verdad:
+  - la ventana de Freighter ya no dice que el pago va a la tesorería: muestra la llamada `pay` al contrato (`CC5S…ADGA`);
+  - el hash de la tarjeta era inventado; ahora es un pago real de 0.49 / 0.01 (`3d7b2c56…`), con enlace a stellar.expert;
+  - el paso 3 cuenta el reparto: "49 a la editorial y 1 a PaperPay".
+- Hallazgo previo, sin arreglar: en 375×548 la última línea del paso activo de "Cómo funciona" se corta ~14 px. Ya pasaba en producción antes de este cambio, en los cuatro pasos (medido el 26-nov contra `paperpay.blockchains.tf`).
+- **No probado:** un iPhone real. No está desplegado: producción sigue con la versión anterior hasta el OK del owner.
+
 ## Revisión del 26 de noviembre de 2026: contrato v0.6.0 (campañas de acceso abierto y `claim`)
 
 - `pnpm test:contracts`: 89 pruebas (21 nuevas), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
