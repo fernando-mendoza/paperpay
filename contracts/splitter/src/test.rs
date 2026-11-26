@@ -14,6 +14,10 @@ use soroban_sdk::{
 /// $0.50 USDC con 7 decimales.
 const PRICE: i128 = 5_000_000;
 const FEE_BPS: u32 = 200;
+/// Un día de pase: 1 USDC.
+const PASS_DAY_PRICE: i128 = 10_000_000;
+/// Un día de un artículo abierto para todos: 5 USDC.
+const OPEN_DAY_PRICE: i128 = 50_000_000;
 
 struct Setup<'a> {
     env: Env,
@@ -35,7 +39,16 @@ fn setup() -> Setup<'static> {
     let treasury = Address::generate(&env);
     StellarAssetClient::new(&env, &usdc).mint(&payer, &(10 * PRICE));
 
-    let id = env.register(Splitter, (usdc.clone(), treasury.clone(), FEE_BPS));
+    let id = env.register(
+        Splitter,
+        (
+            usdc.clone(),
+            treasury.clone(),
+            FEE_BPS,
+            PASS_DAY_PRICE,
+            OPEN_DAY_PRICE,
+        ),
+    );
     Setup {
         splitter: SplitterClient::new(&env, &id),
         usdc: TokenClient::new(&env, &usdc),
@@ -255,7 +268,9 @@ fn la_configuracion_queda_fija_al_desplegar() {
         Config {
             token: s.usdc.address.clone(),
             treasury: s.treasury.clone(),
-            fee_bps: FEE_BPS
+            fee_bps: FEE_BPS,
+            pass_day_price: PASS_DAY_PRICE,
+            open_day_price: OPEN_DAY_PRICE,
         }
     );
 }
@@ -266,7 +281,42 @@ fn no_se_despliega_con_una_comision_mayor_al_10_por_ciento() {
     let env = Env::default();
     let usdc = Address::generate(&env);
     let treasury = Address::generate(&env);
-    env.register(Splitter, (usdc, treasury, MAX_FEE_BPS + 1));
+    env.register(
+        Splitter,
+        (
+            usdc,
+            treasury,
+            MAX_FEE_BPS + 1,
+            PASS_DAY_PRICE,
+            OPEN_DAY_PRICE,
+        ),
+    );
+}
+
+#[test]
+fn no_se_despliega_con_precios_por_dia_en_cero_o_negativos() {
+    for (pass, open) in [
+        (0, OPEN_DAY_PRICE),
+        (PASS_DAY_PRICE, 0),
+        (-1, OPEN_DAY_PRICE),
+    ] {
+        let env = Env::default();
+        let usdc = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let deployed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            env.register(Splitter, (usdc, treasury, FEE_BPS, pass, open));
+        }));
+        let panic = deployed.expect_err("no debió desplegarse");
+        let message = panic
+            .downcast_ref::<std::string::String>()
+            .map(|m| m.as_str())
+            .or_else(|| panic.downcast_ref::<&str>().copied())
+            .unwrap_or_default();
+        assert!(
+            message.contains("Error(Contract, #2)"),
+            "pase {pass}, abierto {open}: {message}"
+        );
+    }
 }
 
 // ---------- pay_batch ----------

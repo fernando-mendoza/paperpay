@@ -18,8 +18,8 @@
 //! - `tip`: una propina a la editorial por un artículo, con el mismo reparto.
 //! - `refund`: la editorial le devuelve dinero a un lector; firma la editorial.
 //!
-//! La configuración (token, tesorería y comisión) se fija al desplegar y no cambia: no hay
-//! admin ni llave que custodiar. Para cambiarla se despliega otro contrato.
+//! La configuración (token, tesorería, comisión y precios por día) se fija al desplegar y no
+//! cambia: no hay admin ni llave que custodiar. Para cambiarla se despliega otro contrato.
 
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
@@ -80,6 +80,10 @@ pub struct Config {
     pub treasury: Address,
     /// Comisión en puntos base (200 = 2%).
     pub fee_bps: u32,
+    /// Precio de un día de pase al catálogo de una editorial, en unidades del token.
+    pub pass_day_price: i128,
+    /// Precio de un día de acceso abierto (para todos) a un artículo, en unidades del token.
+    pub open_day_price: i128,
 }
 
 #[contracttype]
@@ -187,14 +191,28 @@ pub struct Splitter;
 
 #[contractimpl]
 impl Splitter {
-    pub fn __constructor(env: Env, token: Address, treasury: Address, fee_bps: u32) {
+    /// `pass_day_price` y `open_day_price` son los precios por día de un pase y de un artículo
+    /// abierto: los hace cumplir el contrato, así que quedan fijos como la comisión.
+    pub fn __constructor(
+        env: Env,
+        token: Address,
+        treasury: Address,
+        fee_bps: u32,
+        pass_day_price: i128,
+        open_day_price: i128,
+    ) {
         if fee_bps > MAX_FEE_BPS {
             panic_with_error!(&env, Error::FeeTooHigh);
+        }
+        if pass_day_price <= 0 || open_day_price <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
         }
         let config = Config {
             token,
             treasury,
             fee_bps,
+            pass_day_price,
+            open_day_price,
         };
         env.storage().instance().set(&DataKey::Config, &config);
     }
