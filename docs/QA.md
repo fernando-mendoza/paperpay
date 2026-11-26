@@ -1,6 +1,6 @@
 # Estado de QA
 
-## Revisión del 26 de noviembre de 2026: monedas 3D en la historia del pago de `/lee` (en dev, sin desplegar)
+## Revisión del 26 de noviembre de 2026: monedas 3D en la historia del pago de `/lee` (en producción)
 
 - `pnpm --filter @paperpay/web test`: 63 pruebas (4 nuevas en `test/coin-rain.test.ts`: 49 + 1 monedas = 0.49 / 0.01, todas llegan en 0.70 cuando se confirma, los contadores nunca bajan al avanzar, la lluvia es igual en cada visita). `typecheck` limpio y export estático (`STATIC_EXPORT=1`) sin errores.
 - Capturas con Chrome headless (SwiftShader) sobre el export local, con `tools/coins-shots.mjs` del run `2026-11-25-paperpay-lee-cinematico` del hub. Pantallas: 390×664, 375×548, 1440×860, más 390×664 con reduced-motion. En cada una se revisaron 4 puntos del paso de liquidación (0.30, 0.50, 0.62 y 0.90):
@@ -13,7 +13,8 @@
   - el hash de la tarjeta era inventado; ahora es un pago real de 0.49 / 0.01 (`3d7b2c56…`), con enlace a stellar.expert;
   - el paso 3 cuenta el reparto: "49 a la editorial y 1 a PaperPay".
 - Hallazgo previo, sin arreglar: en 375×548 la última línea del paso activo de "Cómo funciona" se corta ~14 px. Ya pasaba en producción antes de este cambio, en los cuatro pasos (medido el 26-nov contra `paperpay.blockchains.tf`).
-- **No probado:** un iPhone real. No está desplegado: producción sigue con la versión anterior hasta el OK del owner.
+- Producción: desplegado el 26-nov a las 06:53 con el OK del owner (Pages `5f6dd3c0`, fork `675b3a1`; la API no cambió). El mismo `coins-shots.mjs` contra [paperpay.blockchains.tf/lee](https://paperpay.blockchains.tf/lee) dio los mismos contadores en los 4 puntos de las 4 pantallas, con canvas, sin scroll horizontal y con la tarjeta dentro. Su único error de consola es el beacon de Cloudflare Web Analytics (`static.cloudflareinsights.com`), que falla con `ERR_CERT_AUTHORITY_INVALID` porque la máquina de prueba tiene el CA bundle roto (`curl` falla igual); no es del sitio. `/`, `/lee`, `/top`, `/editorial`, `/regalo` y `/api/health` dan 200.
+- **No probado:** un iPhone real.
 
 ## Revisión del 26 de noviembre de 2026: contrato v0.6.0 (campañas de acceso abierto y `claim`)
 
