@@ -4,42 +4,82 @@
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "productionContractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
   "splitter": {
-    "version": "0.4.0",
-    "contractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
-    "wasmSha256": "b97fffc81b053f597aaff0cb39b69a21005835ba412b8d8cf51681db1a6135aa",
-    "source": "contracts/splitter @ 57b3a74, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+    "version": "0.5.0",
+    "contractId": "CA2QHBXMF6KIBBFT5ATQYMFDP75246RQV6NC6YA55QJZX3CRVFUE4RT2",
+    "wasmSha256": "913ac9b4b43766bcc60e685d6a985e82dad677dc17d2c7f6a6aa892ca7b3bd17",
+    "source": "contracts/splitter @ 901171c, soroban-sdk 29.0.1, stellar-cli 30.0.1",
     "constructor": {
       "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
-      "fee_bps": 200
+      "fee_bps": 200,
+      "pass_day_price": 10000000,
+      "open_day_price": 50000000
     },
-    "uploadTx": "845d38825ee93b8dc4ff247e2571a9dd5ef6394709a07d2cbf50ea9642f51aa8",
-    "deployTx": "3ff42545e1728924f7bbe516f2aec2a6f5443e183f3f013d3a747382abfc5bcf",
-    "deployedAt": "2026-11-25T19:05:58Z",
-    "status": "EN PRODUCCIÓN desde 2026-11-26T00:18Z (25-nov CDMX): SPLITTER_CONTRACT_ID de la API de la VPS y de paperpay.blockchains.tf, con SPLITTER_REFERRALS=true (pay, pay_ref y gift). La v0.2.0 quedó en SPLITTER_LEGACY_CONTRACT_IDS.",
+    "uploadTx": "5ed12013129b9771d9e59962a82ab4b052f2cef748be542d2e759ed81388f54d",
+    "deployTx": "498adc0a6f60d46e1fdc763bb064ccd7ebe1c5f69fe309fb82447df8425e0304",
+    "deployedAt": "2026-11-26T05:04:38Z",
+    "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
     "usage": {
-      "pay_authors": {
-        "tx": "23a68ac1be070324569dcb1a39b0e9ff1a80283a4809e63112ca0a3e648a4867",
-        "what": "0.50 USDC por crispr-nanomedicine-biotech de GB2PFD2WJ3PXS27HEM6UV2KIKANNCEGIR67HSHLGC67YV5G7QJW6D7OF, con 3 coautores: la editorial demo (50%), GD3ACPRMSXCN4O75NRZJES6EUIUQL5AYNP3QO2L4JICZ4UABWC6LUU43 (30%) y GDPDEFI3IVSEMVZWBY34PIFWSTG7UTWWTVBFA3GMGQHMUHE3QRSDJDXI (20%)",
-        "result": "2450000 a la editorial demo, 1470000 y 980000 a los coautores, 100000 a la tesorería; un evento paid con publisher = la editorial demo (primer autor)"
+      "buy_pass": {
+        "tx": "747d20154da627c210dde94b99a99b45042c98fb8985aa34cbbc69d4257b57a8",
+        "what": "GA2VHXJP5WVEWKA6CWJRDVSA25AWSS5BAGYG2TPZQPRBEUQJPJXTURHX le regala a GAPZFLFQGM6NL2HEF3RV24DMGU5QVPUZDQ56LRDGSQZKVEKBJTMPQV6X un pase de 1 día al catálogo de la editorial demo (1.00 USDC)",
+        "result": "9800000 a la editorial demo y 200000 a la tesorería; evento pass con reader = la cuenta que recibe el regalo; pass_until = 1795755883"
       },
-      "pay_ref": {
-        "tx": "ab2ca6914b583415bf821e3223b651a4ab2d73863c827eb0634fb48752f7aa22",
-        "what": "0.50 USDC por autonomous-ai-micropayments a la editorial demo, recomendado por GBLQWX6QQS3HNRKOQVM3BI5KQMWMSE4GYSCSY2DJ7QE5OLUQQNCERTDF",
-        "result": "4900000 a la editorial demo, 50000 a quien recomendó y 50000 a la tesorería; eventos paid (fee 100000) y referred (reward 50000)"
+      "subscribe": {
+        "tx": "e4b2b08dc02e763d27be68bef87e3947d4446fc3cd8f903585bc320fe5f6b549",
+        "what": "GA2VHXJP5WVEWKA6CWJRDVSA25AWSS5BAGYG2TPZQPRBEUQJPJXTURHX se suscribe a la editorial demo: 1 día por periodo, 2 renovaciones de 1.00 USDC",
+        "result": "9800000 a la editorial demo y 200000 a la tesorería por el primer día; approve del lector al contrato por 20000000; eventos pass y subscribed"
       },
-      "pay_ref_site": {
-        "tx": "d3a130f6aff66928b9d4c54288901d0507d61b5995918753bfe83086754d1197",
-        "what": "0.50 USDC por quantum-cryptography-post-quantum por paperpay.blockchains.tf (Pages Function → API de la VPS), recomendado por una cuenta desechable con trustline (test:splitter con REFERRER=trustline)",
-        "result": "4900000 a la editorial demo, 50000 a quien recomendó y 50000 a la tesorería; el JWT reabre el artículo"
+      "renew_subscription": {
+        "tx": "3f586befa2582e47633812238990ab691facb51e22c5c47b21fb8395a18aeff5",
+        "what": "la envía GAODJP4EKIMUXPLBPQQEAJ52F5VDLWAVKDHOFKKKTGQB4WFNQ7U5QB3D, una cuenta sin USDC; el lector no firma",
+        "result": "9800000 a la editorial demo y 200000 a la tesorería con transfer_from desde el lector; pass_until = 1795842288; queda 1 renovación y la allowance en 10000000; eventos pass y renewed"
+      },
+      "sponsor_open": {
+        "tx": "a49b86873d7cc33103787f9b7af5cb474469efc2494f6a4594cc437f87b313fc",
+        "what": "GCT6AKUOA2T4DALMOOJBG5IZ5J6G4OHMOI5LORWHPLQJMO2CL7F7X2IV abre crispr-nanomedicine-biotech para todos 1 día (5.00 USDC)",
+        "result": "49000000 a la editorial demo y 1000000 a la tesorería; evento opened; open_until = 1795755898"
       }
-    }
+    },
+    "checks": "después de las cuatro: saldo del contrato 0, lector 10000000, allowance 10000000; una renovación adelantada falla con RenewTooEarly (#16)"
   },
   "demoPublisher": {
     "address": "GA3MOPOJ374G4APKR4RE7VPXF5CEQKER3FA3LZ2XSAARIRSZEF6QXUZI",
     "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."
   },
   "previous": [
+    {
+      "version": "0.4.0",
+      "contractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
+      "wasmSha256": "b97fffc81b053f597aaff0cb39b69a21005835ba412b8d8cf51681db1a6135aa",
+      "source": "contracts/splitter @ 57b3a74, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200
+      },
+      "uploadTx": "845d38825ee93b8dc4ff247e2571a9dd5ef6394709a07d2cbf50ea9642f51aa8",
+      "deployTx": "3ff42545e1728924f7bbe516f2aec2a6f5443e183f3f013d3a747382abfc5bcf",
+      "deployedAt": "2026-11-25T19:05:58Z",
+      "status": "EN PRODUCCIÓN desde 2026-11-26T00:18Z (25-nov CDMX): SPLITTER_CONTRACT_ID de la API de la VPS y de paperpay.blockchains.tf, con SPLITTER_REFERRALS=true (pay, pay_ref y gift). La v0.2.0 quedó en SPLITTER_LEGACY_CONTRACT_IDS.",
+      "usage": {
+        "pay_authors": {
+          "tx": "23a68ac1be070324569dcb1a39b0e9ff1a80283a4809e63112ca0a3e648a4867",
+          "what": "0.50 USDC por crispr-nanomedicine-biotech de GB2PFD2WJ3PXS27HEM6UV2KIKANNCEGIR67HSHLGC67YV5G7QJW6D7OF, con 3 coautores: la editorial demo (50%), GD3ACPRMSXCN4O75NRZJES6EUIUQL5AYNP3QO2L4JICZ4UABWC6LUU43 (30%) y GDPDEFI3IVSEMVZWBY34PIFWSTG7UTWWTVBFA3GMGQHMUHE3QRSDJDXI (20%)",
+          "result": "2450000 a la editorial demo, 1470000 y 980000 a los coautores, 100000 a la tesorería; un evento paid con publisher = la editorial demo (primer autor)"
+        },
+        "pay_ref": {
+          "tx": "ab2ca6914b583415bf821e3223b651a4ab2d73863c827eb0634fb48752f7aa22",
+          "what": "0.50 USDC por autonomous-ai-micropayments a la editorial demo, recomendado por GBLQWX6QQS3HNRKOQVM3BI5KQMWMSE4GYSCSY2DJ7QE5OLUQQNCERTDF",
+          "result": "4900000 a la editorial demo, 50000 a quien recomendó y 50000 a la tesorería; eventos paid (fee 100000) y referred (reward 50000)"
+        },
+        "pay_ref_site": {
+          "tx": "d3a130f6aff66928b9d4c54288901d0507d61b5995918753bfe83086754d1197",
+          "what": "0.50 USDC por quantum-cryptography-post-quantum por paperpay.blockchains.tf (Pages Function → API de la VPS), recomendado por una cuenta desechable con trustline (test:splitter con REFERRER=trustline)",
+          "result": "4900000 a la editorial demo, 50000 a quien recomendó y 50000 a la tesorería; el JWT reabre el artículo"
+        }
+      }
+    },
     {
       "version": "0.3.0",
       "contractId": "CCQRUTXBSWOSOHIZIEJ637HIMJZ6CZN5ZYSMTPGBTSMFAEXY6O5QHEQD",
