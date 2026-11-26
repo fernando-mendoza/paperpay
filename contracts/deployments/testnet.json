@@ -2,7 +2,7 @@
   "network": "stellar:testnet",
   "networkPassphrase": "Test SDF Network ; September 2015",
   "rpcUrl": "https://soroban-testnet.stellar.org",
-  "productionContractId": "CAIMQYXIXNYSAXIRQRAAG5ZTWP26476JX4SVAMDAOXRKLRCADUDKHOR5",
+  "productionContractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
   "splitter": {
     "version": "0.4.0",
     "contractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
@@ -16,7 +16,7 @@
     "uploadTx": "845d38825ee93b8dc4ff247e2571a9dd5ef6394709a07d2cbf50ea9642f51aa8",
     "deployTx": "3ff42545e1728924f7bbe516f2aec2a6f5443e183f3f013d3a747382abfc5bcf",
     "deployedAt": "2026-11-25T19:05:58Z",
-    "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.2.0",
+    "status": "EN PRODUCCIÓN desde 2026-11-26T00:18Z (25-nov CDMX): SPLITTER_CONTRACT_ID de la API de la VPS y de paperpay.blockchains.tf, con SPLITTER_REFERRALS=true (pay, pay_ref y gift). La v0.2.0 quedó en SPLITTER_LEGACY_CONTRACT_IDS.",
     "usage": {
       "pay_authors": {
         "tx": "23a68ac1be070324569dcb1a39b0e9ff1a80283a4809e63112ca0a3e648a4867",
@@ -27,6 +27,11 @@
         "tx": "ab2ca6914b583415bf821e3223b651a4ab2d73863c827eb0634fb48752f7aa22",
         "what": "0.50 USDC por autonomous-ai-micropayments a la editorial demo, recomendado por GBLQWX6QQS3HNRKOQVM3BI5KQMWMSE4GYSCSY2DJ7QE5OLUQQNCERTDF",
         "result": "4900000 a la editorial demo, 50000 a quien recomendó y 50000 a la tesorería; eventos paid (fee 100000) y referred (reward 50000)"
+      },
+      "pay_ref_site": {
+        "tx": "d3a130f6aff66928b9d4c54288901d0507d61b5995918753bfe83086754d1197",
+        "what": "0.50 USDC por quantum-cryptography-post-quantum por paperpay.blockchains.tf (Pages Function → API de la VPS), recomendado por una cuenta desechable con trustline (test:splitter con REFERRER=trustline)",
+        "result": "4900000 a la editorial demo, 50000 a quien recomendó y 50000 a la tesorería; el JWT reabre el artículo"
       }
     }
   },
@@ -92,7 +97,7 @@
           "result": "4900000 a la editorial demo y 100000 a la tesorería; evento paid con reader = el estudiante"
         }
       },
-      "status": "EN PRODUCCIÓN: es el SPLITTER_CONTRACT_ID de la API de la VPS y de paperpay.blockchains.tf (pay y gift)"
+      "status": "En producción del 2026-11-24 al 2026-11-26T00:18Z. Hoy es contrato anterior (SPLITTER_LEGACY_CONTRACT_IDS): sus regalos se pueden reclamar y sus lecturas siguen en el contador; los pagos nuevos van a la v0.4.0."
     },
     {
       "contractId": "CDOUF6BBLKAXPT6EJAF2SOAUMKX3RASZFNHD7ORMIQZUTH4G6V66BPOZ",

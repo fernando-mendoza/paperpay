@@ -6,9 +6,9 @@ Todas las versiones usan el mismo constructor: SAC de USDC de testnet, la tesore
 
 | Versión | Contrato (testnet) | Funciones nuevas | Pruebas | ¿La usa el sitio? |
 | --- | --- | --- | --- | --- |
-| [0.4.0](#040-25-nov-2026) | `CC5SIM…ADGA` | `pay_authors`, `pay_ref` | 43 | No |
+| [0.4.0](#040-25-nov-2026) | `CC5SIM…ADGA` | `pay_authors`, `pay_ref` | 43 | **Sí, desde el 25 de noviembre** (`pay`, `pay_ref` y `gift`) |
 | [0.3.0](#030-25-nov-2026) | `CCQRUT…HEQD` | `gift_batch`, `tip`, `refund` | 32 | No |
-| [0.2.0](#020-23-nov-2026) | `CAIMQY…HOR5` | `pay_batch`, `gift` | 21 | **Sí, desde el 23 de noviembre** |
+| [0.2.0](#020-23-nov-2026) | `CAIMQY…HOR5` | `pay_batch`, `gift` | 21 | Del 23 al 25 de noviembre. Sigue como contrato anterior: sus regalos y lecturas valen |
 | [0.1.0](#010-23-nov-2026) | `CDOUF6…BPOZ` | `pay`, `split`, `config` | 11 | No (reemplazada) |
 
 ## 0.4.0 (25 nov 2026)

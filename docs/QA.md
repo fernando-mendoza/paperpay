@@ -1,6 +1,6 @@
 # Estado de QA
 
-## Revisión del 25 de noviembre de 2026: referidos (`pay_ref`) en la API y la web, sin desplegar
+## Revisión del 25 de noviembre de 2026: referidos (`pay_ref`) en la API y la web, en producción
 
 - API: `pnpm test` con 136 pruebas en verde (13 nuevas). Cubren:
   - `pay_ref` armado y validado;
@@ -25,7 +25,21 @@
   - `/lee?ref=` y luego un artículo: el aviso sigue;
   - sin referido: panel sí, aviso no;
   - sin errores de consola (fuera del `402` del paywall).
-- **No probado:** "Crear mi enlace" con la extensión Freighter real (el navegador de pruebas no la tiene) y un pago con referido desde el sitio publicado. Producción no cambió: la API sigue en v0.2.0 sin referidos.
+- **En producción** desde el 25-nov (CDMX; 00:18 UTC del 26), con el OK del owner:
+  - **API (VPS):** `deploy-vps.sh` con 136 + 59 pruebas en verde. `/opt/paperpay` quedó en `6f0959e` y el health respondió al ~3.er segundo con la v0.2.0, igual que antes.
+  - **Variables:** respaldo `/etc/paperpay/api.env.bak-20261126001804`; luego `SPLITTER_CONTRACT_ID` → v0.4.0, `SPLITTER_LEGACY_CONTRACT_IDS` = v0.2.0 y `SPLITTER_REFERRALS=true`. El restart tenía guard (si el health no mostraba v0.4.0, restauraba el respaldo). Health OK con `splitterContractIds` = [v0.4.0, v0.2.0], y el 402 publicado trae `referrals: true`.
+  - **Web:** Cloudflare Pages `503f52df` (300 archivos nuevos + 56 reusados).
+- **Verificado en producción:**
+  - `pay_ref` real por `paperpay.blockchains.tf`, pasando por la Pages Function y la API de la VPS (`test:splitter` con `API_URL` del sitio y `REFERRER=trustline`): [`d3a130f6…`](https://stellar.expert/explorer/testnet/tx/d3a130f6aff66928b9d4c54288901d0507d61b5995918753bfe83086754d1197), 0.49 / 0.005 / 0.005. El JWT reabre el artículo y reenviar el sobre no cobra dos veces.
+  - Las e2e de la web contra el sitio pasan: `pay` [`4c16b600…`](https://stellar.expert/explorer/testnet/tx/4c16b60006390d3c8d615e30fbc05bfd835f74ddc11e68b092026586729d1cbe), el memo y el regalo (`gift` en v0.4.0). El panel cuenta 68 lecturas (29 por contrato): las de la v0.2.0 siguen sumando.
+    - Al correr los 3 archivos en paralelo, la prueba de `pay` falló una vez porque el pago del regalo quedó como la lectura más reciente. Sola pasó. Desde ahora `test:e2e` corre los archivos en serie.
+  - `ref-shots.mjs` contra el sitio da lo mismo que en local (captura y limpieza del `?ref=`, aviso, panel, celular sin scroll horizontal). `/`, `/lee`, `/top`, `/editorial`, el artículo y `/api/health` responden 200.
+  - Único error de consola: `ERR_CERT_AUTHORITY_INVALID` del beacon de `cloudflareinsights` (CA de la máquina de pruebas).
+- **Rollback:**
+  - Variables: `sudo cp -a /etc/paperpay/api.env.bak-20261126001804 /etc/paperpay/api.env && sudo systemctl restart paperpay-api` (vuelve a la v0.2.0 sin referidos; el código nuevo funciona igual con ese env).
+  - Código: intercambiar `/opt/paperpay.old`.
+  - Web: Pages `021224ea`.
+- **No probado:** "Crear mi enlace" con la extensión Freighter real (el navegador de pruebas no la tiene).
 
 ## Revisión del 25 de noviembre de 2026: intro y hero cinemático de `/lee` en el celular
 
