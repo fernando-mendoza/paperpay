@@ -2,9 +2,9 @@
 extern crate std;
 
 use super::{
-    Campaign, CampaignOpened, Config, DataKey, Error, Item, Opened, Paid, PassBought, RefSplit,
-    Referred, Refunded, Renewed, Share, Split, Splitter, SplitterClient, Subscribed, Subscription,
-    Tipped, Unsubscribed, DAY_SECONDS, MAX_ACCESS_DAYS, MAX_AUTHORS, MAX_BATCH_ITEMS,
+    Campaign, CampaignOpened, Config, DataKey, Error, Item, Opened, Paid, PassBought, Pledged,
+    RefSplit, Referred, Refunded, Renewed, Share, Split, Splitter, SplitterClient, Subscribed,
+    Subscription, Tipped, Unsubscribed, DAY_SECONDS, MAX_ACCESS_DAYS, MAX_AUTHORS, MAX_BATCH_ITEMS,
     MAX_CAMPAIGN_DAYS, MAX_FEE_BPS, MAX_PASS_DAYS, MAX_RENEWALS, REFUND_GRACE_DAYS,
 };
 use soroban_sdk::{
@@ -2286,4 +2286,186 @@ fn la_entrada_de_la_campana_vive_hasta_el_plazo_y_la_gracia_para_devolver() {
     let needed = ((MAX_CAMPAIGN_DAYS + REFUND_GRACE_DAYS) as u64 * DAY / 5) as u32;
     assert_eq!(ttl, needed + 7 * DAY_LEDGERS);
     assert!(ttl < 3_110_400);
+}
+
+impl Setup<'_> {
+    /// La editorial abre una campaña por `paper(...)` con meta `GOAL` y plazo en 7 días.
+    fn open_campaign(&self) -> u32 {
+        self.splitter.open_campaign(
+            &self.publisher,
+            &paper(&self.env),
+            &GOAL,
+            &(self.now() + 7 * DAY),
+        )
+    }
+
+    /// Una cuenta nueva con `amount` de USDC.
+    fn backer(&self, amount: i128) -> Address {
+        let backer = Address::generate(&self.env);
+        self.fund(&backer, amount);
+        backer
+    }
+}
+
+#[test]
+fn un_aporte_entra_en_garantia_y_suma_hacia_la_meta() {
+    let s = setup();
+    let id = s.open_campaign();
+    let ana = s.backer(GOAL);
+    let raised = s.splitter.pledge(&ana, &id, &6_000_000);
+    let receipts = s.receipts();
+
+    assert_eq!(raised, 6_000_000);
+    assert_eq!(s.usdc.balance(&ana), 4_000_000);
+    assert_eq!(
+        s.usdc.balance(&s.splitter.address),
+        6_000_000,
+        "el aporte queda en garantía en el contrato"
+    );
+    assert_eq!(s.usdc.balance(&s.publisher), 0);
+    assert_eq!(s.usdc.balance(&s.treasury), 0);
+    assert_eq!(s.splitter.campaign(&id).unwrap().raised, 6_000_000);
+    assert_eq!(s.splitter.pledge_of(&id, &ana), 6_000_000);
+    let expected = Pledged {
+        backer: ana.clone(),
+        campaign_id: id,
+        amount: 6_000_000,
+        raised: 6_000_000,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.splitter.address)]);
+}
+
+#[test]
+fn el_aporte_solo_pide_la_firma_de_quien_aporta() {
+    let s = setup();
+    let id = s.open_campaign();
+    let ana = s.backer(GOAL);
+    s.splitter.pledge(&ana, &id, &6_000_000);
+
+    assert_eq!(
+        s.env.auths(),
+        std::vec![(
+            ana.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.splitter.address.clone(),
+                    Symbol::new(&s.env, "pledge"),
+                    (ana.clone(), id, 6_000_000i128).into_val(&s.env),
+                )),
+                sub_invocations: std::vec![s.transfer_auth(&ana, &s.splitter.address, 6_000_000)],
+            }
+        )]
+    );
+}
+
+#[test]
+fn los_aportes_se_acumulan_y_nunca_pasan_de_la_meta() {
+    let s = setup();
+    let id = s.open_campaign();
+    let ana = s.backer(GOAL);
+    let beto = s.backer(GOAL);
+
+    s.splitter.pledge(&ana, &id, &3_000_000);
+    assert_eq!(s.splitter.pledge(&ana, &id, &3_000_000), 6_000_000);
+    assert_eq!(s.splitter.pledge_of(&id, &ana), 6_000_000);
+
+    // Faltan 0.40: un aporte de 0.50 falla entero, sin cobrar nada (no se recorta).
+    assert_eq!(
+        s.splitter.try_pledge(&beto, &id, &5_000_000),
+        Err(Ok(Error::OverGoal.into()))
+    );
+    assert_eq!(s.usdc.balance(&beto), GOAL);
+
+    assert_eq!(s.splitter.pledge(&beto, &id, &4_000_000), GOAL);
+    assert_eq!(s.usdc.balance(&s.splitter.address), GOAL);
+    assert_eq!(s.splitter.pledge_of(&id, &beto), 4_000_000);
+
+    // Con la meta cumplida, la campaña ya no recibe aportes.
+    assert_eq!(
+        s.splitter.try_pledge(&beto, &id, &1),
+        Err(Ok(Error::CampaignClosed.into()))
+    );
+}
+
+#[test]
+fn no_se_aporta_despues_del_plazo_a_una_campana_inexistente_ni_sin_firma() {
+    let s = setup();
+    let id = s.open_campaign();
+    let ana = s.backer(GOAL);
+
+    assert_eq!(
+        s.splitter.try_pledge(&ana, &99, &1_000_000),
+        Err(Ok(Error::NoCampaign.into()))
+    );
+    assert_eq!(
+        s.splitter.try_pledge(&ana, &id, &0),
+        Err(Ok(Error::InvalidAmount.into()))
+    );
+
+    // Un segundo antes del plazo todavía se puede; en el plazo, ya no.
+    s.advance(7 * DAY - 5);
+    s.env.ledger().with_mut(|li| li.timestamp += 4);
+    assert!(s.splitter.try_pledge(&ana, &id, &1_000_000).is_ok());
+    s.env.ledger().with_mut(|li| li.timestamp += 1);
+    assert_eq!(
+        s.splitter.try_pledge(&ana, &id, &1_000_000),
+        Err(Ok(Error::CampaignClosed.into()))
+    );
+
+    let other = s
+        .splitter
+        .open_campaign(&s.publisher, &paper(&s.env), &GOAL, &(s.now() + DAY));
+    s.env.set_auths(&[]);
+    assert!(s.splitter.try_pledge(&ana, &other, &1_000_000).is_err());
+    assert_eq!(s.usdc.balance(&ana), GOAL - 1_000_000);
+    assert_eq!(s.splitter.campaign(&other).unwrap().raised, 0);
+}
+
+#[test]
+fn la_firma_del_aporte_sigue_valiendo_si_otro_aporta_antes_de_que_se_envie() {
+    let s = setup();
+    let id = s.open_campaign();
+    let ana = s.backer(GOAL);
+    let beto = s.backer(GOAL);
+    // Ana firma su aporte de 0.30 con la campaña en 0...
+    let pledge_args = (ana.clone(), id, 3_000_000i128).into_val(&s.env);
+    let transfer_args = (ana.clone(), s.splitter.address.clone(), 3_000_000i128).into_val(&s.env);
+    // ...pero antes de que se ejecute, Beto aporta 0.50 y la red avanza 3 ledgers.
+    s.splitter.pledge(&beto, &id, &5_000_000);
+    s.advance(15);
+    s.env.mock_auths(&[MockAuth {
+        address: &ana,
+        invoke: &MockAuthInvoke {
+            contract: &s.splitter.address,
+            fn_name: "pledge",
+            args: pledge_args,
+            sub_invokes: &[MockAuthInvoke {
+                contract: &s.usdc.address,
+                fn_name: "transfer",
+                args: transfer_args,
+                sub_invokes: &[],
+            }],
+        },
+    }]);
+
+    assert_eq!(s.splitter.pledge(&ana, &id, &3_000_000), 8_000_000);
+}
+
+#[test]
+fn la_entrada_del_aporte_vive_tanto_como_su_campana() {
+    let s = setup();
+    let id = s.open_campaign();
+    let ana = s.backer(GOAL);
+    s.splitter.pledge(&ana, &id, &1_000_000);
+
+    let (campaign_ttl, pledge_ttl) = s.env.as_contract(&s.splitter.address, || {
+        let storage = s.env.storage().persistent();
+        (
+            storage.get_ttl(&DataKey::Campaign(id)),
+            storage.get_ttl(&DataKey::Pledge(id, ana.clone())),
+        )
+    });
+    let needed = ((7 + REFUND_GRACE_DAYS) as u64 * DAY / 5) as u32 + 7 * DAY_LEDGERS;
+    assert_eq!(campaign_ttl, needed);
+    assert_eq!(pledge_ttl, needed);
 }

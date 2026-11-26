@@ -2,7 +2,7 @@
 
 //! Reparto de cada lectura de PaperPay en la misma transacción del pago:
 //! la editorial recibe el monto menos la comisión y la tesorería de PaperPay recibe la comisión
-//! (`fee_bps`, 200 = 2%). El contrato nunca guarda fondos: mueve el USDC directo de la cuenta
+//! (`fee_bps`, 200 = 2%). Los pagos no pasan por el contrato: mueve el USDC directo de la cuenta
 //! de quien paga a las cuentas de destino. Cada artículo pagado emite un evento `paid` con su id
 //! y con quién lo puede leer, que queda en la red como comprobante.
 //!
@@ -22,6 +22,13 @@
 //!   Cualquiera la puede enviar, pero solo cobra el precio pactado y solo cuando al pase le falta
 //!   un día o menos. Los fondos siguen en la wallet de quien lee hasta cada cobro.
 //! - `sponsor_open`: alguien paga para que un artículo quede abierto para todos N días.
+//!
+//! Campañas de acceso abierto, la única custodia del contrato:
+//! - `open_campaign`: la editorial ofrece liberar un artículo para todos si los aportes llegan a
+//!   una meta antes de un plazo.
+//! - `pledge`: un aporte hacia la meta. Queda guardado en el contrato hasta que se cumple la meta
+//!   (va a la editorial) o vence el plazo sin cumplirla (vuelve a quien aportó). No hay admin: ese
+//!   dinero no tiene otra salida.
 //!
 //! Y dos movimientos que no dan acceso (emiten su propio evento, nunca `paid`):
 //! - `tip`: una propina a la editorial por un artículo, con el mismo reparto.
@@ -115,6 +122,13 @@ pub enum Error {
     RenewTooEarly = 16,
     /// Plazo de campaña que ya pasó o que queda a más de `MAX_CAMPAIGN_DAYS`.
     InvalidDeadline = 17,
+    /// No hay campaña con ese id.
+    NoCampaign = 18,
+    /// La campaña ya no recibe aportes (venció, llegó a la meta o se liberó), o ya se liberó.
+    CampaignClosed = 19,
+    /// El aporte supera lo que falta para la meta. El monto que se firma no se recorta: si otro
+    /// aporte entra antes, este falla sin mover nada y se vuelve a intentar con lo que falte.
+    OverGoal = 20,
 }
 
 #[contracttype]
@@ -210,6 +224,8 @@ enum DataKey {
     NextCampaign,
     /// Una campaña de acceso abierto, por id.
     Campaign(u32),
+    /// Lo que aportó `backer` a la campaña `u32` y sigue en garantía.
+    Pledge(u32, Address),
 }
 
 /// Comprobante de un artículo pagado. Topics: `["paid", publisher, reader]`.
@@ -330,6 +346,18 @@ pub struct CampaignOpened {
     pub paper_id: String,
     pub goal: i128,
     pub deadline: u64,
+}
+
+/// Un aporte en garantía. Topics: `["pledged", backer]`. `raised` es lo aportado a la campaña
+/// después de este aporte.
+#[contractevent(topics = ["pledged"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Pledged {
+    #[topic]
+    pub backer: Address,
+    pub campaign_id: u32,
+    pub amount: i128,
+    pub raised: i128,
 }
 
 /// Comprobante de una propina. Topics: `["tipped", publisher, payer]`. No da acceso al artículo.
@@ -936,6 +964,66 @@ impl Splitter {
         id
     }
 
+    /// `backer` aporta `amount` a la campaña `campaign_id`. El aporte pasa de su wallet al
+    /// contrato y queda en garantía: si se llega a la meta, va a la editorial (`release_pledges`);
+    /// si vence el plazo sin llegar, vuelve completo a `backer` (`refund_pledge`). Solo mientras la
+    /// campaña está abierta (antes del plazo, sin la meta cumplida y sin liberar) y sin pasar de
+    /// lo que falta (`OverGoal`): el monto firmado es el que se cobra, nunca se recorta. Solo firma
+    /// `backer`. Emite `pledged` y devuelve lo aportado a la campaña hasta ahora.
+    pub fn pledge(env: Env, backer: Address, campaign_id: u32, amount: i128) -> i128 {
+        backer.require_auth();
+        if amount <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let key = DataKey::Campaign(campaign_id);
+        let mut campaign = read_campaign(&env, campaign_id);
+        if campaign.released
+            || env.ledger().timestamp() >= campaign.deadline
+            || campaign.raised >= campaign.goal
+        {
+            panic_with_error!(&env, Error::CampaignClosed);
+        }
+        if amount > campaign.goal - campaign.raised {
+            panic_with_error!(&env, Error::OverGoal);
+        }
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &backer,
+            env.current_contract_address(),
+            &amount,
+        );
+        // Ni el total ni el aporte de una cuenta pasan de la meta: no se desbordan.
+        campaign.raised += amount;
+        let pledge_key = DataKey::Pledge(campaign_id, backer.clone());
+        let pledged: i128 = env.storage().persistent().get(&pledge_key).unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&pledge_key, &(pledged + amount));
+        env.storage().persistent().set(&key, &campaign);
+        keep_campaign(&env, &key, campaign.deadline);
+        keep_campaign(&env, &pledge_key, campaign.deadline);
+        extend_instance_ttl(&env);
+
+        Pledged {
+            backer,
+            campaign_id,
+            amount,
+            raised: campaign.raised,
+        }
+        .publish(&env);
+
+        campaign.raised
+    }
+
+    /// Lo que aportó `backer` a la campaña `campaign_id` y sigue en garantía.
+    pub fn pledge_of(env: Env, campaign_id: u32, backer: Address) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Pledge(campaign_id, backer))
+            .unwrap_or(0)
+    }
+
     /// La campaña `campaign_id`, si existe.
     pub fn campaign(env: Env, campaign_id: u32) -> Option<Campaign> {
         env.storage()
@@ -1080,6 +1168,17 @@ fn keep_until(env: &Env, key: &DataKey, until: u64) {
     let ledgers = (secs / LEDGER_SECONDS) as u32 + TTL_MARGIN_LEDGERS;
     let ttl = ledgers.min(env.storage().max_ttl());
     env.storage().persistent().extend_ttl(key, ttl, ttl);
+}
+
+fn read_campaign(env: &Env, campaign_id: u32) -> Campaign {
+    match env
+        .storage()
+        .persistent()
+        .get(&DataKey::Campaign(campaign_id))
+    {
+        Some(campaign) => campaign,
+        None => panic_with_error!(env, Error::NoCampaign),
+    }
 }
 
 /// Las entradas de una campaña viven hasta su plazo y `REFUND_GRACE_DAYS` más (y el margen de
