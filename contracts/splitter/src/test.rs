@@ -2,9 +2,10 @@
 extern crate std;
 
 use super::{
-    Config, DataKey, Error, Item, Paid, PassBought, RefSplit, Referred, Refunded, Renewed, Share,
-    Split, Splitter, SplitterClient, Subscribed, Subscription, Tipped, Unsubscribed, DAY_SECONDS,
-    MAX_ACCESS_DAYS, MAX_AUTHORS, MAX_BATCH_ITEMS, MAX_FEE_BPS, MAX_PASS_DAYS, MAX_RENEWALS,
+    Config, DataKey, Error, Item, Opened, Paid, PassBought, RefSplit, Referred, Refunded, Renewed,
+    Share, Split, Splitter, SplitterClient, Subscribed, Subscription, Tipped, Unsubscribed,
+    DAY_SECONDS, MAX_ACCESS_DAYS, MAX_AUTHORS, MAX_BATCH_ITEMS, MAX_FEE_BPS, MAX_PASS_DAYS,
+    MAX_RENEWALS,
 };
 use soroban_sdk::{
     testutils::{
@@ -1894,4 +1895,155 @@ fn la_suscripcion_vive_en_la_red_hasta_su_ultima_renovacion() {
     // 150 días + 1 de margen, a un ledger cada 5 s, más una semana.
     assert_eq!(ttl, 151 * DAY_LEDGERS + 7 * DAY_LEDGERS);
     assert!(ttl <= 3_110_400, "cabe en el TTL máximo de testnet");
+}
+
+// ---------- sponsor_open ----------
+
+fn open_price(days: u32) -> i128 {
+    OPEN_DAY_PRICE * days as i128
+}
+
+#[test]
+fn un_patrocinio_abre_el_articulo_para_todos_y_reparte_98_2() {
+    let s = setup();
+    let sponsor = Address::generate(&s.env);
+    s.fund(&sponsor, open_price(5));
+    let paper_id = paper(&s.env);
+    let until = s
+        .splitter
+        .sponsor_open(&sponsor, &paper_id, &s.publisher, &2, &open_price(2));
+    let receipts = s.receipts();
+
+    assert_eq!(until, START + 2 * DAY);
+    assert_eq!(s.splitter.open_until(&s.publisher, &paper_id), until);
+    assert_eq!(s.usdc.balance(&sponsor), open_price(3));
+    assert_eq!(s.usdc.balance(&s.publisher), 98_000_000);
+    assert_eq!(s.usdc.balance(&s.treasury), 2_000_000);
+    assert_eq!(
+        s.usdc.balance(&s.splitter.address),
+        0,
+        "el contrato no guarda fondos"
+    );
+    assert_eq!(
+        receipts,
+        [Opened {
+            publisher: s.publisher.clone(),
+            sponsor: sponsor.clone(),
+            paper_id,
+            days: 2,
+            amount: open_price(2),
+            fee: 2_000_000,
+            open_until: until,
+        }
+        .to_xdr(&s.env, &s.splitter.address)],
+        "emite opened y no paid: no es la lectura de una cuenta"
+    );
+}
+
+#[test]
+fn la_apertura_es_por_articulo_y_editorial_y_los_dias_se_suman() {
+    let s = setup();
+    let sponsor = Address::generate(&s.env);
+    s.fund(&sponsor, open_price(10));
+    let paper_id = paper(&s.env);
+    let other_paper = String::from_str(&s.env, "autonomous-ai-micropayments");
+    let other_publisher = Address::generate(&s.env);
+
+    s.splitter
+        .sponsor_open(&sponsor, &paper_id, &s.publisher, &1, &open_price(1));
+    assert_eq!(s.splitter.open_until(&s.publisher, &other_paper), 0);
+    assert_eq!(s.splitter.open_until(&other_publisher, &paper_id), 0);
+
+    // Otro patrocinio antes de que venza: se suma.
+    let second = Address::generate(&s.env);
+    s.fund(&second, open_price(1));
+    assert_eq!(
+        s.splitter
+            .sponsor_open(&second, &paper_id, &s.publisher, &1, &open_price(1)),
+        START + 2 * DAY
+    );
+    // Vencido: cuenta desde ahora.
+    s.advance(5 * DAY);
+    assert_eq!(
+        s.splitter
+            .sponsor_open(&sponsor, &paper_id, &s.publisher, &1, &open_price(1)),
+        START + 6 * DAY
+    );
+}
+
+#[test]
+fn el_patrocinio_solo_pide_la_firma_de_quien_patrocina() {
+    let s = setup();
+    let sponsor = Address::generate(&s.env);
+    s.fund(&sponsor, open_price(1));
+    let paper_id = paper(&s.env);
+    s.splitter
+        .sponsor_open(&sponsor, &paper_id, &s.publisher, &1, &open_price(1));
+
+    assert_eq!(
+        s.env.auths(),
+        std::vec![(
+            sponsor.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.splitter.address.clone(),
+                    Symbol::new(&s.env, "sponsor_open"),
+                    (
+                        sponsor.clone(),
+                        paper_id,
+                        s.publisher.clone(),
+                        1u32,
+                        open_price(1)
+                    )
+                        .into_val(&s.env),
+                )),
+                sub_invocations: std::vec![
+                    s.transfer_auth(&sponsor, &s.publisher, 49_000_000),
+                    s.transfer_auth(&sponsor, &s.treasury, 1_000_000),
+                ],
+            }
+        )]
+    );
+}
+
+#[test]
+fn el_patrocinio_rechaza_datos_invalidos_y_sin_firma_no_abre_nada() {
+    let s = setup();
+    let sponsor = Address::generate(&s.env);
+    s.fund(&sponsor, open_price(100));
+    let paper_id = paper(&s.env);
+    let open = |paper_id: &String, days: u32, amount: i128| {
+        s.splitter
+            .try_sponsor_open(&sponsor, paper_id, &s.publisher, &days, &amount)
+    };
+
+    assert_eq!(
+        open(&String::from_str(&s.env, ""), 1, open_price(1)),
+        Err(Ok(Error::InvalidPaperId.into()))
+    );
+    assert_eq!(open(&paper_id, 0, 0), Err(Ok(Error::InvalidDays.into())));
+    assert_eq!(
+        open(&paper_id, MAX_PASS_DAYS + 1, open_price(MAX_PASS_DAYS + 1)),
+        Err(Ok(Error::InvalidDays.into()))
+    );
+    // El precio de un pase no abre un artículo.
+    assert_eq!(
+        open(&paper_id, 1, pass_price(1)),
+        Err(Ok(Error::WrongPrice.into()))
+    );
+    assert_eq!(s.usdc.balance(&sponsor), open_price(100));
+    assert_eq!(s.splitter.open_until(&s.publisher, &paper_id), 0);
+
+    for days in [31, 31, 28] {
+        assert!(open(&paper_id, days, open_price(days)).is_ok());
+    }
+    assert_eq!(
+        open(&paper_id, 1, open_price(1)),
+        Err(Ok(Error::TooLong.into()))
+    );
+
+    s.env.set_auths(&[]);
+    let other = String::from_str(&s.env, "autonomous-ai-micropayments");
+    assert!(open(&other, 1, open_price(1)).is_err());
+    assert_eq!(s.splitter.open_until(&s.publisher, &other), 0);
 }

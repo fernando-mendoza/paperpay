@@ -21,6 +21,7 @@
 //! - `renew_subscription`: cobra una renovación con esa autorización, sin firma de quien lee.
 //!   Cualquiera la puede enviar, pero solo cobra el precio pactado y solo cuando al pase le falta
 //!   un día o menos. Los fondos siguen en la wallet de quien lee hasta cada cobro.
+//! - `sponsor_open`: alguien paga para que un artículo quede abierto para todos N días.
 //!
 //! Y dos movimientos que no dan acceso (emiten su propio evento, nunca `paid`):
 //! - `tip`: una propina a la editorial por un artículo, con el mismo reparto.
@@ -182,6 +183,8 @@ enum DataKey {
     Pass(Address, Address),
     /// La suscripción de `reader` (una por lector: la allowance del token es una por cuenta).
     Sub(Address),
+    /// Hasta cuándo (segundos Unix) el artículo `paper_id` de `publisher` está abierto para todos.
+    Open(Address, String),
 }
 
 /// Comprobante de un artículo pagado. Topics: `["paid", publisher, reader]`.
@@ -273,6 +276,22 @@ pub struct Unsubscribed {
     #[topic]
     pub reader: Address,
     pub renewals_left: u32,
+}
+
+/// Un artículo abierto para todos por un patrocinio. Topics: `["opened", publisher, sponsor]`.
+/// Cualquiera puede leer `paper_id` hasta `open_until` (segundos Unix, hora del ledger).
+#[contractevent(topics = ["opened"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Opened {
+    #[topic]
+    pub publisher: Address,
+    #[topic]
+    pub sponsor: Address,
+    pub paper_id: String,
+    pub days: u32,
+    pub amount: i128,
+    pub fee: i128,
+    pub open_until: u64,
 }
 
 /// Comprobante de una propina. Topics: `["tipped", publisher, payer]`. No da acceso al artículo.
@@ -768,6 +787,56 @@ impl Splitter {
     /// La suscripción vigente de `reader`, si tiene.
     pub fn subscription(env: Env, reader: Address) -> Option<Subscription> {
         env.storage().persistent().get(&DataKey::Sub(reader))
+    }
+
+    /// `sponsor` paga para que `paper_id` de `publisher` quede abierto para todos `days` días
+    /// (1 a `MAX_PASS_DAYS`): un laboratorio, una fundación o la misma editorial patrocina el
+    /// acceso abierto. Cobra exactamente `days × open_day_price` y lo reparte como una lectura,
+    /// sin guardar fondos. Los días se suman a la apertura vigente; si ya venció, cuentan desde
+    /// ahora, y no pasa de `MAX_ACCESS_DAYS` desde ahora. Solo firma `sponsor`. Emite `opened` (no
+    /// `paid`: no es la lectura de una cuenta) y devuelve hasta cuándo queda abierto.
+    pub fn sponsor_open(
+        env: Env,
+        sponsor: Address,
+        paper_id: String,
+        publisher: Address,
+        days: u32,
+        amount: i128,
+    ) -> u64 {
+        sponsor.require_auth();
+        validate_paper_id(&env, &paper_id);
+        let config = read_config(&env);
+        check_price(&env, days, config.open_day_price, amount);
+        let split = compute_split(&env, amount, config.fee_bps);
+        transfer_split(&env, &config, &sponsor, &publisher, &split);
+        let open_until = extend_access(
+            &env,
+            &DataKey::Open(publisher.clone(), paper_id.clone()),
+            days,
+        );
+        extend_instance_ttl(&env);
+
+        Opened {
+            publisher,
+            sponsor,
+            paper_id,
+            days,
+            amount,
+            fee: split.fee,
+            open_until,
+        }
+        .publish(&env);
+
+        open_until
+    }
+
+    /// Hasta cuándo (segundos Unix) está abierto para todos `paper_id` de `publisher`; 0 si nunca
+    /// se abrió.
+    pub fn open_until(env: Env, publisher: Address, paper_id: String) -> u64 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Open(publisher, paper_id))
+            .unwrap_or(0)
     }
 
     /// Cómo se repartiría `amount`, sin mover fondos.
