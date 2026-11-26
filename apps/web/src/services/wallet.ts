@@ -29,7 +29,7 @@ async function connectMock(): Promise<WalletInfo> {
   return { address: MOCK_ADDRESS, network: 'TESTNET' }
 }
 
-async function connectFreighter(): Promise<WalletInfo> {
+export async function connectFreighter(): Promise<WalletInfo> {
   const freighter = await import('@stellar/freighter-api')
 
   const connection = await freighter.isConnected()
