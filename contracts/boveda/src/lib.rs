@@ -1,15 +1,18 @@
 #![no_std]
 
-//! Bóveda de PaperPay para el reto exprés de Ship It: guarda XLM y solo los suelta a quien
-//! presenta el código.
+//! Tarjeta de regalo de PaperPay con código (la bóveda del reto exprés de Ship It): quien regala
+//! llena la bóveda y comparte un código; quien lo trae se lleva todo el saldo, como una gift card.
+//! Sigue al "regalo por enlace" del contrato de reparto (`gift`): allá se regala un artículo, aquí
+//! saldo para leer.
 //!
-//! - `deposit`: cualquiera llena la bóveda con XLM (el token se fija al desplegar).
+//! - `deposit`: cualquiera llena la bóveda con el token que se fijó al desplegar (en el reto, XLM
+//!   de testnet; para regalar lecturas, USDC).
 //! - `claim`: quien presenta el código correcto se lleva todo lo que hay, con su firma. El
 //!   contrato no guarda el código, solo su SHA-256: compara el hash de lo que le mandan.
 //!
 //! No hay admin ni retiro: los fondos solo salen con el código. El código viaja en claro en la
-//! transacción de `claim` (así la wallet lo muestra al firmar), así que la bóveda es un reto, no
-//! una caja fuerte: cualquiera que lo sepa puede vaciarla.
+//! transacción de `claim` (así la wallet lo muestra al firmar), así que es una tarjeta de regalo,
+//! no una caja fuerte: cualquiera que sepa el código puede cobrarla.
 
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
