@@ -2,9 +2,9 @@
 extern crate std;
 
 use super::{
-    Config, DataKey, Error, Item, Paid, PassBought, RefSplit, Referred, Refunded, Share, Split,
-    Splitter, SplitterClient, Tipped, DAY_SECONDS, MAX_ACCESS_DAYS, MAX_AUTHORS, MAX_BATCH_ITEMS,
-    MAX_FEE_BPS, MAX_PASS_DAYS,
+    Config, DataKey, Error, Item, Paid, PassBought, RefSplit, Referred, Refunded, Renewed, Share,
+    Split, Splitter, SplitterClient, Subscribed, Subscription, Tipped, Unsubscribed, DAY_SECONDS,
+    MAX_ACCESS_DAYS, MAX_AUTHORS, MAX_BATCH_ITEMS, MAX_FEE_BPS, MAX_PASS_DAYS, MAX_RENEWALS,
 };
 use soroban_sdk::{
     testutils::{
@@ -1509,4 +1509,389 @@ fn la_entrada_del_pase_vive_en_la_red_hasta_que_vence() {
     let needed = (31 * DAY / 5) as u32;
     assert!(ttl >= needed, "TTL {ttl} < {needed}");
     assert_eq!(ttl, needed + 7 * 17_280);
+}
+
+// ---------- subscribe / renew_subscription / cancel_subscription ----------
+
+/// Ledgers de un día (uno cada 5 s).
+const DAY_LEDGERS: u32 = 17_280;
+
+#[test]
+fn una_suscripcion_cobra_el_primer_periodo_y_autoriza_las_renovaciones() {
+    let s = setup();
+    s.fund(&s.payer, pass_price(40));
+    let before = s.usdc.balance(&s.payer);
+    let seq = s.env.ledger().sequence();
+    let until = s
+        .splitter
+        .subscribe(&s.payer, &s.publisher, &7, &3, &pass_price(7));
+    let receipts = s.receipts();
+
+    // El primer periodo se cobra ya, con el reparto de una lectura.
+    assert_eq!(until, START + 7 * DAY);
+    assert_eq!(s.splitter.pass_until(&s.payer, &s.publisher), until);
+    assert_eq!(s.usdc.balance(&s.payer), before - 70_000_000);
+    assert_eq!(s.usdc.balance(&s.publisher), 68_600_000);
+    assert_eq!(s.usdc.balance(&s.treasury), 1_400_000);
+    assert_eq!(
+        s.usdc.balance(&s.splitter.address),
+        0,
+        "el contrato no guarda fondos"
+    );
+
+    // Las 3 renovaciones quedan autorizadas, no cobradas: el dinero sigue en la wallet.
+    assert_eq!(
+        s.usdc.allowance(&s.payer, &s.splitter.address),
+        3 * pass_price(7)
+    );
+    // 7 días × 4 periodos + 1 día de margen.
+    let allowance_until = seq + 29 * DAY_LEDGERS;
+    assert_eq!(
+        s.splitter.subscription(&s.payer),
+        Some(Subscription {
+            publisher: s.publisher.clone(),
+            days: 7,
+            amount: pass_price(7),
+            renewals_left: 3,
+            allowance_until,
+        })
+    );
+
+    let pass = PassBought {
+        publisher: s.publisher.clone(),
+        reader: s.payer.clone(),
+        payer: s.payer.clone(),
+        days: 7,
+        amount: pass_price(7),
+        fee: 1_400_000,
+        valid_until: until,
+    };
+    let subscribed = Subscribed {
+        publisher: s.publisher.clone(),
+        reader: s.payer.clone(),
+        days: 7,
+        amount: pass_price(7),
+        renewals: 3,
+        allowance_until,
+    };
+    assert_eq!(
+        receipts,
+        [
+            pass.to_xdr(&s.env, &s.splitter.address),
+            subscribed.to_xdr(&s.env, &s.splitter.address)
+        ]
+    );
+}
+
+#[test]
+fn la_suscripcion_pide_una_sola_firma_para_el_cobro_y_la_autorizacion() {
+    let s = setup();
+    s.fund(&s.payer, pass_price(10));
+    let seq = s.env.ledger().sequence();
+    s.splitter
+        .subscribe(&s.payer, &s.publisher, &1, &2, &pass_price(1));
+
+    assert_eq!(
+        s.env.auths(),
+        std::vec![(
+            s.payer.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.splitter.address.clone(),
+                    Symbol::new(&s.env, "subscribe"),
+                    (
+                        s.payer.clone(),
+                        s.publisher.clone(),
+                        1u32,
+                        2u32,
+                        pass_price(1)
+                    )
+                        .into_val(&s.env),
+                )),
+                sub_invocations: std::vec![
+                    s.transfer_auth(&s.payer, &s.publisher, 9_800_000),
+                    s.transfer_auth(&s.payer, &s.treasury, 200_000),
+                    AuthorizedInvocation {
+                        function: AuthorizedFunction::Contract((
+                            s.usdc.address.clone(),
+                            Symbol::new(&s.env, "approve"),
+                            (
+                                s.payer.clone(),
+                                s.splitter.address.clone(),
+                                2 * pass_price(1),
+                                seq + 4 * DAY_LEDGERS
+                            )
+                                .into_val(&s.env),
+                        )),
+                        sub_invocations: std::vec![],
+                    },
+                ],
+            }
+        )]
+    );
+}
+
+#[test]
+fn la_renovacion_cobra_con_la_autorizacion_sin_firma_de_quien_lee() {
+    let s = setup();
+    s.fund(&s.payer, pass_price(40));
+    s.splitter
+        .subscribe(&s.payer, &s.publisher, &7, &3, &pass_price(7));
+    let before = s.usdc.balance(&s.payer);
+
+    // Al pase le falta justo un día: ya toca. La envía otra cuenta, sin ninguna firma.
+    s.advance(6 * DAY);
+    s.env.set_auths(&[]);
+    let until = s.splitter.renew_subscription(&s.payer);
+    let receipts = s.receipts();
+
+    assert!(s.env.auths().is_empty(), "la renovación no pidió firmas");
+    assert_eq!(until, START + 14 * DAY);
+    assert_eq!(s.splitter.pass_until(&s.payer, &s.publisher), until);
+    assert_eq!(s.usdc.balance(&s.payer), before - pass_price(7));
+    assert_eq!(s.usdc.balance(&s.publisher), 2 * 68_600_000);
+    assert_eq!(s.usdc.balance(&s.treasury), 2 * 1_400_000);
+    assert_eq!(s.usdc.balance(&s.splitter.address), 0);
+    assert_eq!(
+        s.usdc.allowance(&s.payer, &s.splitter.address),
+        2 * pass_price(7)
+    );
+    assert_eq!(s.splitter.subscription(&s.payer).unwrap().renewals_left, 2);
+
+    let pass = PassBought {
+        publisher: s.publisher.clone(),
+        reader: s.payer.clone(),
+        payer: s.payer.clone(),
+        days: 7,
+        amount: pass_price(7),
+        fee: 1_400_000,
+        valid_until: until,
+    };
+    let renewed = Renewed {
+        publisher: s.publisher.clone(),
+        reader: s.payer.clone(),
+        days: 7,
+        amount: pass_price(7),
+        fee: 1_400_000,
+        valid_until: until,
+        renewals_left: 2,
+    };
+    assert_eq!(
+        receipts,
+        [
+            pass.to_xdr(&s.env, &s.splitter.address),
+            renewed.to_xdr(&s.env, &s.splitter.address)
+        ]
+    );
+}
+
+#[test]
+fn no_se_renueva_antes_de_tiempo_ni_se_cobra_mas_de_un_periodo_adelantado() {
+    let s = setup();
+    s.fund(&s.payer, pass_price(40));
+    s.splitter
+        .subscribe(&s.payer, &s.publisher, &7, &3, &pass_price(7));
+    let before = s.usdc.balance(&s.payer);
+
+    // Faltan 1 día y 1 segundo: todavía no.
+    s.advance(6 * DAY - 1);
+    assert_eq!(
+        s.splitter.try_renew_subscription(&s.payer),
+        Err(Ok(Error::RenewTooEarly.into()))
+    );
+    s.advance(1);
+    s.splitter.renew_subscription(&s.payer);
+    // Recién renovado, al pase le faltan 8 días: otra renovación tendría que esperar.
+    assert_eq!(
+        s.splitter.try_renew_subscription(&s.payer),
+        Err(Ok(Error::RenewTooEarly.into()))
+    );
+    assert_eq!(s.usdc.balance(&s.payer), before - pass_price(7));
+    assert_eq!(s.splitter.subscription(&s.payer).unwrap().renewals_left, 2);
+}
+
+#[test]
+fn con_la_ultima_renovacion_la_suscripcion_termina() {
+    let s = setup();
+    s.fund(&s.payer, pass_price(10));
+    // Un día por periodo: al pase siempre le falta un día o menos, así que la primera
+    // renovación se puede cobrar desde ya (un periodo por adelantado, no más).
+    s.splitter
+        .subscribe(&s.payer, &s.publisher, &1, &2, &pass_price(1));
+    assert_eq!(s.splitter.renew_subscription(&s.payer), START + 2 * DAY);
+    assert_eq!(
+        s.splitter.try_renew_subscription(&s.payer),
+        Err(Ok(Error::RenewTooEarly.into()))
+    );
+
+    s.advance(DAY);
+    assert_eq!(s.splitter.renew_subscription(&s.payer), START + 3 * DAY);
+    assert_eq!(s.splitter.subscription(&s.payer), None);
+    assert_eq!(s.usdc.allowance(&s.payer, &s.splitter.address), 0);
+
+    s.advance(2 * DAY);
+    assert_eq!(
+        s.splitter.try_renew_subscription(&s.payer),
+        Err(Ok(Error::NoSubscription.into()))
+    );
+}
+
+#[test]
+fn cancelar_borra_la_suscripcion_y_la_autorizacion_y_el_pase_pagado_sigue() {
+    let s = setup();
+    s.fund(&s.payer, pass_price(40));
+    let until = s
+        .splitter
+        .subscribe(&s.payer, &s.publisher, &7, &3, &pass_price(7));
+
+    s.env.set_auths(&[]);
+    assert!(
+        s.splitter.try_cancel_subscription(&s.payer).is_err(),
+        "solo quien lee cancela"
+    );
+    s.env.mock_all_auths();
+
+    s.splitter.cancel_subscription(&s.payer);
+    let receipts = s.receipts();
+    assert_eq!(s.splitter.subscription(&s.payer), None);
+    assert_eq!(s.usdc.allowance(&s.payer, &s.splitter.address), 0);
+    assert_eq!(s.splitter.pass_until(&s.payer, &s.publisher), until);
+    assert_eq!(
+        receipts,
+        [Unsubscribed {
+            publisher: s.publisher.clone(),
+            reader: s.payer.clone(),
+            renewals_left: 3,
+        }
+        .to_xdr(&s.env, &s.splitter.address)]
+    );
+
+    s.advance(6 * DAY);
+    assert_eq!(
+        s.splitter.try_renew_subscription(&s.payer),
+        Err(Ok(Error::NoSubscription.into()))
+    );
+    assert_eq!(
+        s.splitter.try_cancel_subscription(&s.payer),
+        Err(Ok(Error::NoSubscription.into()))
+    );
+}
+
+#[test]
+fn la_suscripcion_rechaza_datos_invalidos_sin_mover_nada() {
+    let s = setup();
+    s.fund(&s.payer, pass_price(200));
+    let before = s.usdc.balance(&s.payer);
+    let subscribe = |days: u32, renewals: u32, amount: i128| {
+        s.splitter
+            .try_subscribe(&s.payer, &s.publisher, &days, &renewals, &amount)
+    };
+
+    assert_eq!(
+        subscribe(7, 0, pass_price(7)),
+        Err(Ok(Error::InvalidRenewals.into()))
+    );
+    assert_eq!(
+        subscribe(1, MAX_RENEWALS + 1, pass_price(1)),
+        Err(Ok(Error::InvalidRenewals.into()))
+    );
+    // 31 días × 5 periodos = 155 > 150.
+    assert_eq!(
+        subscribe(31, 4, pass_price(31)),
+        Err(Ok(Error::TooLong.into()))
+    );
+    assert_eq!(
+        subscribe(7, 3, pass_price(7) + 1),
+        Err(Ok(Error::WrongPrice.into()))
+    );
+    assert_eq!(subscribe(0, 3, 0), Err(Ok(Error::InvalidDays.into())));
+    assert_eq!(s.usdc.balance(&s.payer), before);
+    assert_eq!(s.splitter.subscription(&s.payer), None);
+    assert_eq!(s.usdc.allowance(&s.payer, &s.splitter.address), 0);
+
+    // 30 días × 5 periodos = 150: el máximo entra.
+    assert!(subscribe(30, 4, pass_price(30)).is_ok());
+
+    s.env.set_auths(&[]);
+    let other = Address::generate(&s.env);
+    assert!(s
+        .splitter
+        .try_subscribe(&other, &s.publisher, &1, &1, &pass_price(1))
+        .is_err());
+    assert_eq!(s.splitter.subscription(&other), None);
+}
+
+#[test]
+fn sin_autorizacion_o_sin_saldo_la_renovacion_falla_y_no_cambia_nada() {
+    let s = setup();
+    s.fund(&s.payer, pass_price(40));
+    let until = s
+        .splitter
+        .subscribe(&s.payer, &s.publisher, &7, &3, &pass_price(7));
+    s.advance(6 * DAY);
+
+    // Quien lee retira la autorización directo en el token.
+    s.usdc.approve(
+        &s.payer,
+        &s.splitter.address,
+        &0,
+        &s.env.ledger().sequence(),
+    );
+    assert!(s.splitter.try_renew_subscription(&s.payer).is_err());
+    assert_eq!(s.splitter.pass_until(&s.payer, &s.publisher), until);
+    assert_eq!(s.splitter.subscription(&s.payer).unwrap().renewals_left, 3);
+
+    // Con la autorización de vuelta pero sin saldo, tampoco.
+    s.usdc.approve(
+        &s.payer,
+        &s.splitter.address,
+        &(3 * pass_price(7)),
+        &(s.env.ledger().sequence() + 100),
+    );
+    let elsewhere = Address::generate(&s.env);
+    s.usdc
+        .transfer(&s.payer, &elsewhere, &s.usdc.balance(&s.payer));
+    assert!(s.splitter.try_renew_subscription(&s.payer).is_err());
+    assert_eq!(s.splitter.pass_until(&s.payer, &s.publisher), until);
+    assert_eq!(s.splitter.subscription(&s.payer).unwrap().renewals_left, 3);
+}
+
+#[test]
+fn una_suscripcion_nueva_reemplaza_a_la_anterior_y_su_autorizacion() {
+    let s = setup();
+    s.fund(&s.payer, pass_price(40));
+    s.splitter
+        .subscribe(&s.payer, &s.publisher, &7, &3, &pass_price(7));
+    let until = s
+        .splitter
+        .subscribe(&s.payer, &s.publisher, &1, &2, &pass_price(1));
+
+    assert_eq!(until, START + 8 * DAY, "el pase pagado se conserva");
+    let sub = s.splitter.subscription(&s.payer).unwrap();
+    assert_eq!(
+        (sub.days, sub.amount, sub.renewals_left),
+        (1, pass_price(1), 2)
+    );
+    assert_eq!(
+        s.usdc.allowance(&s.payer, &s.splitter.address),
+        2 * pass_price(1)
+    );
+}
+
+#[test]
+fn la_suscripcion_vive_en_la_red_hasta_su_ultima_renovacion() {
+    let s = setup();
+    s.fund(&s.payer, pass_price(40));
+    s.splitter
+        .subscribe(&s.payer, &s.publisher, &30, &4, &pass_price(30));
+
+    let ttl = s.env.as_contract(&s.splitter.address, || {
+        s.env
+            .storage()
+            .persistent()
+            .get_ttl(&DataKey::Sub(s.payer.clone()))
+    });
+    // 150 días + 1 de margen, a un ledger cada 5 s, más una semana.
+    assert_eq!(ttl, 151 * DAY_LEDGERS + 7 * DAY_LEDGERS);
+    assert!(ttl <= 3_110_400, "cabe en el TTL máximo de testnet");
 }

@@ -16,6 +16,11 @@
 //!
 //! Accesos con vencimiento, que guardan su fecha en el contrato (sin guardar fondos):
 //! - `buy_pass`: un pase de N días al catálogo de una editorial, a precio fijo por día.
+//! - `subscribe`: el mismo pase, que se renueva solo: cobra el primer periodo y le da al contrato
+//!   una autorización (allowance del token) por el precio de las renovaciones.
+//! - `renew_subscription`: cobra una renovación con esa autorización, sin firma de quien lee.
+//!   Cualquiera la puede enviar, pero solo cobra el precio pactado y solo cuando al pase le falta
+//!   un día o menos. Los fondos siguen en la wallet de quien lee hasta cada cobro.
 //!
 //! Y dos movimientos que no dan acceso (emiten su propio evento, nunca `paid`):
 //! - `tip`: una propina a la editorial por un artículo, con el mismo reparto.
@@ -48,6 +53,13 @@ pub const MAX_PASS_DAYS: u32 = 31;
 pub const MAX_ACCESS_DAYS: u32 = 90;
 /// Segundos de un día, en la hora del ledger.
 pub const DAY_SECONDS: u64 = 86_400;
+/// Renovaciones por suscripción.
+pub const MAX_RENEWALS: u32 = 12;
+/// Días que cubre una suscripción completa (primer periodo y renovaciones): la autorización del
+/// token tiene que caber en el TTL máximo de la red.
+pub const MAX_SUBSCRIPTION_DAYS: u32 = 150;
+/// Una renovación se puede cobrar cuando al pase le falta esto o menos.
+pub const RENEW_WINDOW_SECONDS: u64 = DAY_SECONDS;
 
 // La instancia vive mientras haya pagos: cada cobro extiende su TTL a ~30 días.
 const DAY_IN_LEDGERS: u32 = 17_280;
@@ -86,8 +98,15 @@ pub enum Error {
     InvalidDays = 11,
     /// `amount` distinto de días × precio por día de la configuración.
     WrongPrice = 12,
-    /// El acceso acumulado vencería después de `MAX_ACCESS_DAYS`.
+    /// El acceso acumulado vencería después de `MAX_ACCESS_DAYS`, o la suscripción cubre más
+    /// de `MAX_SUBSCRIPTION_DAYS`.
     TooLong = 13,
+    /// Renovaciones fuera de rango: 0 o más de `MAX_RENEWALS`.
+    InvalidRenewals = 14,
+    /// `reader` no tiene suscripción (nunca tuvo, la canceló o ya cobró todas las renovaciones).
+    NoSubscription = 15,
+    /// Al pase le falta más de `RENEW_WINDOW_SECONDS`: todavía no toca renovar.
+    RenewTooEarly = 16,
 }
 
 #[contracttype]
@@ -142,12 +161,27 @@ pub struct Share {
     pub bps: u32,
 }
 
+/// La suscripción de un lector: cada renovación compra `days` días de pase al catálogo de
+/// `publisher` por `amount` (días × precio por día). Quedan `renewals_left` renovaciones y la
+/// autorización para cobrarlas vence en el ledger `allowance_until`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Subscription {
+    pub publisher: Address,
+    pub days: u32,
+    pub amount: i128,
+    pub renewals_left: u32,
+    pub allowance_until: u32,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
     Config,
     /// Vencimiento (segundos Unix) del pase de `reader` al catálogo de `publisher`.
     Pass(Address, Address),
+    /// La suscripción de `reader` (una por lector: la allowance del token es una por cuenta).
+    Sub(Address),
 }
 
 /// Comprobante de un artículo pagado. Topics: `["paid", publisher, reader]`.
@@ -197,6 +231,48 @@ pub struct PassBought {
     pub amount: i128,
     pub fee: i128,
     pub valid_until: u64,
+}
+
+/// Alta de una suscripción. Topics: `["subscribed", publisher, reader]`. Acompaña al `pass` del
+/// primer periodo. `renewals` es cuántas renovaciones autorizó `reader`, por `amount` cada una.
+#[contractevent(topics = ["subscribed"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Subscribed {
+    #[topic]
+    pub publisher: Address,
+    #[topic]
+    pub reader: Address,
+    pub days: u32,
+    pub amount: i128,
+    pub renewals: u32,
+    pub allowance_until: u32,
+}
+
+/// Una renovación cobrada. Topics: `["renewed", publisher, reader]`. Acompaña al `pass` que
+/// extiende el acceso.
+#[contractevent(topics = ["renewed"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Renewed {
+    #[topic]
+    pub publisher: Address,
+    #[topic]
+    pub reader: Address,
+    pub days: u32,
+    pub amount: i128,
+    pub fee: i128,
+    pub valid_until: u64,
+    pub renewals_left: u32,
+}
+
+/// Una suscripción cancelada. Topics: `["unsubscribed", publisher, reader]`.
+#[contractevent(topics = ["unsubscribed"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Unsubscribed {
+    #[topic]
+    pub publisher: Address,
+    #[topic]
+    pub reader: Address,
+    pub renewals_left: u32,
 }
 
 /// Comprobante de una propina. Topics: `["tipped", publisher, payer]`. No da acceso al artículo.
@@ -511,6 +587,187 @@ impl Splitter {
             .persistent()
             .get(&DataKey::Pass(reader, publisher))
             .unwrap_or(0)
+    }
+
+    /// Suscribe a `reader` al catálogo de `publisher`: cobra ya el primer periodo (`days` días de
+    /// pase por `amount`, igual que `buy_pass`) y autoriza al contrato a cobrar `renewals`
+    /// renovaciones más (1 a `MAX_RENEWALS`) del mismo precio, con `approve` del token. Esa
+    /// autorización vence un día después de lo que cubre la suscripción completa, que no puede
+    /// pasar de `MAX_SUBSCRIPTION_DAYS`. Los fondos se quedan en la wallet de `reader` hasta cada
+    /// renovación. Una suscripción nueva reemplaza a la anterior (y su autorización). Firma
+    /// `reader`, una vez. Emite `pass` y `subscribed`; devuelve el vencimiento del pase.
+    pub fn subscribe(
+        env: Env,
+        reader: Address,
+        publisher: Address,
+        days: u32,
+        renewals: u32,
+        amount: i128,
+    ) -> u64 {
+        reader.require_auth();
+        let config = read_config(&env);
+        check_price(&env, days, config.pass_day_price, amount);
+        if renewals == 0 || renewals > MAX_RENEWALS {
+            panic_with_error!(&env, Error::InvalidRenewals);
+        }
+        // Hasta 31 días × 13 periodos: cabe en u32.
+        let total_days = days * (renewals + 1);
+        if total_days > MAX_SUBSCRIPTION_DAYS {
+            panic_with_error!(&env, Error::TooLong);
+        }
+        let allowance = match amount.checked_mul(renewals as i128) {
+            Some(total) => total,
+            None => panic_with_error!(&env, Error::AmountOverflow),
+        };
+
+        let split = compute_split(&env, amount, config.fee_bps);
+        transfer_split(&env, &config, &reader, &publisher, &split);
+        let valid_until = grant_pass(&env, &reader, &publisher, days);
+
+        let allowance_until = env.ledger().sequence() + (total_days + 1) * DAY_IN_LEDGERS;
+        token::Client::new(&env, &config.token).approve(
+            &reader,
+            &env.current_contract_address(),
+            &allowance,
+            &allowance_until,
+        );
+        let key = DataKey::Sub(reader.clone());
+        env.storage().persistent().set(
+            &key,
+            &Subscription {
+                publisher: publisher.clone(),
+                days,
+                amount,
+                renewals_left: renewals,
+                allowance_until,
+            },
+        );
+        keep_until(
+            &env,
+            &key,
+            env.ledger().timestamp() + (total_days + 1) as u64 * DAY_SECONDS,
+        );
+        extend_instance_ttl(&env);
+
+        PassBought {
+            publisher: publisher.clone(),
+            reader: reader.clone(),
+            payer: reader.clone(),
+            days,
+            amount,
+            fee: split.fee,
+            valid_until,
+        }
+        .publish(&env);
+        Subscribed {
+            publisher,
+            reader,
+            days,
+            amount,
+            renewals,
+            allowance_until,
+        }
+        .publish(&env);
+
+        valid_until
+    }
+
+    /// Cobra una renovación de la suscripción de `reader` con la autorización que dio al
+    /// suscribirse (`transfer_from`), la reparte como una lectura y suma `days` días a su pase.
+    /// No pide firmas: la puede enviar cualquiera (la editorial, PaperPay o quien lee), porque
+    /// solo cobra el precio pactado y solo cuando al pase le falta `RENEW_WINDOW_SECONDS` o menos;
+    /// así nunca se cobra más de un periodo por adelantado. Con la última renovación, la
+    /// suscripción termina. Emite `pass` y `renewed`; devuelve el vencimiento nuevo del pase.
+    pub fn renew_subscription(env: Env, reader: Address) -> u64 {
+        let key = DataKey::Sub(reader.clone());
+        let mut sub: Subscription = match env.storage().persistent().get(&key) {
+            Some(sub) => sub,
+            None => panic_with_error!(&env, Error::NoSubscription),
+        };
+        let current: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Pass(reader.clone(), sub.publisher.clone()))
+            .unwrap_or(0);
+        if current > env.ledger().timestamp() + RENEW_WINDOW_SECONDS {
+            panic_with_error!(&env, Error::RenewTooEarly);
+        }
+
+        let config = read_config(&env);
+        let split = compute_split(&env, sub.amount, config.fee_bps);
+        let usdc = token::Client::new(&env, &config.token);
+        let spender = env.current_contract_address();
+        if split.publisher > 0 {
+            usdc.transfer_from(&spender, &reader, &sub.publisher, &split.publisher);
+        }
+        if split.fee > 0 {
+            usdc.transfer_from(&spender, &reader, &config.treasury, &split.fee);
+        }
+        let valid_until = grant_pass(&env, &reader, &sub.publisher, sub.days);
+
+        sub.renewals_left -= 1;
+        if sub.renewals_left == 0 {
+            env.storage().persistent().remove(&key);
+        } else {
+            env.storage().persistent().set(&key, &sub);
+        }
+        extend_instance_ttl(&env);
+
+        PassBought {
+            publisher: sub.publisher.clone(),
+            reader: reader.clone(),
+            payer: reader.clone(),
+            days: sub.days,
+            amount: sub.amount,
+            fee: split.fee,
+            valid_until,
+        }
+        .publish(&env);
+        Renewed {
+            publisher: sub.publisher,
+            reader,
+            days: sub.days,
+            amount: sub.amount,
+            fee: split.fee,
+            valid_until,
+            renewals_left: sub.renewals_left,
+        }
+        .publish(&env);
+
+        valid_until
+    }
+
+    /// Cancela la suscripción de `reader`: borra las renovaciones pendientes y deja en cero la
+    /// autorización del token. El pase ya pagado sigue hasta su vencimiento. Firma `reader`.
+    /// Emite `unsubscribed`.
+    pub fn cancel_subscription(env: Env, reader: Address) {
+        reader.require_auth();
+        let key = DataKey::Sub(reader.clone());
+        let sub: Subscription = match env.storage().persistent().get(&key) {
+            Some(sub) => sub,
+            None => panic_with_error!(&env, Error::NoSubscription),
+        };
+        env.storage().persistent().remove(&key);
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).approve(
+            &reader,
+            &env.current_contract_address(),
+            &0,
+            &env.ledger().sequence(),
+        );
+        extend_instance_ttl(&env);
+
+        Unsubscribed {
+            publisher: sub.publisher,
+            reader,
+            renewals_left: sub.renewals_left,
+        }
+        .publish(&env);
+    }
+
+    /// La suscripción vigente de `reader`, si tiene.
+    pub fn subscription(env: Env, reader: Address) -> Option<Subscription> {
+        env.storage().persistent().get(&DataKey::Sub(reader))
     }
 
     /// Cómo se repartiría `amount`, sin mover fondos.
