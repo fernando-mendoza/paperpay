@@ -4,7 +4,7 @@
  */
 
 /** La bóveda publicada (testnet). El script de lanzamiento del reto escribe este valor. */
-export const BOVEDA_CONTRACT_ID = 'CA6UX6U2WMC6QTSAB53H7VA4NIXPXAFTYBV5BBOENXT6JL563WZYTPEI'
+export const BOVEDA_CONTRACT_ID = 'CAYVRBBV5CSX5K6AHXZHI3KJS72O7OVHSHWX27MYA5HNVTP4N5OHG6VS'
 
 /** El código que espera el contrato (compara su SHA-256). */
 export const BOVEDA_CODE = 'Ship It'
