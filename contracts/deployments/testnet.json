@@ -4,10 +4,10 @@
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "productionContractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
   "splitter": {
-    "version": "0.14.0",
-    "contractId": "CBGHC7PRFEOKYP6NQQB4ZIXLFHBZUDB7OJIBOJ6L73HFCZ2IR6YSESYP",
-    "wasmSha256": "349fbbdc3e44b32bb91db25946be1375d8643d9871feb1adb52624e9cf576910",
-    "source": "contracts/splitter @ cdd4da4, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
+    "version": "0.15.0",
+    "contractId": "CBFYNOBCVMLQF3DACYYU24FLWDHJLR4ZSZZT2OJ4RKXEFYBZKF5EHXAV",
+    "wasmSha256": "9a5e9bdb3ca567900d16b45bd0a1df1dbb18917ad56a36bf8baf415d38641800",
+    "source": "contracts/splitter @ 3ddde33, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
     "constructor": {
       "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
@@ -15,29 +15,29 @@
       "pass_day_price": 10000000,
       "open_day_price": 50000000
     },
-    "uploadTx": "1e1e6514815dde389dc57e39ab254b11159253a886930e1e89259fa529729bee",
-    "deployTx": "76d57d9401032eb489487167cb2f13d53812631df649413a5c286a83bf594eba",
-    "deployedAt": "2026-11-27T22:04:14Z",
+    "uploadTx": "4515068642dfd3cf4b533a779150e3e2f662fc3a4aad5db09280b3e8b5b20c73",
+    "deployTx": "f2e06487aedf9b0c2cd17baaa27c8f74c325b63478a764e1671bd7e717b7f254",
+    "deployedAt": "2026-11-27T22:08:29Z",
     "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
-    "custody": "además de lo anterior, guarda la garantía de cada revisor que tomó una recompensa; sale solo de vuelta a quien la dejó (submit_review, antes del plazo) o, desde el plazo, hacia quien publicó la recompensa (forfeit_stake); sin admin",
+    "custody": "además de lo anterior, guarda los hitos sin liberar de cada encargo; salen solo hacia quien traduce y la tesorería (release_milestone, uno por llamada, con la firma de quien paga) o, desde el plazo, de vuelta a quien paga (cancel_grant); sin admin",
     "usage": {
-      "accept_bounty": {
-        "tx": "f3de4f9bd107dcdce313afcd7404f489c8c1a1bbb03300a3db60bd62e11b5242",
-        "what": "GDV2AH4L657YYOOSC2KBL2YJKWWBVFL2EWQCXL4CYAMGHI7R4GFGGCCM toma la recompensa 0 (10000000, publicada en b6e368a6dec7b250d7e10e27827c831d1a028f5ba6dfc23131bbdb025ae85c14) con 1000000 de garantía; después GABQXISVPCD3NOL4K7OR5EURCLLZCGS5WOZOWXZDJDRNZRQSHUNUYM2E (36cac926aaa8ac84d49966211e56fc2b900ab4e48da3e54902f811b5472067eb)",
-        "result": "1000000 de cada cuenta al contrato; eventos bounty_accepted"
+      "fund_grant": {
+        "tx": "f5e843b4ba026f570b7794dc502dd35e439227eea3a9c901738def0a932ad1d3",
+        "what": "GCBCC6QYOI2D6DE6EBYWOVEKAIR4KJ6PUBDMBBCJFCDYKZU6P36KOHUQ encarga a GAJJJOLRTED7UERQZ7XKHK3TJ3A3G77KOP4KGMBCCEWWAYXKAYNFF3DS la traducción de crispr-nanomedicine-biotech en hitos de 5000000, 5000000 y 10000000, plazo de 1 h",
+        "result": "encargo 0; 20000000 al contrato; evento grant_funded. Segundo encargo (1), 519cd1edce93d0701cf2a5cf0b445e58458498096df0d2cddc51cf60b47df20f: 1000000 y 2000000 con plazo de 90 s"
       },
-      "submit_review": {
-        "tx": "b2ab943481cd813417996fe679616b8ca5186b558aa7b5393dc33839465b088f",
-        "what": "Ana entrega antes del plazo el hash 85be1b734eb4fcacbd085e46febc202e6a25516288d1812bedd56a657350ad10",
-        "result": "1000000 de vuelta a Ana; evento review_submitted con el hash"
+      "release_milestone": {
+        "tx": "00f594717bca572baace5dd756a564dbd6c642548cf4600954a7501e92025dde",
+        "what": "quien paga libera el hito 0 del encargo 0; la traductora no tiene trustline. Después los hitos 1 (ecc18e472cd41c61bc3ba48dd05404a0385a0e43d957381922c2589c4c3d56c7) y 2 (293355f0f09198d7bf5c3a8bdf0315c4096800554a690c14af2fd3f7eda2f1e1)",
+        "result": "4900000 pendientes de la traductora (credited; los cobra con claim, 2c5c01c00e0432c194e25e0701eef3071007ed2b87484ce8d56ff74eadf19d60) y 100000 a la tesorería; al final 19600000 para ella y 400000 a la tesorería; eventos milestone_released"
       },
-      "forfeit_stake": {
-        "tx": "fb5256d12cee842d4728eaf6aa48800a32e4d13da97653f2b8d42aa294f985ae",
-        "what": "pasado el plazo, una cuenta cualquiera ejecuta la garantía de Beto, que no entregó",
-        "result": "1000000 a quien publicó la recompensa; evento stake_forfeited. Después, award_bounty (88d3f1bb5155cc4b3b16503eeb7bdf65341d09d6039d122c1500fb084bcdde69): 9800000 a Ana y 200000 a la tesorería"
+      "cancel_grant": {
+        "tx": "ce133f19589d788efcaa895dff5d4dd3d3b980a0f63366c59212edafdeda5133",
+        "what": "vencido el plazo del encargo 1, con un hito liberado (b7ddcc89ba8f758138e9854478d2fe7842809420bcc074cab1fc940f5c70148c), quien paga lo cancela",
+        "result": "2000000 de vuelta, sin comisión; evento grant_cancelled"
       }
     },
-    "checks": "simulados antes de enviar: garantía menor al 10% (#65), tomarla dos veces (#66), ejecutar la garantía antes del plazo (#32), entregar sin garantía (#67), entregar después del plazo (#64), ejecutar la garantía dos veces (#67). Al final: saldo del contrato 0, tesorería +200000"
+    "checks": "simulados antes de enviar: quien traduce liberándose un hito (#69), cancelar antes del plazo (#71), liberar un encargo ya pagado (#70), cancelar dos veces (#70). Al final: saldo del contrato 0, tesorería +420000"
   },
   "boveda": {
     "version": "0.1.0",
@@ -71,6 +71,42 @@
     "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."
   },
   "previous": [
+    {
+      "version": "0.14.0",
+      "contractId": "CBGHC7PRFEOKYP6NQQB4ZIXLFHBZUDB7OJIBOJ6L73HFCZ2IR6YSESYP",
+      "wasmSha256": "349fbbdc3e44b32bb91db25946be1375d8643d9871feb1adb52624e9cf576910",
+      "source": "contracts/splitter @ cdd4da4, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200,
+        "pass_day_price": 10000000,
+        "open_day_price": 50000000
+      },
+      "uploadTx": "1e1e6514815dde389dc57e39ab254b11159253a886930e1e89259fa529729bee",
+      "deployTx": "76d57d9401032eb489487167cb2f13d53812631df649413a5c286a83bf594eba",
+      "deployedAt": "2026-11-27T22:04:14Z",
+      "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
+      "custody": "además de lo anterior, guarda la garantía de cada revisor que tomó una recompensa; sale solo de vuelta a quien la dejó (submit_review, antes del plazo) o, desde el plazo, hacia quien publicó la recompensa (forfeit_stake); sin admin",
+      "usage": {
+        "accept_bounty": {
+          "tx": "f3de4f9bd107dcdce313afcd7404f489c8c1a1bbb03300a3db60bd62e11b5242",
+          "what": "GDV2AH4L657YYOOSC2KBL2YJKWWBVFL2EWQCXL4CYAMGHI7R4GFGGCCM toma la recompensa 0 (10000000, publicada en b6e368a6dec7b250d7e10e27827c831d1a028f5ba6dfc23131bbdb025ae85c14) con 1000000 de garantía; después GABQXISVPCD3NOL4K7OR5EURCLLZCGS5WOZOWXZDJDRNZRQSHUNUYM2E (36cac926aaa8ac84d49966211e56fc2b900ab4e48da3e54902f811b5472067eb)",
+          "result": "1000000 de cada cuenta al contrato; eventos bounty_accepted"
+        },
+        "submit_review": {
+          "tx": "b2ab943481cd813417996fe679616b8ca5186b558aa7b5393dc33839465b088f",
+          "what": "Ana entrega antes del plazo el hash 85be1b734eb4fcacbd085e46febc202e6a25516288d1812bedd56a657350ad10",
+          "result": "1000000 de vuelta a Ana; evento review_submitted con el hash"
+        },
+        "forfeit_stake": {
+          "tx": "fb5256d12cee842d4728eaf6aa48800a32e4d13da97653f2b8d42aa294f985ae",
+          "what": "pasado el plazo, una cuenta cualquiera ejecuta la garantía de Beto, que no entregó",
+          "result": "1000000 a quien publicó la recompensa; evento stake_forfeited. Después, award_bounty (88d3f1bb5155cc4b3b16503eeb7bdf65341d09d6039d122c1500fb084bcdde69): 9800000 a Ana y 200000 a la tesorería"
+        }
+      },
+      "checks": "simulados antes de enviar: garantía menor al 10% (#65), tomarla dos veces (#66), ejecutar la garantía antes del plazo (#32), entregar sin garantía (#67), entregar después del plazo (#64), ejecutar la garantía dos veces (#67). Al final: saldo del contrato 0, tesorería +200000"
+    },
     {
       "version": "0.13.0",
       "contractId": "CDHBL4S7H5QEXL7HEP47NUOGJ4JBJDVG6WHBG6GNTUMG7TIF3LT73HSJ",
