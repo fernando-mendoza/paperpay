@@ -6,6 +6,7 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 
 | Versión | Contrato (testnet) | Funciones nuevas | Pruebas | ¿La usa el sitio? |
 | --- | --- | --- | --- | --- |
+| [0.9.0](#090-27-nov-2026) | `CCGNE2…MYGB` | `buy_vouchers`, `redeem_voucher`, `reclaim_vouchers` | 135 | No |
 | [0.8.0](#080-27-nov-2026) | `CDUFLV…PNIF` | `post_bounty`, `award_bounty`, `cancel_bounty` | 119 | No |
 | [0.7.0](#070-27-nov-2026) | `CDOI4F…DK3N` | `fund_pool`, `pay_sponsored`, `withdraw_pool` | 105 | No |
 | [0.6.0](#060-26-nov-2026) | `CANRPE…QM7` | `pledge`, `release_pledges`, `refund_pledge`, `claim` (más `open_campaign`, de soporte) | 89 | No |
@@ -14,6 +15,25 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 | [0.3.0](#030-25-nov-2026) | `CCQRUT…HEQD` | `gift_batch`, `tip`, `refund` | 32 | No |
 | [0.2.0](#020-23-nov-2026) | `CAIMQY…HOR5` | `pay_batch`, `gift` | 21 | Del 23 al 25 de noviembre. Sigue como contrato anterior: sus regalos y lecturas valen |
 | [0.1.0](#010-23-nov-2026) | `CDOUF6…BPOZ` | `pay`, `split`, `config` | 11 | No (reemplazada) |
+
+## 0.9.0 (27 nov 2026)
+
+Vales de lectura: lecturas prepagadas que se reparten como enlaces. Es la **cuarta custodia** y la primera función que se autoriza con una firma que no es de una cuenta.
+
+- **`buy_vouchers(buyer, publisher, keys, value, expires_at)`:** paga por adelantado un vale por cada llave pública ed25519 (de 1 a 10) para el catálogo de una editorial, vigentes hasta 90 días. El contrato guarda solo la parte pública. Emite `vouchers_bought`.
+- **`redeem_voucher(key, signature, reader, paper_id)`:** no pide la firma de ninguna cuenta. La autorización es la firma de la llave del vale sobre `(contrato, reader, paper_id)` en XDR: solo sirve para ese lector y ese artículo, así que cualquiera la puede enviar (el sitio, para que quien lee no necesite cuenta ni USDC). Paga 98/2 desde el contrato a la editorial del vale. Emite `paid` (con `payer` = quien compró) y `voucher_redeemed`.
+- **`reclaim_vouchers(buyer, keys)`:** los vales vencidos sin usar vuelven a quien los compró, sin comisión; todo o nada. Emite `vouchers_reclaimed`.
+- De lectura: `voucher`.
+- Errores nuevos: `NoVoucher` (33), `VoucherSpent` (34), `VoucherExpired` (35), `VoucherActive` (36) y `VoucherExists` (37). Las listas vacías o de más de 10 llaves reusan `EmptyBatch` (5) y `BatchTooLarge` (6). Una firma inválida no da un error del contrato: la rechaza el host al verificarla.
+- Una llave no se reutiliza nunca, ni después de canjeada o devuelta: así una firma vieja no sirve para un vale nuevo.
+- El vale es para el catálogo de una editorial, fijada al comprarlo: quien tiene la llave elige el artículo, pero no puede desviar el dinero a otra cuenta.
+- Código: `b89121c`. Versión en `6f3a384`.
+- En la red (primero en una red Stellar local, después en testnet):
+  - contrato [`CCGNE2XUYN2FNRE3EBE3HSNS7Q3EW4CTISUR6RYBUWQ7ACWZGI4GMYGB`](https://stellar.expert/explorer/testnet/contract/CCGNE2XUYN2FNRE3EBE3HSNS7Q3EW4CTISUR6RYBUWQ7ACWZGI4GMYGB), WASM `9351005e…`;
+  - [`buy_vouchers` `92e5cbeb…`](https://stellar.expert/explorer/testnet/tx/92e5cbebf39baaaaaa72711ba629912bc262c849fc048ddf4178c7a8d6068e1b) (2 vales de 0.50, vigentes 150 s);
+  - [`redeem_voucher` `6f469d80…`](https://stellar.expert/explorer/testnet/tx/6f469d80a927a441185960043b60954c6c65a9940ba461224734accc1bc6851d) (la envía otra cuenta; el lector es una llave que no existe en la red);
+  - [`reclaim_vouchers` `f9ce75a6…`](https://stellar.expert/explorer/testnet/tx/f9ce75a6f3f8cea6732958b3798600b0f93290a2a4efac22ea4e914baa50f9d5) (el vale que venció sin usarse vuelve a quien lo compró).
+- Pruebas: 16 nuevas, 135 en total, en `src/test/voucher.rs`, con un vector del mensaje generado con `stellar xdr encode` para que quien firma fuera de Rust coincida byte por byte. Se rompió el código de 32 formas a propósito y alguna prueba detectó cada una.
 
 ## 0.8.0 (27 nov 2026)
 

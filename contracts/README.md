@@ -4,7 +4,7 @@ Dos contratos: [`splitter`](#splitter-reparto-98-editorial--2-paperpay) (los pag
 
 ## `splitter`: reparto 98% editorial / 2% PaperPay
 
-Cobra lecturas y las reparte en la misma transacción. El USDC va directo de la cuenta que paga a la editorial (monto − comisión) y a la tesorería de PaperPay (comisión): los pagos no pasan por el contrato. Las excepciones guardan dinero en garantía: las campañas de acceso abierto (desde la v0.6.0), los fondos de patrocinio (v0.7.0) y las recompensas (v0.8.0), abajo.
+Cobra lecturas y las reparte en la misma transacción. El USDC va directo de la cuenta que paga a la editorial (monto − comisión) y a la tesorería de PaperPay (comisión): los pagos no pasan por el contrato. Las excepciones guardan dinero en garantía: las campañas de acceso abierto (desde la v0.6.0), los fondos de patrocinio (v0.7.0), las recompensas (v0.8.0) y los vales de lectura (v0.9.0), abajo.
 
 Desde la v0.3.0 también regala listas de lectura (`gift_batch`), cobra propinas (`tip`) y registra devoluciones (`refund`). Las propinas y las devoluciones emiten su propio evento, nunca `paid`, así que no dan acceso a ningún artículo.
 
@@ -46,6 +46,14 @@ La v0.8.0 suma **recompensas por revisar o reproducir** un artículo, la tercera
 
 Quién gana lo decide quien publicó la recompensa. El contrato garantiza que el dinero existe, que no se retira antes del plazo y que sale completo, una sola vez.
 
+La v0.9.0 suma **vales de lectura**, la cuarta custodia: lecturas prepagadas que se reparten como enlaces.
+
+- `buy_vouchers`: alguien (un profesor, un congreso) paga por adelantado varios vales para el catálogo de una editorial. Cada vale es un par de llaves ed25519: la pública va al contrato y la privada, en el enlace;
+- `redeem_voucher`: quien tiene el enlace firma qué artículo quiere y para qué lector. Con esa firma, cualquiera envía el canje y el contrato paga la lectura con el vale;
+- `reclaim_vouchers`: quien compró recupera los vales que vencieron sin usarse.
+
+La firma de un vale solo sirve para ese lector, ese artículo y este contrato. Quien lee no necesita cuenta en la red ni USDC.
+
 | Función | Qué hace |
 | --- | --- |
 | `__constructor(token, treasury, fee_bps, pass_day_price, open_day_price)` | Fija el token (SAC de USDC), la tesorería, la comisión en puntos base (`200` = 2%, máximo `1000`) y, desde la v0.5.0, el precio de un día de pase y de un día de artículo abierto (mayores que 0). No cambia después: no hay admin. |
@@ -79,6 +87,10 @@ Quién gana lo decide quien publicó la recompensa. El contrato garantiza que el
 | `award_bounty(funder, bounty_id, winners) -> Split` | `funder` reparte su recompensa entre `winners` (`Share { account, bps }`, de 1 a 10 cuentas que suman 100%); el 2% va a la tesorería. Quien no puede recibir queda con su parte pendiente para `claim`. `funder` no puede ser ganador. Antes o después del plazo, una sola vez. Emite un `rewarded` por ganador y `bounty_awarded`. **Desde la v0.8.0.** |
 | `cancel_bounty(funder, bounty_id) -> i128` | `funder` recupera su recompensa completa, sin comisión. Solo después del plazo (`BountyActive` antes) y si no se repartió. Emite `bounty_cancelled`. **Desde la v0.8.0.** |
 | `bounty(bounty_id) -> Option<Bounty>` | La recompensa (`funder`, `paper_id`, `amount`, `deadline`, `open`), sin mover fondos. **Desde la v0.8.0.** |
+| `buy_vouchers(buyer, publisher, keys, value, expires_at) -> i128` | `buyer` paga `value` por cada llave pública ed25519 de `keys` (de 1 a 10): cada una es un vale por una lectura del catálogo de `publisher`, vigente hasta `expires_at` (a no más de 90 días). El total pasa al contrato. Una llave no se puede usar dos veces (`VoucherExists`). Solo firma `buyer`. Emite `vouchers_bought` y devuelve el total. **Desde la v0.9.0.** |
+| `redeem_voucher(key, signature, reader, paper_id) -> Split` | Canjea el vale de `key`: paga `paper_id` para `reader`, 98/2 desde el contrato a la editorial del vale. **No pide la firma de ninguna cuenta:** `signature` es la firma ed25519 de la llave del vale sobre `(contrato, reader, paper_id)` en XDR, y cualquiera puede enviarla. Una vez, y antes de vencer. Emite `paid` (con `payer` = quien compró) y `voucher_redeemed`. **Desde la v0.9.0.** |
+| `reclaim_vouchers(buyer, keys) -> i128` | `buyer` recupera el valor de sus vales vencidos sin usar, sin comisión. Si uno de la lista no es suyo, ya se usó o sigue vigente, no se devuelve ninguno. Solo firma `buyer`. Emite `vouchers_reclaimed`. **Desde la v0.9.0.** |
+| `voucher(key) -> Option<Voucher>` | El vale (`buyer`, `publisher`, `value`, `expires_at`, `open`), sin mover fondos. **Desde la v0.9.0.** |
 | `split(amount) -> Split` | El reparto que aplicaría `pay`, sin mover fondos. |
 | `config() -> Config` | La configuración fijada al desplegar. |
 
@@ -111,14 +123,14 @@ Quién gana lo decide quien publicó la recompensa. El contrato garantiza que el
 - **`pay_authors` en la red:** el `paid` lleva solo al primer autor; lo que recibió cada coautor se ve en las transferencias del token de esa transacción.
 - **Acceso:** la API solo da acceso por eventos `paid` (`paidReceipts` en `apps/api/src/services/splitter.service.ts`). Una propina o una devolución nunca abren un artículo. Lo que llegó desde la v0.5.0 (pases, artículos abiertos, campañas, fondos y lo que sigue) existe en testnet, pero la API todavía no lo usa.
 - **Quién valida qué:** el contrato garantiza el reparto. La API sigue decidiendo el precio y la editorial de cada artículo, y valida que el evento coincida antes de dar acceso.
-- **Errores:** `FeeTooHigh` (1), `InvalidAmount` (2), `InvalidPaperId` (3; vacío o de más de 64 bytes), `AmountOverflow` (4), `EmptyBatch` (5), `BatchTooLarge` (6), `DuplicatePaper` (7), `InvalidShares` (8; partes vacías, en 0, de más del 100%, que no suman 100% o con un autor repetido), `TooManyAuthors` (9; más de 10 coautores), `SelfReferral` (10; `referrer` igual a `payer`), `InvalidDays` (11; 0 o más de 31 días), `WrongPrice` (12; `amount` distinto de días × precio por día), `TooLong` (13; un acceso que vencería a más de 90 días o una suscripción de más de 150), `InvalidRenewals` (14; 0 o más de 12), `NoSubscription` (15), `RenewTooEarly` (16; al pase le falta más de un día), `InvalidDeadline` (17; plazo pasado o a más de 90 días), `NoCampaign` (18), `CampaignClosed` (19; la campaña ya no recibe aportes o ya se liberó), `OverGoal` (20; el aporte pasa de lo que falta), `GoalNotReached` (21), `NothingToClaim` (22), `CampaignNotFailed` (23; todavía no vence, llegó a la meta o se liberó), `NothingToRefund` (24), `NoPool` (25), `NotOperator` (26; quien firma no es el operador del fondo), `AboveMaxPerRead` (27), `PoolTooLow` (28; al fondo no le alcanza para la lectura o el retiro), `AlreadySponsored` (29; el fondo ya pagó ese artículo para ese lector en las últimas 24 h), `NoBounty` (30; no hay recompensa con ese id de esa cuenta), `BountyClosed` (31; ya se pagó o se canceló) y `BountyActive` (32; no se cancela antes del plazo).
+- **Errores:** `FeeTooHigh` (1), `InvalidAmount` (2), `InvalidPaperId` (3; vacío o de más de 64 bytes), `AmountOverflow` (4), `EmptyBatch` (5), `BatchTooLarge` (6), `DuplicatePaper` (7), `InvalidShares` (8; partes vacías, en 0, de más del 100%, que no suman 100% o con un autor repetido), `TooManyAuthors` (9; más de 10 coautores), `SelfReferral` (10; `referrer` igual a `payer`), `InvalidDays` (11; 0 o más de 31 días), `WrongPrice` (12; `amount` distinto de días × precio por día), `TooLong` (13; un acceso que vencería a más de 90 días o una suscripción de más de 150), `InvalidRenewals` (14; 0 o más de 12), `NoSubscription` (15), `RenewTooEarly` (16; al pase le falta más de un día), `InvalidDeadline` (17; plazo pasado o a más de 90 días), `NoCampaign` (18), `CampaignClosed` (19; la campaña ya no recibe aportes o ya se liberó), `OverGoal` (20; el aporte pasa de lo que falta), `GoalNotReached` (21), `NothingToClaim` (22), `CampaignNotFailed` (23; todavía no vence, llegó a la meta o se liberó), `NothingToRefund` (24), `NoPool` (25), `NotOperator` (26; quien firma no es el operador del fondo), `AboveMaxPerRead` (27), `PoolTooLow` (28; al fondo no le alcanza para la lectura o el retiro), `AlreadySponsored` (29; el fondo ya pagó ese artículo para ese lector en las últimas 24 h), `NoBounty` (30; no hay recompensa con ese id de esa cuenta), `BountyClosed` (31; ya se pagó o se canceló), `BountyActive` (32; no se cancela antes del plazo), `NoVoucher` (33; no hay vale con esa llave, o no es de esa cuenta), `VoucherSpent` (34; ya se canjeó o se devolvió), `VoucherExpired` (35), `VoucherActive` (36; no se devuelve antes de vencer) y `VoucherExists` (37; esa llave ya se usó para un vale).
 
 ### Probar
 
 Requiere Rust estable y el target `wasm32v1-none` (`rustup target add wasm32v1-none`).
 
 ```bash
-pnpm test:contracts            # cargo test: 119 pruebas con un SAC de USDC simulado
+pnpm test:contracts            # cargo test: 135 pruebas con un SAC de USDC simulado
 ```
 
 ### Compilar el WASM
@@ -200,6 +212,17 @@ inv --source lector --send no -- campaign --campaign_id 0
 Datos completos en [`deployments/testnet.json`](deployments/testnet.json).
 
 > **Qué versión usa el sitio.** El sitio y la API usan la **v0.4.0** (`productionContractId`) desde el 25 de noviembre de 2026 (CDMX; 00:18 UTC del 26), con `pay`, `pay_ref` (referidos) y `gift`. La v0.4.0 tiene todo lo de la v0.3.0 (`gift_batch`, `tip` y `refund`) más `pay_authors` y `pay_ref`. La v0.2.0, que usó el sitio del 23 al 25 de noviembre, quedó en `SPLITTER_LEGACY_CONTRACT_IDS`: sus regalos se pueden reclamar y sus lecturas siguen en el contador. Los pagos nuevos van solo a la v0.4.0. La **v0.5.0** (pases, suscripción y artículos abiertos) está desplegada y probada en testnet desde el 25 de noviembre de 2026 (CDMX; 05:04 UTC del 26), pero el sitio y la API todavía no la usan. La **v0.6.0** (campañas de acceso abierto y `claim`) está desplegada y probada en testnet desde el 26 de noviembre de 2026 (00:18 CDMX); el sitio y la API tampoco la usan.
+
+| v0.9.0 | Valor |
+| --- | --- |
+| Contrato | [`CCGNE2XUYN2FNRE3EBE3HSNS7Q3EW4CTISUR6RYBUWQ7ACWZGI4GMYGB`](https://stellar.expert/explorer/testnet/contract/CCGNE2XUYN2FNRE3EBE3HSNS7Q3EW4CTISUR6RYBUWQ7ACWZGI4GMYGB) |
+| WASM (sha256) | `9351005ee73683c99b2344df052e0dabe72e891e303a1ddbd42f52f13c6e1ab4` (58,549 bytes), igual al que se baja de la red |
+| Constructor | El mismo de v0.5.0 |
+| `buy_vouchers` | [`92e5cbeb…`](https://stellar.expert/explorer/testnet/tx/92e5cbebf39baaaaaa72711ba629912bc262c849fc048ddf4178c7a8d6068e1b): 2 vales de 0.50 USDC para el catálogo de la editorial demo, vigentes 150 s. Las llaves se generaron con `openssl` (ed25519); 1.00 USDC pasa al contrato |
+| `redeem_voucher` | [`6f469d80…`](https://stellar.expert/explorer/testnet/tx/6f469d80a927a441185960043b60954c6c65a9940ba461224734accc1bc6851d): la envía **otra cuenta**, sin firma de quien compró ni de quien lee. El lector es una llave que no existe en la red. La firma del vale se hizo con `openssl` sobre el mensaje que arma `stellar xdr encode`. 0.49 a la editorial demo y 0.01 a la tesorería |
+| `reclaim_vouchers` | [`f9ce75a6…`](https://stellar.expert/explorer/testnet/tx/f9ce75a6f3f8cea6732958b3798600b0f93290a2a4efac22ea4e914baa50f9d5): el segundo vale venció sin usarse y sus 0.50 vuelven a quien lo compró |
+
+Antes de enviar, el script simuló lo que no debe pasar: la misma llave en otra compra (#37), la firma usada para otro lector, otro artículo u otro vale (las rechaza el host), canjear dos veces (#34), devolver antes de vencer (#36) y canjear un vale vencido (#35). Al final, el contrato tiene saldo 0.
 
 | v0.8.0 | Valor |
 | --- | --- |
