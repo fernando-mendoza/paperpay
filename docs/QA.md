@@ -1,5 +1,17 @@
 # Estado de QA
 
+## Revisión del 27 de noviembre de 2026: contrato v0.7.0 (fondos de patrocinio)
+
+- `pnpm test:contracts`: 105 pruebas (16 nuevas, en `contracts/splitter/src/test/pool.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
+  - **Árboles de autorización:** `fund_pool` pide solo la firma del patrocinador (con su transferencia), `pay_sponsored` solo la del operador y `withdraw_pool` solo la del patrocinador.
+  - **Reglas del fondo:** un extraño, el lector y el propio patrocinador no pueden gastar (`NotOperator`); el fondo no paga a otra editorial (`NoPool`), ni más que el tope, ni más de lo que le queda.
+  - **Marcador de 24 h:** dura un día de ledgers exacto. En su último ledger la misma lectura sigue fallando; en el siguiente, ya se puede pagar otra vez.
+  - **Editorial sin trustline:** con una cuenta G de verdad inyectada en el ledger, `pay_sponsored` falla completa: el fondo queda intacto, no deja pendientes ni marcador, y el patrocinador retira todo.
+  - **Invariante de custodia:** después de cada paso, el saldo del contrato es lo juntado por las campañas sin liberar, más lo pendiente, más los saldos de los fondos; al final queda en 0.
+- Mutaciones (26), con `tools/mutaciones.py` y `tools/mutaciones-v070.py` del run `2026-11-27-paperpay-contrato-v070` del hub: se rompió el código de 26 formas a propósito y alguna prueba detectó cada una. Entre ellas: funciones sin firma, depósito o tope en 0, recarga que pisa el saldo, cualquier cuenta como operador, sin tope, sin revisar el saldo, el marcador un ledger más corto o más largo, el retiro pagado al operador y los TTL sin renovar.
+- Red Stellar local (`tools/usar-v070.sh … local`, 28 s) y testnet (`… testnet`, 60 s, 27-nov 00:06 CDMX): las tres funciones usadas y cinco errores simulados antes de enviar (#25 a #29). El lector de `pay_sponsored` es una llave que no existe en la red. Saldo final del contrato: 0.
+- **No probado:** la API y el sitio no usan todavía los fondos; no hay integración ni límite por IP para lecturas patrocinadas.
+
 ## Revisión del 26 de noviembre de 2026: `/boveda`, la tarjeta de regalo (reto exprés Bóveda, en producción)
 
 - Contrato `contracts/boveda`: 10 pruebas y 13 de 13 mutaciones detectadas. La primera corrida dejó viva "deposit devuelve el monto y no el saldo" (todas las pruebas depositaban en una bóveda vacía); se agregó la aserción.
