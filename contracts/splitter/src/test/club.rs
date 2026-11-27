@@ -641,6 +641,13 @@ fn el_club_y_sus_propuestas_viven_el_ttl_maximo() {
     s.advance(20 * DAY);
     s.splitter.leave_club(&group.caro, &group.id);
     assert_eq!(ttl(DataKey::Club(group.id)), 3_110_400 - 1);
+    // Un club recién creado ya vive el máximo, y cada miembro que entra lo renueva.
+    let founder = s.person();
+    let fresh = s.splitter.create_club(&founder, &DUES, &2);
+    assert_eq!(ttl(DataKey::Club(fresh)), 3_110_400 - 1);
+    s.advance(20 * DAY);
+    s.splitter.join_club(&founder, &fresh);
+    assert_eq!(ttl(DataKey::Club(fresh)), 3_110_400 - 1);
 }
 
 #[test]
