@@ -87,6 +87,12 @@
 //!   el 98% y la tesorería el 2%, y la llave queda publicada en el evento.
 //! - `reclaim_payment`: si la llave no llegó antes del plazo, quien pagó recupera todo.
 //!
+//! Compromiso del revisor, la novena custodia, sobre las recompensas: quien va a hacer el trabajo
+//! pone algo en juego.
+//! - `accept_bounty`: toma una recompensa y deja una garantía (al menos el 10% de la recompensa).
+//! - `submit_review`: si entrega antes del plazo (el hash de su informe), recupera la garantía.
+//! - `forfeit_stake`: si no entregó, desde el plazo su garantía pasa a quien publicó la recompensa.
+//!
 //! Si una cuenta no puede recibir lo que le paga el contrato (por ejemplo, una editorial nueva sin
 //! trustline de USDC), su parte no se pierde ni bloquea a nadie: queda pendiente a su nombre, y
 //! `claim` la cobra con una firma que además le abre la trustline (`trust` del SAC, CAP-73).
@@ -139,6 +145,8 @@ pub const MAX_VOUCHER_DAYS: u32 = 90;
 pub const MAX_CLUB_MEMBERS: u32 = 10;
 /// Plazo máximo de un pago contra entrega, en días: la llave se entrega al momento, no en meses.
 pub const MAX_LOCK_DAYS: u32 = 7;
+/// Garantía mínima para tomar una recompensa, en puntos base de la recompensa (1 000 = 10%).
+pub const MIN_STAKE_BPS: i128 = 1_000;
 /// Máximo de editoriales con deuda en una cuenta abierta.
 pub const MAX_TAB_PUBLISHERS: u32 = 10;
 /// Después del plazo, las entradas de una campaña siguen en la red al menos estos días, para que
@@ -292,6 +300,14 @@ pub enum Error {
     LockExpired = 62,
     /// El plazo de entrega sigue corriendo: todavía no se puede recuperar el pago.
     LockActive = 63,
+    /// El plazo de la recompensa ya venció: no se puede tomar ni entregar.
+    BountyExpired = 64,
+    /// La garantía es menor al mínimo (el 10% de la recompensa).
+    StakeTooLow = 65,
+    /// Esa cuenta ya tomó la recompensa y su garantía sigue en el contrato.
+    AlreadyAccepted = 66,
+    /// Esa cuenta no tiene garantía en esa recompensa: no la tomó, ya entregó o ya la perdió.
+    NoStake = 67,
 }
 
 #[contracttype]
@@ -518,6 +534,8 @@ enum DataKey {
     NextLock,
     /// Un pago contra entrega, por id.
     Lock(u32),
+    /// La garantía que dejó un revisor al tomar la recompensa `u32`.
+    Stake(u32, Address),
 }
 
 /// Comprobante de un artículo pagado. Topics: `["paid", publisher, reader]`.
@@ -1080,6 +1098,43 @@ pub struct PaymentReclaimed {
     #[topic]
     pub reader: Address,
     pub lock_id: u32,
+    pub amount: i128,
+}
+
+/// Una recompensa tomada. Topics: `["bounty_accepted", reviewer]`. `stake` ya está en el contrato
+/// y `deadline` es hasta cuándo hay que entregar.
+#[contractevent(topics = ["bounty_accepted"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BountyAccepted {
+    #[topic]
+    pub reviewer: Address,
+    pub bounty_id: u32,
+    pub stake: i128,
+    pub deadline: u64,
+}
+
+/// Una entrega a tiempo. Topics: `["review_submitted", reviewer]`. `report_hash` es el sha256 del
+/// informe y `stake`, la garantía que volvió a quien entregó.
+#[contractevent(topics = ["review_submitted"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReviewSubmitted {
+    #[topic]
+    pub reviewer: Address,
+    pub bounty_id: u32,
+    pub report_hash: BytesN<32>,
+    pub stake: i128,
+}
+
+/// Una garantía perdida por no entregar. Topics: `["stake_forfeited", reviewer, funder]`.
+/// `amount` pasó a `funder`, quien publicó la recompensa.
+#[contractevent(topics = ["stake_forfeited"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StakeForfeited {
+    #[topic]
+    pub reviewer: Address,
+    #[topic]
+    pub funder: Address,
+    pub bounty_id: u32,
     pub amount: i128,
 }
 
@@ -3103,6 +3158,134 @@ impl Splitter {
         env.storage().persistent().get(&DataKey::Lock(lock_id))
     }
 
+    /// `reviewer` toma la recompensa `bounty_id` y deja `stake` en garantía: pasa de su wallet al
+    /// contrato. La garantía es al menos el `MIN_STAKE_BPS` (10%) de la recompensa
+    /// (`StakeTooLow`). Solo se toma una recompensa abierta y antes de su plazo, una vez por
+    /// cuenta; varias cuentas pueden tomar la misma. La garantía tiene dos salidas: vuelve a
+    /// `reviewer` si entrega antes del plazo (`submit_review`) o, si no, pasa a quien publicó la
+    /// recompensa (`forfeit_stake`). Solo firma `reviewer`. Emite `bounty_accepted` y devuelve el
+    /// plazo de entrega (segundos Unix).
+    pub fn accept_bounty(env: Env, reviewer: Address, bounty_id: u32, stake: i128) -> u64 {
+        reviewer.require_auth();
+        let bounty = read_any_bounty(&env, bounty_id);
+        if !bounty.open {
+            panic_with_error!(&env, Error::BountyClosed);
+        }
+        if env.ledger().timestamp() >= bounty.deadline {
+            panic_with_error!(&env, Error::BountyExpired);
+        }
+        if stake <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let minimum = match bounty.amount.checked_mul(MIN_STAKE_BPS) {
+            Some(scaled) => scaled / BPS_DENOMINATOR,
+            None => panic_with_error!(&env, Error::AmountOverflow),
+        };
+        if stake < minimum {
+            panic_with_error!(&env, Error::StakeTooLow);
+        }
+        let entry = DataKey::Stake(bounty_id, reviewer.clone());
+        if env.storage().persistent().has(&entry) {
+            panic_with_error!(&env, Error::AlreadyAccepted);
+        }
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &reviewer,
+            env.current_contract_address(),
+            &stake,
+        );
+        env.storage().persistent().set(&entry, &stake);
+        keep_campaign(&env, &entry, bounty.deadline);
+        extend_instance_ttl(&env);
+
+        BountyAccepted {
+            reviewer,
+            bounty_id,
+            stake,
+            deadline: bounty.deadline,
+        }
+        .publish(&env);
+
+        bounty.deadline
+    }
+
+    /// `reviewer` entrega su trabajo para la recompensa `bounty_id`: `report_hash` es el sha256 de
+    /// su informe, que queda en la red con la hora de entrega. Si es antes del plazo
+    /// (`BountyExpired` después), recupera su garantía completa. La entrega vale aunque la
+    /// recompensa ya se haya repartido: la garantía no queda atrapada. El contrato comprueba que
+    /// hubo una entrega a tiempo, no su calidad: eso lo juzga quien publicó la recompensa al
+    /// repartirla. Solo firma `reviewer`. Emite `review_submitted` y devuelve la garantía.
+    pub fn submit_review(
+        env: Env,
+        reviewer: Address,
+        bounty_id: u32,
+        report_hash: BytesN<32>,
+    ) -> i128 {
+        reviewer.require_auth();
+        let entry = DataKey::Stake(bounty_id, reviewer.clone());
+        let stake = read_stake(&env, &entry);
+        if env.ledger().timestamp() >= read_any_bounty(&env, bounty_id).deadline {
+            panic_with_error!(&env, Error::BountyExpired);
+        }
+        env.storage().persistent().remove(&entry);
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &env.current_contract_address(),
+            &reviewer,
+            &stake,
+        );
+        extend_instance_ttl(&env);
+
+        ReviewSubmitted {
+            reviewer,
+            bounty_id,
+            report_hash,
+            stake,
+        }
+        .publish(&env);
+
+        stake
+    }
+
+    /// Ejecuta la garantía de `reviewer` en la recompensa `bounty_id`: si llegó el plazo
+    /// (`BountyActive` antes) y no entregó, la garantía pasa completa, sin comisión, a quien
+    /// publicó la recompensa. No pide firma: la ejecuta cualquiera y el dinero solo puede ir a
+    /// esa cuenta. Si no puede recibir (sin trustline), queda pendiente a su nombre para `claim`.
+    /// Emite `stake_forfeited` y devuelve la garantía.
+    pub fn forfeit_stake(env: Env, bounty_id: u32, reviewer: Address) -> i128 {
+        let entry = DataKey::Stake(bounty_id, reviewer.clone());
+        let stake = read_stake(&env, &entry);
+        let bounty = read_any_bounty(&env, bounty_id);
+        if env.ledger().timestamp() < bounty.deadline {
+            panic_with_error!(&env, Error::BountyActive);
+        }
+        env.storage().persistent().remove(&entry);
+
+        let config = read_config(&env);
+        payout(&env, &config, &bounty.funder, stake);
+        extend_instance_ttl(&env);
+
+        StakeForfeited {
+            reviewer,
+            funder: bounty.funder,
+            bounty_id,
+            amount: stake,
+        }
+        .publish(&env);
+
+        stake
+    }
+
+    /// La garantía de `reviewer` en la recompensa `bounty_id` (0 si no tiene).
+    pub fn stake(env: Env, bounty_id: u32, reviewer: Address) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Stake(bounty_id, reviewer))
+            .unwrap_or(0)
+    }
+
     /// Lo que el contrato le debe a `account` (pagos que no pudo recibir).
     pub fn owed(env: Env, account: Address) -> i128 {
         env.storage()
@@ -3383,6 +3566,22 @@ fn check_keys(env: &Env, keys: &Vec<BytesN<32>>) {
     }
     if keys.len() > MAX_BATCH_ITEMS {
         panic_with_error!(env, Error::BatchTooLarge);
+    }
+}
+
+/// La recompensa `bounty_id`, si existe (abierta o no, de quien sea).
+fn read_any_bounty(env: &Env, bounty_id: u32) -> Bounty {
+    match env.storage().persistent().get(&DataKey::Bounty(bounty_id)) {
+        Some(bounty) => bounty,
+        None => panic_with_error!(env, Error::NoBounty),
+    }
+}
+
+/// La garantía de `entry`, si sigue en el contrato.
+fn read_stake(env: &Env, entry: &DataKey) -> i128 {
+    match env.storage().persistent().get(entry) {
+        Some(stake) => stake,
+        None => panic_with_error!(env, Error::NoStake),
     }
 }
 

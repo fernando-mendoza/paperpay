@@ -22,6 +22,7 @@ mod club;
 mod gpass;
 mod lock;
 mod pool;
+mod stake;
 mod tab;
 mod voucher;
 
