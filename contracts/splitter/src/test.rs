@@ -17,6 +17,7 @@ use soroban_sdk::{
     vec, Address, Env, Event, IntoVal, String, Symbol, Vec,
 };
 
+mod agent;
 mod bounty;
 mod club;
 mod gpass;

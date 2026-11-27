@@ -100,6 +100,13 @@
 //!   tesorería.
 //! - `cancel_grant`: pasado el plazo, quien paga recupera los hitos que no liberó.
 //!
+//! Agente con tope, sin custodia: un agente de IA paga lecturas con el USDC de su dueño.
+//! - `authorize_agent` (de soporte, no mueve fondos): el dueño nombra a su agente, con un tope
+//!   por lectura, un presupuesto total (una autorización del token al contrato) y un vencimiento.
+//! - `pay_as_agent`: el agente paga una lectura con su propia firma; el dinero sale de la wallet
+//!   del dueño, dentro del tope y del presupuesto, y el acceso queda a nombre del dueño.
+//! - `revoke_agent` (de soporte): el dueño retira el permiso y deja la autorización en cero.
+//!
 //! Si una cuenta no puede recibir lo que le paga el contrato (por ejemplo, una editorial nueva sin
 //! trustline de USDC), su parte no se pierde ni bloquea a nadie: queda pendiente a su nombre, y
 //! `claim` la cobra con una firma que además le abre la trustline (`trust` del SAC, CAP-73).
@@ -158,6 +165,8 @@ pub const MIN_STAKE_BPS: i128 = 1_000;
 pub const MAX_MILESTONES: u32 = 10;
 /// Plazo máximo de un encargo, en días.
 pub const MAX_GRANT_DAYS: u32 = 90;
+/// Vigencia máxima del permiso de un agente, en días: un permiso de gasto se renueva seguido.
+pub const MAX_AGENT_DAYS: u32 = 30;
 /// Máximo de editoriales con deuda en una cuenta abierta.
 pub const MAX_TAB_PUBLISHERS: u32 = 10;
 /// Después del plazo, las entradas de una campaña siguen en la red al menos estos días, para que
@@ -327,6 +336,15 @@ pub enum Error {
     GrantClosed = 70,
     /// El plazo del encargo sigue corriendo: todavía no se puede cancelar.
     GrantActive = 71,
+    /// Esa cuenta no es el agente autorizado de ese dueño (o el dueño no autorizó a ninguno).
+    NoAgent = 72,
+    /// El permiso del agente ya venció.
+    AgentExpired = 73,
+    /// Al presupuesto del agente no le alcanza para ese pago.
+    BudgetExhausted = 74,
+    /// La autorización del token ya es de la suscripción de esa cuenta: no se comparte con un
+    /// agente.
+    AllowanceInUse = 75,
 }
 
 #[contracttype]
@@ -526,6 +544,18 @@ pub struct Grant {
     pub open: bool,
 }
 
+/// El permiso de un agente: `agent` puede pagar lecturas con el USDC de su dueño, hasta
+/// `max_per_read` por lectura, mientras no llegue `expires_at` (segundos Unix). El presupuesto
+/// total no se guarda aquí: es la autorización (allowance) que el dueño le dio al contrato en el
+/// token, que baja con cada pago.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AgentPermit {
+    pub agent: Address,
+    pub max_per_read: i128,
+    pub expires_at: u64,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -575,6 +605,8 @@ enum DataKey {
     NextGrant,
     /// Un encargo de traducción, por id.
     Grant(u32),
+    /// El permiso del agente de un dueño (uno por dueño: la allowance del token es una por cuenta).
+    Agent(Address),
 }
 
 /// Comprobante de un artículo pagado. Topics: `["paid", publisher, reader]`.
@@ -1218,6 +1250,44 @@ pub struct GrantCancelled {
     pub funder: Address,
     pub grant_id: u32,
     pub amount: i128,
+}
+
+/// Un agente autorizado. Topics: `["agent_authorized", owner, agent]`. No se movió nada: `budget`
+/// es lo que el contrato puede cobrarle a `owner` por los pagos de su agente.
+#[contractevent(topics = ["agent_authorized"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AgentAuthorized {
+    #[topic]
+    pub owner: Address,
+    #[topic]
+    pub agent: Address,
+    pub max_per_read: i128,
+    pub budget: i128,
+    pub expires_at: u64,
+}
+
+/// Una lectura pagada por un agente. Topics: `["agent_paid", owner, agent]`. Acompaña al `paid`
+/// de la lectura; `remaining` es el presupuesto que queda.
+#[contractevent(topics = ["agent_paid"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AgentPaid {
+    #[topic]
+    pub owner: Address,
+    #[topic]
+    pub agent: Address,
+    pub paper_id: String,
+    pub amount: i128,
+    pub remaining: i128,
+}
+
+/// Un permiso retirado. Topics: `["agent_revoked", owner, agent]`.
+#[contractevent(topics = ["agent_revoked"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AgentRevoked {
+    #[topic]
+    pub owner: Address,
+    #[topic]
+    pub agent: Address,
 }
 
 #[contract]
@@ -3524,6 +3594,165 @@ impl Splitter {
         env.storage().persistent().get(&DataKey::Grant(grant_id))
     }
 
+    /// De soporte, no mueve fondos: `owner` autoriza a `agent` (por ejemplo, un agente de IA que
+    /// investiga por él) a pagar lecturas con su USDC: hasta `max_per_read` por lectura, `budget`
+    /// en total y durante `days` días (de 1 a `MAX_AGENT_DAYS`). El presupuesto es una
+    /// autorización del token al contrato (allowance): el dinero sigue en la wallet de `owner`
+    /// hasta cada pago. Un permiso nuevo reemplaza al anterior, con su presupuesto. No se puede
+    /// con una suscripción activa (`AllowanceInUse`): comparten la autorización del token. Solo
+    /// firma `owner`. Emite `agent_authorized` y devuelve cuándo vence el permiso.
+    pub fn authorize_agent(
+        env: Env,
+        owner: Address,
+        agent: Address,
+        max_per_read: i128,
+        budget: i128,
+        days: u32,
+    ) -> u64 {
+        owner.require_auth();
+        if max_per_read <= 0 || budget < max_per_read {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        if days == 0 || days > MAX_AGENT_DAYS {
+            panic_with_error!(&env, Error::InvalidDays);
+        }
+        if env.storage().persistent().has(&DataKey::Sub(owner.clone())) {
+            panic_with_error!(&env, Error::AllowanceInUse);
+        }
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).approve(
+            &owner,
+            &env.current_contract_address(),
+            &budget,
+            &allowance_until(&env, days),
+        );
+        let expires_at = env.ledger().timestamp() + days as u64 * DAY_SECONDS;
+        let entry = DataKey::Agent(owner.clone());
+        env.storage().persistent().set(
+            &entry,
+            &AgentPermit {
+                agent: agent.clone(),
+                max_per_read,
+                expires_at,
+            },
+        );
+        keep_until(&env, &entry, expires_at);
+        extend_instance_ttl(&env);
+
+        AgentAuthorized {
+            owner,
+            agent,
+            max_per_read,
+            budget,
+            expires_at,
+        }
+        .publish(&env);
+
+        expires_at
+    }
+
+    /// `agent` paga `amount` por `paper_id` de `publisher` con el USDC de `owner`, que lo
+    /// autorizó (`authorize_agent`): la editorial recibe el monto menos la comisión y la
+    /// tesorería, la comisión, directo desde la wallet de `owner`. Solo firma `agent`: ni el
+    /// dueño ni la editorial. El contrato exige que sea el agente de ese dueño (`NoAgent`), que
+    /// el permiso no haya vencido (`AgentExpired`), que el monto no pase del tope por lectura
+    /// (`AboveMaxPerRead`) ni de lo que queda del presupuesto (`BudgetExhausted`). El acceso
+    /// queda a nombre de `owner`. Emite `paid` y `agent_paid`; devuelve el reparto.
+    pub fn pay_as_agent(
+        env: Env,
+        agent: Address,
+        owner: Address,
+        publisher: Address,
+        paper_id: String,
+        amount: i128,
+    ) -> Split {
+        agent.require_auth();
+        let permit = read_permit(&env, &owner);
+        if permit.agent != agent {
+            panic_with_error!(&env, Error::NoAgent);
+        }
+        if env.ledger().timestamp() >= permit.expires_at {
+            panic_with_error!(&env, Error::AgentExpired);
+        }
+        if env.storage().persistent().has(&DataKey::Sub(owner.clone())) {
+            panic_with_error!(&env, Error::AllowanceInUse);
+        }
+        validate_paper_id(&env, &paper_id);
+        let config = read_config(&env);
+        let split = compute_split(&env, amount, config.fee_bps);
+        if amount > permit.max_per_read {
+            panic_with_error!(&env, Error::AboveMaxPerRead);
+        }
+        let usdc = token::Client::new(&env, &config.token);
+        let spender = env.current_contract_address();
+        let budget = usdc.allowance(&owner, &spender);
+        if amount > budget {
+            panic_with_error!(&env, Error::BudgetExhausted);
+        }
+
+        if split.publisher > 0 {
+            usdc.transfer_from(&spender, &owner, &publisher, &split.publisher);
+        }
+        if split.fee > 0 {
+            usdc.transfer_from(&spender, &owner, &config.treasury, &split.fee);
+        }
+        extend_instance_ttl(&env);
+
+        Paid {
+            publisher,
+            reader: owner.clone(),
+            paper_id: paper_id.clone(),
+            payer: owner.clone(),
+            amount,
+            fee: split.fee,
+        }
+        .publish(&env);
+        AgentPaid {
+            owner,
+            agent,
+            paper_id,
+            amount,
+            remaining: budget - amount,
+        }
+        .publish(&env);
+
+        split
+    }
+
+    /// De soporte, no mueve fondos: `owner` retira el permiso de su agente y deja en cero la
+    /// autorización del token (si hoy es de una suscripción, no la toca). Solo firma `owner`.
+    /// Emite `agent_revoked`.
+    pub fn revoke_agent(env: Env, owner: Address) {
+        owner.require_auth();
+        let permit = read_permit(&env, &owner);
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Agent(owner.clone()));
+        if !env.storage().persistent().has(&DataKey::Sub(owner.clone())) {
+            let config = read_config(&env);
+            // Monto 0 con vencimiento 0, como al cancelar una suscripción.
+            token::Client::new(&env, &config.token).approve(
+                &owner,
+                &env.current_contract_address(),
+                &0,
+                &0,
+            );
+        }
+        extend_instance_ttl(&env);
+
+        AgentRevoked {
+            owner,
+            agent: permit.agent,
+        }
+        .publish(&env);
+    }
+
+    /// El permiso del agente de `owner`, si tiene uno.
+    pub fn agent(env: Env, owner: Address) -> Option<AgentPermit> {
+        env.storage().persistent().get(&DataKey::Agent(owner))
+    }
+
     /// Lo que el contrato le debe a `account` (pagos que no pudo recibir).
     pub fn owed(env: Env, account: Address) -> i128 {
         env.storage()
@@ -3804,6 +4033,18 @@ fn check_keys(env: &Env, keys: &Vec<BytesN<32>>) {
     }
     if keys.len() > MAX_BATCH_ITEMS {
         panic_with_error!(env, Error::BatchTooLarge);
+    }
+}
+
+/// El permiso del agente de `owner`, si tiene uno.
+fn read_permit(env: &Env, owner: &Address) -> AgentPermit {
+    match env
+        .storage()
+        .persistent()
+        .get(&DataKey::Agent(owner.clone()))
+    {
+        Some(permit) => permit,
+        None => panic_with_error!(env, Error::NoAgent),
     }
 }
 
