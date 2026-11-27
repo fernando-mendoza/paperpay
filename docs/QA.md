@@ -1,5 +1,18 @@
 # Estado de QA
 
+## Revisión del 27 de noviembre de 2026: contrato v0.16.0 (agente con tope)
+
+- `pnpm test:contracts`: 245 pruebas (14 nuevas, en `contracts/splitter/src/test/agent.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
+  - **Solo firma el agente:** con una autorización simulada solo para esa llamada del agente (sin `mock_all_auths`), el pago sale de la wallet del dueño y el árbol de firmas no tiene sub-invocaciones.
+  - **Tope y presupuesto:** un stroop arriba del tope falla (`AboveMaxPerRead`); con 2.00 de presupuesto, lo que queda exacto se puede pagar y un stroop más no (`BudgetExhausted`).
+  - **Quién paga:** un extraño, la editorial y el agente de otra cuenta reciben `NoAgent`.
+  - **Vencimiento:** paga un segundo antes y ya no en el segundo exacto (`AgentExpired`).
+  - **Suscripciones:** con una suscripción activa no se autoriza un agente; si el dueño se suscribe después, el agente no puede gastar esa autorización y revocarlo no la toca.
+  - **Sin custodia:** el contrato y el agente quedan en 0 en cada paso.
+- Mutaciones (35), con `tools/mutaciones-v0160.py` del run `2026-11-27-paperpay-contrato-v130` del hub: todas detectadas. La lista hizo agregar una prueba (`b176ae8`): con una suscripción activa `revoke_agent` no llama al token, así que quitarle la firma del dueño no se habría notado. Entre las demás: autorizar sin firma o con una suscripción, el presupuesto fijado al tope, pagar como agente cualquiera, con el permiso vencido, por encima del tope, la parte de la editorial yendo al agente, y el acceso a nombre del agente.
+- Red Stellar local y testnet (`tools/usar-v0160.sh`, 27-nov 16:11 CDMX): la función usada dos veces con un agente sin USDC ni trustline, las dos de soporte y cinco errores simulados antes de enviar.
+- **No probado:** no hay pantalla ni API, ni un agente real firmando. Que la autorización del token venza por ledger se probó solo dentro de su vigencia (la suscripción usa el mismo cálculo).
+
 ## Revisión del 27 de noviembre de 2026: contrato v0.15.0 (traducción por encargo)
 
 - `pnpm test:contracts`: 231 pruebas (16 nuevas, en `contracts/splitter/src/test/grant.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
