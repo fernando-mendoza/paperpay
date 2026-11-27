@@ -1,5 +1,20 @@
 # Estado de QA
 
+## Revisión del 27 de noviembre de 2026: contrato v0.11.0 (Pase PaperPay)
+
+- `pnpm test:contracts`: 167 pruebas (15 nuevas, en `contracts/splitter/src/test/gpass.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
+  - **Reparto por lecturas:** con 3 lecturas de una editorial y 1 de otra, tres cuartos y un cuarto de lo que queda después del 2%.
+  - **Redondeo:** con un monto que no divide exacto entre tres editoriales, las tres reciben el piso y lo que sobra va a una sola; el contrato queda en 0.
+  - **Vencimiento:** se anotan lecturas hasta un segundo antes de vencer; se liquida desde el segundo exacto.
+  - **Sin lecturas:** el pase vencido vuelve completo a quien lo pagó, sin comisión; antes de vencer, lo puede cancelar.
+  - **Sin firmas en `settle_pass`:** se prueba con las autorizaciones vacías.
+  - **Editorial sin trustline:** su parte queda pendiente y las demás cobran.
+  - **Invariante de custodia:** el saldo del contrato es siempre pases sin liquidar + pendientes.
+- Mutaciones (34), con `tools/mutaciones-v0110.py` del run `2026-11-27-paperpay-contrato-v070` del hub: todas detectadas. Entre ellas: reparto parejo en vez de proporcional, dividir entre editoriales y no entre lecturas, el redondeo perdido, liquidar antes de vencer o dos veces, anotar lecturas en un pase vencido, cancelar con lecturas.
+- Mutante equivalente que se quitó del código: `use_pass` renovaba el TTL del pase, pero la entrada ya vive hasta el vencimiento más la gracia desde la compra, así que esa línea no hacía nada.
+- Red Stellar local y testnet (`tools/usar-v0110.sh`, 27-nov 01:06 CDMX): las cuatro funciones usadas con dos lectores y dos editoriales, y seis errores simulados antes de enviar. Saldo final del contrato: 0.
+- **No probado:** la API y el sitio no usan todavía el Pase PaperPay. El operador puede anotar la misma lectura varias veces y así inclinar el reparto hacia una editorial: el contrato no lo impide, solo garantiza que el dinero va a editoriales anotadas o vuelve a quien pagó.
+
 ## Revisión del 27 de noviembre de 2026: contrato v0.10.0 (cuenta abierta)
 
 - `pnpm test:contracts`: 152 pruebas (17 nuevas, en `contracts/splitter/src/test/tab.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
