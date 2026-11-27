@@ -1,5 +1,19 @@
 # Estado de QA
 
+## Revisión del 27 de noviembre de 2026: contrato v0.13.0 (pago contra entrega)
+
+- `pnpm test:contracts`: 199 pruebas (15 nuevas, en `contracts/splitter/src/test/lock.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
+  - **La llave es la prueba:** `unlock_payment` paga sin ninguna firma; con otra llave, con el hash presentado como llave o con la llave de otro pago, falla (`WrongKey`) y no se mueve nada.
+  - **Plazo:** la llave vale un segundo antes del plazo y ya no en el segundo exacto (`LockExpired`); quien pagó no recupera un segundo antes (`LockActive`) y sí en el segundo exacto. Las dos salidas nunca están abiertas a la vez.
+  - **Quién recupera:** solo quien pagó y con su firma; un extraño y la propia editorial reciben `NoLock`.
+  - **Editorial sin trustline:** con una cuenta G inyectada en el ledger, su parte queda pendiente (`credited`), la tesorería cobra y después la editorial la cobra con `claim`.
+  - **Una sola salida:** un pago liberado no se devuelve y uno devuelto no se libera (`LockClosed`).
+  - **Invariante de custodia:** el saldo del contrato es siempre pagos bloqueados + recompensas abiertas + pendientes.
+- Mutaciones (32), con `tools/mutaciones-v0130.py` del run `2026-11-27-paperpay-contrato-v130` del hub: todas detectadas. Entre ellas: bloquear sin firma, pago de 0, plazo sin tope, ids que no avanzan, cualquier llave liberando, el hash aceptado como llave, la llave valiendo después del plazo, liberar sin cerrar el pago, la editorial cobrando sin comisión o directo (una sin trustline tumbaría todo), el evento sin la llave, recuperar sin firma, antes del plazo o un pago ajeno.
+- Red Stellar local y testnet (`tools/usar-v0130.sh`, 27-nov 15:54 CDMX): las tres funciones usadas y siete errores simulados antes de enviar (#59 a #63). Saldo final del contrato: 0.
+- Desde esta versión, todo se compila y se prueba dentro de Docker (Rust 1.100.0 y `stellar-cli` 30.0.1). El WASM de la v0.12.0 compilado así es idéntico al desplegado (`87930abd…`).
+- **No probado:** no hay pantalla ni API para el pago contra entrega, y tampoco el cifrado del artículo: el contrato solo comprueba el sha256 de la llave.
+
 ## Revisión del 27 de noviembre de 2026: contrato v0.12.0 (journal club)
 
 - `pnpm test:contracts`: 184 pruebas (17 nuevas, en `contracts/splitter/src/test/club.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
