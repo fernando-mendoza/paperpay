@@ -1,5 +1,18 @@
 # Estado de QA
 
+## Revisión del 27 de noviembre de 2026: contrato v0.14.0 (compromiso del revisor)
+
+- `pnpm test:contracts`: 215 pruebas (16 nuevas, en `contracts/splitter/src/test/stake.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
+  - **Mínimo:** con una recompensa de 1 USDC, 0.0999999 de garantía falla (`StakeTooLow`) y 0.10 exactos valen.
+  - **Plazo:** se toma y se entrega un segundo antes del plazo, y ya no en el segundo exacto (`BountyExpired`); la garantía no se ejecuta un segundo antes (`BountyActive`) y sí en el segundo exacto. Las dos salidas nunca están abiertas a la vez.
+  - **Quién:** solo entrega quien dejó la garantía y con su firma; quien publicó la recompensa no puede "entregar" por otro para quedarse con una garantía ajena (`NoStake`). Ejecutar la garantía no pide firma y el dinero solo va a quien publicó.
+  - **La garantía no queda atrapada:** si la recompensa se reparte antes del plazo, quien la tomó todavía puede entregar y recuperar. Repartir y cancelar no tocan las garantías.
+  - **Quien publicó sin poder recibir:** con el emisor desautorizando su cuenta, la garantía perdida queda pendiente (`credited`) y la cobra después con `claim`.
+  - **Invariante de custodia:** el saldo del contrato es siempre recompensas abiertas + garantías + pendientes.
+- Mutaciones (27), con `tools/mutaciones-v0140.py` del run `2026-11-27-paperpay-contrato-v130` del hub: todas detectadas. Entre ellas: tomar sin firma, una recompensa vencida o cerrada, garantía de 0 o sin mínimo, el mínimo al 1%, tomar dos veces, entregar sin firma o después del plazo, entregar sin sacar la garantía del registro, ejecutar la garantía antes del plazo o una que no existe, y la garantía perdida yendo a quien no entregó o a la tesorería.
+- Red Stellar local y testnet (`tools/usar-v0140.sh`, 27-nov 16:04 CDMX): las tres funciones usadas con dos revisores (una entrega y uno no) y seis errores simulados antes de enviar. Saldo final del contrato: 0.
+- **No probado:** no hay pantalla ni API. El contrato no puede saber si el informe entregado es bueno ni si el hash corresponde a un informe real: una entrega vacía recupera la garantía, y queda firmada y con fecha a nombre de quien la hizo.
+
 ## Revisión del 27 de noviembre de 2026: contrato v0.13.0 (pago contra entrega)
 
 - `pnpm test:contracts`: 199 pruebas (15 nuevas, en `contracts/splitter/src/test/lock.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
