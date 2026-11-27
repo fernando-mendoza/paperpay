@@ -6,12 +6,31 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 
 | Versión | Contrato (testnet) | Funciones nuevas | Pruebas | ¿La usa el sitio? |
 | --- | --- | --- | --- | --- |
+| [0.7.0](#070-27-nov-2026) | `CDOI4F…DK3N` | `fund_pool`, `pay_sponsored`, `withdraw_pool` | 105 | No |
 | [0.6.0](#060-26-nov-2026) | `CANRPE…QM7` | `pledge`, `release_pledges`, `refund_pledge`, `claim` (más `open_campaign`, de soporte) | 89 | No |
 | [0.5.0](#050-26-nov-2026) | `CA2QHB…4RT2` | `buy_pass`, `subscribe`, `renew_subscription`, `sponsor_open` | 68 | No |
 | [0.4.0](#040-25-nov-2026) | `CC5SIM…ADGA` | `pay_authors`, `pay_ref` | 43 | **Sí, desde el 25 de noviembre** (`pay`, `pay_ref` y `gift`) |
 | [0.3.0](#030-25-nov-2026) | `CCQRUT…HEQD` | `gift_batch`, `tip`, `refund` | 32 | No |
 | [0.2.0](#020-23-nov-2026) | `CAIMQY…HOR5` | `pay_batch`, `gift` | 21 | Del 23 al 25 de noviembre. Sigue como contrato anterior: sus regalos y lecturas valen |
 | [0.1.0](#010-23-nov-2026) | `CDOUF6…BPOZ` | `pay`, `split`, `config` | 11 | No (reemplazada) |
+
+## 0.7.0 (27 nov 2026)
+
+Fondos de patrocinio: alguien deja dinero en el contrato para pagar lecturas de otros. Es la **segunda custodia**, con dos salidas y sin admin: una lectura de la editorial del fondo, o de vuelta al patrocinador.
+
+- **`fund_pool(sponsor, publisher, operator, max_per_read, amount)`:** el patrocinador deposita para las lecturas de una editorial y nombra a un operador con un tope por lectura. Una recarga se suma al saldo y reemplaza operador y tope. Emite `pool_funded`.
+- **`pay_sponsored(operator, sponsor, reader, paper_id, publisher, amount)`:** el operador paga una lectura con el fondo, 98/2 directo desde el contrato. Quien lee no paga ni firma, y puede no tener cuenta en la red. El contrato hace cumplir las reglas: solo a la editorial del fondo, hasta el tope, sin pasar del saldo y una vez por artículo y lector cada 24 h (un marcador temporal que vence solo). Emite `paid` (con `payer = sponsor`) y `sponsored`.
+- **`withdraw_pool(sponsor, publisher, amount)`:** el patrocinador retira una parte o todo lo que no se usó. El operador no puede retirar. Emite `pool_withdrawn`.
+- De lectura: `pool`.
+- Errores nuevos: `NoPool` (25), `NotOperator` (26), `AboveMaxPerRead` (27), `PoolTooLow` (28) y `AlreadySponsored` (29).
+- Si la llave del operador se filtra, el daño está acotado: no puede retirar ni pagarle a otra cuenta; solo gastar el fondo en lecturas de esa editorial.
+- Código: `d7a6a12`. Versión en `c4afe8a`.
+- En la red (primero en una red Stellar local, después en testnet):
+  - contrato [`CDOI4FARQOJN6AXPWZQPZN5EBO47JY275L6VRIE3DP2NC35JIAGRDK3N`](https://stellar.expert/explorer/testnet/contract/CDOI4FARQOJN6AXPWZQPZN5EBO47JY275L6VRIE3DP2NC35JIAGRDK3N), WASM `1cbe78d2…`;
+  - [`fund_pool` `57cecee9…`](https://stellar.expert/explorer/testnet/tx/57cecee989c7932615b90ed8c474e523cea9607ce084ac607145977a5660ba4a) (1.50 USDC en garantía, tope de 0.50 por lectura);
+  - [`pay_sponsored` `de1651fe…`](https://stellar.expert/explorer/testnet/tx/de1651fe1aa671f909a5f85dd1db85fd821618408f5258dfa66b28e0c603ad6e) (el operador paga una lectura para una llave que no existe en la red);
+  - [`withdraw_pool` `ea22d0b9…`](https://stellar.expert/explorer/testnet/tx/ea22d0b94ac3ba5cd95e3a4fa01f4d3a8fe0db510a04f4488ad13ec3a6c6e3c4) (1.00 de vuelta al patrocinador).
+- Pruebas: 16 nuevas, 105 en total, en `src/test/pool.rs`. Se rompió el código de 26 formas a propósito y alguna prueba detectó cada una (detalle en [`docs/QA.md`](../docs/QA.md)).
 
 ## 0.6.0 (26 nov 2026)
 

@@ -4,7 +4,7 @@ Dos contratos: [`splitter`](#splitter-reparto-98-editorial--2-paperpay) (los pag
 
 ## `splitter`: reparto 98% editorial / 2% PaperPay
 
-Cobra lecturas y las reparte en la misma transacción. El USDC va directo de la cuenta que paga a la editorial (monto − comisión) y a la tesorería de PaperPay (comisión): los pagos no pasan por el contrato. La única excepción, desde la v0.6.0, son las campañas de acceso abierto (abajo), que guardan los aportes en garantía.
+Cobra lecturas y las reparte en la misma transacción. El USDC va directo de la cuenta que paga a la editorial (monto − comisión) y a la tesorería de PaperPay (comisión): los pagos no pasan por el contrato. Las excepciones guardan dinero en garantía: las campañas de acceso abierto (desde la v0.6.0) y los fondos de patrocinio (desde la v0.7.0), abajo.
 
 Desde la v0.3.0 también regala listas de lectura (`gift_batch`), cobra propinas (`tip`) y registra devoluciones (`refund`). Las propinas y las devoluciones emiten su propio evento, nunca `paid`, así que no dan acceso a ningún artículo.
 
@@ -29,6 +29,14 @@ La v0.6.0 suma **campañas de acceso abierto**: los lectores juntan dinero para 
 - `claim`: quien no pudo recibir su parte (por ejemplo, una editorial nueva sin trustline de USDC) la cobra después, y la misma firma le abre la trustline.
 
 Cada saldo en custodia tiene **una sola salida**, sin admin que lo pueda mover: la meta (`release_pledges`), el plazo (`refund_pledge`) o su dueño (`claim`). El saldo del contrato siempre es lo juntado por las campañas sin liberar más lo pendiente de cobro (hay una prueba que lo comprueba paso a paso). `pay`, `gift`, los pases y las demás funciones siguen sin custodia.
+
+La v0.7.0 suma **fondos de patrocinio**, la segunda custodia: alguien deja dinero en el contrato para pagar lecturas de otros.
+
+- `fund_pool`: un patrocinador (una facultad, una biblioteca) deposita para las lecturas de una editorial y nombra a un operador, con un tope por lectura;
+- `pay_sponsored`: el operador paga una lectura con el fondo. Quien lee no paga ni firma, y puede no tener cuenta en la red;
+- `withdraw_pool`: el patrocinador retira lo que no se usó, cuando quiera.
+
+El operador solo puede pagarle a la editorial del fondo, hasta el tope, y una vez por artículo y lector cada 24 h. No puede retirar. El dinero de un fondo tiene dos salidas: una lectura de esa editorial o de vuelta a su patrocinador.
 
 | Función | Qué hace |
 | --- | --- |
@@ -55,6 +63,10 @@ Cada saldo en custodia tiene **una sola salida**, sin admin que lo pueda mover: 
 | `refund_pledge(campaign_id, backer) -> i128` | Si la campaña falló (venció sin llegar a la meta; si no, `CampaignNotFailed`), devuelve completo, sin comisión, el aporte de `backer` (si no tiene, `NothingToRefund`). **No pide firmas**: el dinero solo puede volver a `backer`. Si `backer` ya no puede recibir, queda pendiente para `claim`. Emite `unpledged`. *(v0.6.0)* |
 | `claim(account) -> i128` | Cobra todo lo pendiente de `account` (si no hay, `NothingToClaim`) y, con la misma firma, le abre la trustline de USDC con `trust` del SAC (CAP-73) si no la tiene. La cuenta necesita ~0.5 XLM libres para la reserva; si no puede recibir, la transacción falla y lo pendiente sigue intacto. Firma `account`. Emite `claimed`. *(v0.6.0)* |
 | `campaign(campaign_id) -> Option<Campaign>` · `pledge_of(campaign_id, backer) -> i128` · `owed(account) -> i128` | La campaña (`{ publisher, paper_id, goal, deadline, raised, released }`), lo que aportó una cuenta y lo que tiene pendiente. Solo leen. *(v0.6.0)* |
+| `fund_pool(sponsor, publisher, operator, max_per_read, amount) -> i128` | `sponsor` deposita `amount` en su fondo para las lecturas de `publisher`: el USDC pasa al contrato. `operator` es la única cuenta que puede gastarlo, hasta `max_per_read` por lectura. Una recarga se suma al saldo y reemplaza operador y tope. Solo firma `sponsor`. Emite `pool_funded` y devuelve el saldo. **Desde la v0.7.0.** |
+| `pay_sponsored(operator, sponsor, reader, paper_id, publisher, amount) -> Split` | El operador paga una lectura con el fondo de `sponsor` para `publisher`: 98/2 directo desde el contrato. Solo firma `operator`. Falla si no es el operador (`NotOperator`), si pasa del tope (`AboveMaxPerRead`) o del saldo (`PoolTooLow`), o si ese fondo ya pagó ese artículo para ese lector en las últimas 24 h (`AlreadySponsored`). Si la editorial no puede recibir, falla y el fondo queda intacto. Emite `paid` (con `payer = sponsor`) y `sponsored`. **Desde la v0.7.0.** |
+| `withdraw_pool(sponsor, publisher, amount) -> i128` | `sponsor` retira `amount` de su fondo, del contrato a su wallet. Solo firma `sponsor`. Emite `pool_withdrawn` y devuelve lo que queda. **Desde la v0.7.0.** |
+| `pool(sponsor, publisher) -> Option<Pool>` | El fondo (`operator`, `max_per_read`, `balance`), sin mover fondos. **Desde la v0.7.0.** |
 | `split(amount) -> Split` | El reparto que aplicaría `pay`, sin mover fondos. |
 | `config() -> Config` | La configuración fijada al desplegar. |
 
@@ -85,16 +97,16 @@ Cada saldo en custodia tiene **una sola salida**, sin admin que lo pueda mover: 
 - **La firma de `pledge` no depende del estado de la campaña:** el monto del `transfer` que firma quien aporta es el que pidió, nunca "lo que falte". Si otro aporte entra entre la simulación y el envío, el aporte falla limpio (`OverGoal` o `CampaignClosed`) sin mover nada, en vez de fallar por una firma que ya no coincide.
 - **La firma de `subscribe` no depende del ledger exacto:** el vencimiento de la autorización es un argumento de `approve` que quien lee firma. Si dependiera del ledger del momento, la red avanzaría entre la simulación y el envío y rechazaría la firma (pasó en la red local; está en [`docs/QA.md`](../docs/QA.md)). Por eso se redondea al día de ledgers (17 280). Solo cambia si entre simular y enviar la red cruza ese múltiplo, una vez al día; entonces basta reintentar.
 - **`pay_authors` en la red:** el `paid` lleva solo al primer autor; lo que recibió cada coautor se ve en las transferencias del token de esa transacción.
-- **Acceso:** la API solo da acceso por eventos `paid` (`paidReceipts` en `apps/api/src/services/splitter.service.ts`). Una propina o una devolución nunca abren un artículo. Los pases y los artículos abiertos (v0.5.0) y las campañas (v0.6.0) existen en testnet, pero la API todavía no los usa.
+- **Acceso:** la API solo da acceso por eventos `paid` (`paidReceipts` en `apps/api/src/services/splitter.service.ts`). Una propina o una devolución nunca abren un artículo. Lo que llegó desde la v0.5.0 (pases, artículos abiertos, campañas, fondos y lo que sigue) existe en testnet, pero la API todavía no lo usa.
 - **Quién valida qué:** el contrato garantiza el reparto. La API sigue decidiendo el precio y la editorial de cada artículo, y valida que el evento coincida antes de dar acceso.
-- **Errores:** `FeeTooHigh` (1), `InvalidAmount` (2), `InvalidPaperId` (3; vacío o de más de 64 bytes), `AmountOverflow` (4), `EmptyBatch` (5), `BatchTooLarge` (6), `DuplicatePaper` (7), `InvalidShares` (8; partes vacías, en 0, de más del 100%, que no suman 100% o con un autor repetido), `TooManyAuthors` (9; más de 10 coautores), `SelfReferral` (10; `referrer` igual a `payer`), `InvalidDays` (11; 0 o más de 31 días), `WrongPrice` (12; `amount` distinto de días × precio por día), `TooLong` (13; un acceso que vencería a más de 90 días o una suscripción de más de 150), `InvalidRenewals` (14; 0 o más de 12), `NoSubscription` (15), `RenewTooEarly` (16; al pase le falta más de un día), `InvalidDeadline` (17; plazo pasado o a más de 90 días), `NoCampaign` (18), `CampaignClosed` (19; la campaña ya no recibe aportes o ya se liberó), `OverGoal` (20; el aporte pasa de lo que falta), `GoalNotReached` (21), `NothingToClaim` (22), `CampaignNotFailed` (23; todavía no vence, llegó a la meta o se liberó) y `NothingToRefund` (24).
+- **Errores:** `FeeTooHigh` (1), `InvalidAmount` (2), `InvalidPaperId` (3; vacío o de más de 64 bytes), `AmountOverflow` (4), `EmptyBatch` (5), `BatchTooLarge` (6), `DuplicatePaper` (7), `InvalidShares` (8; partes vacías, en 0, de más del 100%, que no suman 100% o con un autor repetido), `TooManyAuthors` (9; más de 10 coautores), `SelfReferral` (10; `referrer` igual a `payer`), `InvalidDays` (11; 0 o más de 31 días), `WrongPrice` (12; `amount` distinto de días × precio por día), `TooLong` (13; un acceso que vencería a más de 90 días o una suscripción de más de 150), `InvalidRenewals` (14; 0 o más de 12), `NoSubscription` (15), `RenewTooEarly` (16; al pase le falta más de un día), `InvalidDeadline` (17; plazo pasado o a más de 90 días), `NoCampaign` (18), `CampaignClosed` (19; la campaña ya no recibe aportes o ya se liberó), `OverGoal` (20; el aporte pasa de lo que falta), `GoalNotReached` (21), `NothingToClaim` (22), `CampaignNotFailed` (23; todavía no vence, llegó a la meta o se liberó), `NothingToRefund` (24), `NoPool` (25), `NotOperator` (26; quien firma no es el operador del fondo), `AboveMaxPerRead` (27), `PoolTooLow` (28; al fondo no le alcanza para la lectura o el retiro) y `AlreadySponsored` (29; el fondo ya pagó ese artículo para ese lector en las últimas 24 h).
 
 ### Probar
 
 Requiere Rust estable y el target `wasm32v1-none` (`rustup target add wasm32v1-none`).
 
 ```bash
-pnpm test:contracts            # cargo test: 89 pruebas con un SAC de USDC simulado
+pnpm test:contracts            # cargo test: 105 pruebas con un SAC de USDC simulado
 ```
 
 ### Compilar el WASM
@@ -176,6 +188,17 @@ inv --source lector --send no -- campaign --campaign_id 0
 Datos completos en [`deployments/testnet.json`](deployments/testnet.json).
 
 > **Qué versión usa el sitio.** El sitio y la API usan la **v0.4.0** (`productionContractId`) desde el 25 de noviembre de 2026 (CDMX; 00:18 UTC del 26), con `pay`, `pay_ref` (referidos) y `gift`. La v0.4.0 tiene todo lo de la v0.3.0 (`gift_batch`, `tip` y `refund`) más `pay_authors` y `pay_ref`. La v0.2.0, que usó el sitio del 23 al 25 de noviembre, quedó en `SPLITTER_LEGACY_CONTRACT_IDS`: sus regalos se pueden reclamar y sus lecturas siguen en el contador. Los pagos nuevos van solo a la v0.4.0. La **v0.5.0** (pases, suscripción y artículos abiertos) está desplegada y probada en testnet desde el 25 de noviembre de 2026 (CDMX; 05:04 UTC del 26), pero el sitio y la API todavía no la usan. La **v0.6.0** (campañas de acceso abierto y `claim`) está desplegada y probada en testnet desde el 26 de noviembre de 2026 (00:18 CDMX); el sitio y la API tampoco la usan.
+
+| v0.7.0 | Valor |
+| --- | --- |
+| Contrato | [`CDOI4FARQOJN6AXPWZQPZN5EBO47JY275L6VRIE3DP2NC35JIAGRDK3N`](https://stellar.expert/explorer/testnet/contract/CDOI4FARQOJN6AXPWZQPZN5EBO47JY275L6VRIE3DP2NC35JIAGRDK3N) |
+| WASM (sha256) | `1cbe78d2826c6ae544b04444eb20e7a8e8b1abae4562b36fb8cc37b320e6ecb1` (45,518 bytes), igual al que se baja de la red |
+| Constructor | El mismo de v0.5.0 |
+| `fund_pool` | [`57cecee9…`](https://stellar.expert/explorer/testnet/tx/57cecee989c7932615b90ed8c474e523cea9607ce084ac607145977a5660ba4a): un patrocinador deposita 1.50 USDC para lecturas de la editorial demo, con tope de 0.50 y un operador. El USDC pasa al contrato |
+| `pay_sponsored` | [`de1651fe…`](https://stellar.expert/explorer/testnet/tx/de1651fe1aa671f909a5f85dd1db85fd821618408f5258dfa66b28e0c603ad6e): el operador paga `crispr-nanomedicine-biotech` para una llave que **no existe en la red**. 0.49 a la editorial demo y 0.01 a la tesorería, desde el contrato. Eventos `paid` y `sponsored` |
+| `withdraw_pool` | [`ea22d0b9…`](https://stellar.expert/explorer/testnet/tx/ea22d0b94ac3ba5cd95e3a4fa01f4d3a8fe0db510a04f4488ad13ec3a6c6e3c4): el patrocinador retira 1.00, lo que no se usó |
+
+Antes de cada paso, el script simuló lo que no debe pasar: otra cuenta como operador (#26), más que el tope (#27), la misma lectura otra vez (#29), el operador retirando (#25) y un retiro mayor que el saldo (#28). Al final, el contrato tiene saldo 0.
 
 | v0.6.0 | Valor |
 | --- | --- |
