@@ -18,6 +18,7 @@ use soroban_sdk::{
 };
 
 mod bounty;
+mod gpass;
 mod pool;
 mod tab;
 mod voucher;

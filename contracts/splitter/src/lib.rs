@@ -64,6 +64,14 @@
 //! - `collect_tab`: si no pagó a tiempo, cualquiera cobra la deuda de la garantía.
 //! - `close_tab`: sin deuda, quien lee recupera su garantía.
 //!
+//! Pase PaperPay, la sexta custodia: un pase para todo el catálogo, que se reparte entre las
+//! editoriales según lo que esa persona leyó.
+//! - `buy_global_pass`: quien lee paga el pase; el dinero queda en el contrato hasta que vence.
+//! - `use_pass` (de soporte, no mueve fondos): el operador anota cada lectura hecha con el pase.
+//! - `settle_pass`: vencido el pase, cualquiera lo liquida: 2% a la tesorería y el resto entre las
+//!   editoriales, en proporción a las lecturas. Si no leyó nada, vuelve todo.
+//! - `cancel_pass`: mientras no haya leído nada, quien lo compró lo cancela y recupera todo.
+//!
 //! Si una cuenta no puede recibir lo que le paga el contrato (por ejemplo, una editorial nueva sin
 //! trustline de USDC), su parte no se pierde ni bloquea a nadie: queda pendiente a su nombre, y
 //! `claim` la cobra con una firma que además le abre la trustline (`trust` del SAC, CAP-73).
@@ -153,8 +161,8 @@ pub enum Error {
     TooManyAuthors = 9,
     /// `pay_ref` con `referrer` igual a `payer`: sería un descuento, no una recomendación.
     SelfReferral = 10,
-    /// Días fuera de rango: 0 o más de `MAX_PASS_DAYS` (un pase, un artículo abierto o el plazo
-    /// de pago de una cuenta abierta, que va en segundos).
+    /// Días fuera de rango: 0 o más de `MAX_PASS_DAYS` (un pase, un artículo abierto, o el plazo
+    /// de pago de una cuenta abierta y la duración de un Pase PaperPay, que van en segundos).
     InvalidDays = 11,
     /// `amount` distinto de días × precio por día de la configuración.
     WrongPrice = 12,
@@ -187,7 +195,7 @@ pub enum Error {
     NothingToRefund = 24,
     /// Ese patrocinador no tiene fondo para esa editorial.
     NoPool = 25,
-    /// Quien firma no es el operador del fondo o de la cuenta abierta.
+    /// Quien firma no es el operador del fondo, de la cuenta abierta o del Pase PaperPay.
     NotOperator = 26,
     /// La lectura cuesta más que el tope por lectura del fondo.
     AboveMaxPerRead = 27,
@@ -225,6 +233,18 @@ pub enum Error {
     TabNotDue = 42,
     /// La cuenta abierta tiene deuda: no se cierra hasta pagarla.
     TabOwes = 43,
+    /// Esa cuenta no tiene Pase PaperPay.
+    NoGlobalPass = 44,
+    /// Esa cuenta ya tiene un Pase PaperPay: se liquida o se cancela antes de comprar otro.
+    PassExists = 45,
+    /// El Pase PaperPay ya venció: no se le anotan más lecturas.
+    PassExpired = 46,
+    /// El Pase PaperPay ya tiene lecturas de `MAX_TAB_PUBLISHERS` editoriales.
+    PassFull = 47,
+    /// El Pase PaperPay sigue vigente: no se liquida antes de vencer.
+    PassActive = 48,
+    /// El Pase PaperPay ya tiene lecturas: no se cancela, se liquida al vencer.
+    PassUsed = 49,
 }
 
 #[contracttype]
@@ -356,6 +376,19 @@ pub struct Tab {
     pub debts: Map<Address, i128>,
 }
 
+/// Un Pase PaperPay: `reader` pagó `amount` por leer todo el catálogo hasta `until` (segundos
+/// Unix). `operator` anota sus lecturas: `reads` es el total y `by_publisher`, cuántas de cada
+/// editorial. Al vencer, `amount` se reparte en esa proporción.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GlobalPass {
+    pub operator: Address,
+    pub amount: i128,
+    pub until: u64,
+    pub reads: u32,
+    pub by_publisher: Map<Address, u32>,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -387,6 +420,8 @@ enum DataKey {
     Voucher(BytesN<32>),
     /// La cuenta abierta de un lector (una por lector).
     Tab(Address),
+    /// El Pase PaperPay de un lector (uno a la vez).
+    GlobalPass(Address),
 }
 
 /// Comprobante de un artículo pagado. Topics: `["paid", publisher, reader]`.
@@ -770,6 +805,66 @@ pub struct TabCollected {
 #[contractevent(topics = ["tab_closed"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TabClosed {
+    #[topic]
+    pub reader: Address,
+    pub amount: i128,
+}
+
+/// Un Pase PaperPay nuevo. Topics: `["global_pass", reader]`. `amount` ya está en el contrato.
+#[contractevent(topics = ["global_pass"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GlobalPassBought {
+    #[topic]
+    pub reader: Address,
+    pub operator: Address,
+    pub amount: i128,
+    pub until: u64,
+}
+
+/// Una lectura hecha con un Pase PaperPay. Topics: `["pass_read", reader, publisher]`. No movió
+/// fondos: `reads` es el total de lecturas del pase después de anotarla.
+#[contractevent(topics = ["pass_read"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PassRead {
+    #[topic]
+    pub reader: Address,
+    #[topic]
+    pub publisher: Address,
+    pub paper_id: String,
+    pub reads: u32,
+}
+
+/// Lo que le tocó a una editorial al liquidarse un Pase PaperPay. Topics:
+/// `["pass_share", publisher, reader]`. `reads` son las lecturas de esa editorial.
+#[contractevent(topics = ["pass_share"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PassShare {
+    #[topic]
+    pub publisher: Address,
+    #[topic]
+    pub reader: Address,
+    pub reads: u32,
+    pub amount: i128,
+}
+
+/// Un Pase PaperPay liquidado. Topics: `["pass_settled", reader]`. `amount` es lo que costó;
+/// con lecturas, `fee` fue a la tesorería y el resto a `publishers` editoriales. Sin lecturas
+/// (`reads` = 0), todo volvió a `reader` y `fee` es 0.
+#[contractevent(topics = ["pass_settled"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PassSettled {
+    #[topic]
+    pub reader: Address,
+    pub amount: i128,
+    pub fee: i128,
+    pub reads: u32,
+    pub publishers: u32,
+}
+
+/// Un Pase PaperPay cancelado sin lecturas. Topics: `["pass_cancelled", reader]`.
+#[contractevent(topics = ["pass_cancelled"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PassCancelled {
     #[topic]
     pub reader: Address,
     pub amount: i128,
@@ -2193,6 +2288,201 @@ impl Splitter {
         env.storage().persistent().get(&DataKey::Tab(reader))
     }
 
+    /// `reader` compra un Pase PaperPay: paga `amount` por leer todo el catálogo durante `period`
+    /// segundos (hasta `MAX_PASS_DAYS` días). El dinero pasa de su wallet al contrato y queda en
+    /// garantía hasta que vence: entonces se reparte entre las editoriales según lo que leyó
+    /// (`settle_pass`). `operator` (el sitio) es la única cuenta que puede anotarle lecturas, y es
+    /// quien decide si `amount` alcanza, igual que decide el precio de cada artículo. Un pase a
+    /// la vez. Solo firma `reader`. Emite `global_pass` y devuelve cuándo vence.
+    pub fn buy_global_pass(
+        env: Env,
+        reader: Address,
+        operator: Address,
+        amount: i128,
+        period: u64,
+    ) -> u64 {
+        reader.require_auth();
+        if amount <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        if period == 0 || period > MAX_PASS_DAYS as u64 * DAY_SECONDS {
+            panic_with_error!(&env, Error::InvalidDays);
+        }
+        let key = DataKey::GlobalPass(reader.clone());
+        if env.storage().persistent().has(&key) {
+            panic_with_error!(&env, Error::PassExists);
+        }
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &reader,
+            env.current_contract_address(),
+            &amount,
+        );
+        let until = env.ledger().timestamp() + period;
+        env.storage().persistent().set(
+            &key,
+            &GlobalPass {
+                operator: operator.clone(),
+                amount,
+                until,
+                reads: 0,
+                by_publisher: Map::new(&env),
+            },
+        );
+        keep_campaign(&env, &key, until);
+        extend_instance_ttl(&env);
+
+        GlobalPassBought {
+            reader,
+            operator,
+            amount,
+            until,
+        }
+        .publish(&env);
+
+        until
+    }
+
+    /// De soporte (no mueve fondos): el operador anota que `reader` leyó `paper_id`, de
+    /// `publisher`, con su Pase PaperPay. Solo mientras el pase está vigente (`PassExpired`
+    /// después) y hasta `MAX_TAB_PUBLISHERS` editoriales distintas (`PassFull`). Solo firma
+    /// `operator`. Emite `pass_read` y devuelve el total de lecturas del pase.
+    pub fn use_pass(
+        env: Env,
+        operator: Address,
+        reader: Address,
+        publisher: Address,
+        paper_id: String,
+    ) -> u32 {
+        operator.require_auth();
+        validate_paper_id(&env, &paper_id);
+        let key = DataKey::GlobalPass(reader.clone());
+        let mut pass = read_global_pass(&env, &key);
+        if pass.operator != operator {
+            panic_with_error!(&env, Error::NotOperator);
+        }
+        if env.ledger().timestamp() >= pass.until {
+            panic_with_error!(&env, Error::PassExpired);
+        }
+        let count = pass.by_publisher.get(publisher.clone()).unwrap_or(0);
+        if count == 0 && pass.by_publisher.len() >= MAX_TAB_PUBLISHERS {
+            panic_with_error!(&env, Error::PassFull);
+        }
+        pass.by_publisher.set(publisher.clone(), count + 1);
+        pass.reads += 1;
+        // La entrada ya vive hasta el vencimiento y la gracia (`buy_global_pass`).
+        env.storage().persistent().set(&key, &pass);
+        extend_instance_ttl(&env);
+
+        PassRead {
+            reader,
+            publisher,
+            paper_id,
+            reads: pass.reads,
+        }
+        .publish(&env);
+
+        pass.reads
+    }
+
+    /// Liquida el Pase PaperPay vencido de `reader`: la tesorería recibe la comisión y el resto se
+    /// reparte entre las editoriales en proporción a las lecturas de cada una (lo que sobra por
+    /// redondeo va a la primera). Si no leyó nada, todo vuelve a `reader`, sin comisión. Solo
+    /// después de vencer (`PassActive` antes). No pide firmas: la puede enviar cualquiera (el
+    /// sitio o una editorial), porque el dinero solo va a quienes fueron leídos o de vuelta a
+    /// quien pagó. Quien no puede recibir queda con su parte pendiente para `claim`. Emite un
+    /// `pass_share` por editorial y `pass_settled`; devuelve el reparto.
+    pub fn settle_pass(env: Env, reader: Address) -> Split {
+        let key = DataKey::GlobalPass(reader.clone());
+        let pass = read_global_pass(&env, &key);
+        if env.ledger().timestamp() < pass.until {
+            panic_with_error!(&env, Error::PassActive);
+        }
+        env.storage().persistent().remove(&key);
+
+        let config = read_config(&env);
+        let split = if pass.reads == 0 {
+            payout(&env, &config, &reader, pass.amount);
+            Split {
+                publisher: 0,
+                fee: 0,
+            }
+        } else {
+            let split = compute_split(&env, pass.amount, config.fee_bps);
+            let mut parts: Vec<i128> = Vec::new(&env);
+            let mut assigned: i128 = 0;
+            for (_, count) in pass.by_publisher.iter() {
+                let part = match split.publisher.checked_mul(count as i128) {
+                    Some(scaled) => scaled / pass.reads as i128,
+                    None => panic_with_error!(&env, Error::AmountOverflow),
+                };
+                // Cada parte es un piso: la suma nunca pasa de lo que hay para repartir.
+                assigned += part;
+                parts.push_back(part);
+            }
+            parts.set(0, parts.get_unchecked(0) + (split.publisher - assigned));
+            for ((publisher, count), part) in pass.by_publisher.iter().zip(parts.iter()) {
+                payout(&env, &config, &publisher, part);
+                PassShare {
+                    publisher,
+                    reader: reader.clone(),
+                    reads: count,
+                    amount: part,
+                }
+                .publish(&env);
+            }
+            payout(&env, &config, &config.treasury, split.fee);
+            split
+        };
+        extend_instance_ttl(&env);
+
+        PassSettled {
+            reader,
+            amount: pass.amount,
+            fee: split.fee,
+            reads: pass.reads,
+            publishers: pass.by_publisher.len(),
+        }
+        .publish(&env);
+
+        split
+    }
+
+    /// `reader` cancela su Pase PaperPay y recupera todo lo que pagó. Solo mientras no tenga
+    /// lecturas anotadas (`PassUsed` después). Solo firma `reader`. Emite `pass_cancelled` y
+    /// devuelve lo recuperado.
+    pub fn cancel_pass(env: Env, reader: Address) -> i128 {
+        reader.require_auth();
+        let key = DataKey::GlobalPass(reader.clone());
+        let pass = read_global_pass(&env, &key);
+        if pass.reads > 0 {
+            panic_with_error!(&env, Error::PassUsed);
+        }
+        env.storage().persistent().remove(&key);
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &env.current_contract_address(),
+            &reader,
+            &pass.amount,
+        );
+        extend_instance_ttl(&env);
+
+        PassCancelled {
+            reader,
+            amount: pass.amount,
+        }
+        .publish(&env);
+
+        pass.amount
+    }
+
+    /// El Pase PaperPay de `reader`, si tiene uno sin liquidar.
+    pub fn global_pass(env: Env, reader: Address) -> Option<GlobalPass> {
+        env.storage().persistent().get(&DataKey::GlobalPass(reader))
+    }
+
     /// Lo que el contrato le debe a `account` (pagos que no pudo recibir).
     pub fn owed(env: Env, account: Address) -> i128 {
         env.storage()
@@ -2389,6 +2679,13 @@ fn credit(env: &Env, to: &Address, amount: i128) {
     .publish(env);
 }
 
+fn read_global_pass(env: &Env, key: &DataKey) -> GlobalPass {
+    match env.storage().persistent().get(key) {
+        Some(pass) => pass,
+        None => panic_with_error!(env, Error::NoGlobalPass),
+    }
+}
+
 fn read_tab(env: &Env, key: &DataKey) -> Tab {
     match env.storage().persistent().get(key) {
         Some(tab) => tab,
@@ -2481,9 +2778,9 @@ fn read_campaign(env: &Env, campaign_id: u32) -> Campaign {
     }
 }
 
-/// Las entradas de una campaña (y las recompensas) viven hasta su plazo y `REFUND_GRACE_DAYS` más
-/// (y el margen de `keep_until`): así cada aporte de una campaña fallida se puede devolver y una
-/// recompensa vencida se puede cancelar.
+/// Las entradas con plazo (campañas, recompensas, vales y Pases PaperPay) viven hasta su plazo y
+/// `REFUND_GRACE_DAYS` más (y el margen de `keep_until`): así cada aporte de una campaña fallida se
+/// puede devolver, una recompensa vencida se puede cancelar y un pase vencido se puede liquidar.
 fn keep_campaign(env: &Env, key: &DataKey, deadline: u64) {
     keep_until(env, key, deadline + REFUND_GRACE_DAYS as u64 * DAY_SECONDS);
 }
