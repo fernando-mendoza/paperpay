@@ -6,6 +6,7 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 
 | Versión | Contrato (testnet) | Funciones nuevas | Pruebas | ¿La usa el sitio? |
 | --- | --- | --- | --- | --- |
+| [0.10.0](#0100-27-nov-2026) | `CCGPAG…C4WH` | `open_tab`, `settle_tab`, `collect_tab`, `close_tab` (más `charge_tab`, de soporte) | 152 | No |
 | [0.9.0](#090-27-nov-2026) | `CCGNE2…MYGB` | `buy_vouchers`, `redeem_voucher`, `reclaim_vouchers` | 135 | No |
 | [0.8.0](#080-27-nov-2026) | `CDUFLV…PNIF` | `post_bounty`, `award_bounty`, `cancel_bounty` | 119 | No |
 | [0.7.0](#070-27-nov-2026) | `CDOI4F…DK3N` | `fund_pool`, `pay_sponsored`, `withdraw_pool` | 105 | No |
@@ -15,6 +16,28 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 | [0.3.0](#030-25-nov-2026) | `CCQRUT…HEQD` | `gift_batch`, `tip`, `refund` | 32 | No |
 | [0.2.0](#020-23-nov-2026) | `CAIMQY…HOR5` | `pay_batch`, `gift` | 21 | Del 23 al 25 de noviembre. Sigue como contrato anterior: sus regalos y lecturas valen |
 | [0.1.0](#010-23-nov-2026) | `CDOUF6…BPOZ` | `pay`, `split`, `config` | 11 | No (reemplazada) |
+
+## 0.10.0 (27 nov 2026)
+
+Cuenta abierta: leer ahora y pagar todo junto con una firma. Es la **quinta custodia**: quien lee deja una garantía, y sus lecturas se anotan como deuda que nunca pasa de esa garantía.
+
+- **`open_tab(reader, operator, deposit, period)`:** quien lee deja `deposit` en el contrato y nombra al operador (el sitio) que le anota lecturas. `period` son los segundos que tiene para pagar desde la primera lectura sin pagar (hasta 31 días). Una cuenta por lector. Emite `tab_opened`.
+- **`charge_tab(operator, reader, publisher, paper_id, amount)`** (soporte): el operador anota una lectura como deuda con su editorial. No mueve fondos. Falla si la deuda pasaría de la garantía o de 10 editoriales (`TabFull`). Emite `charged`.
+- **`settle_tab(reader)`:** quien lee paga toda la deuda con una firma: el total sale de su wallet y cada editorial cobra el 98% de lo suyo; la tesorería, el 2%. La garantía no se toca. Emite `tab_settled`.
+- **`collect_tab(reader)`:** vencido el plazo de pago, cualquiera cobra la deuda de la garantía, sin firmas: el dinero solo va a quienes se les debe. Emite `tab_collected`.
+- **`close_tab(reader)`:** sin deuda, quien lee recupera la garantía que queda. Emite `tab_closed`.
+- De lectura: `tab`.
+- Errores nuevos: `NoTab` (38), `TabExists` (39), `TabFull` (40), `NothingOwed` (41), `TabNotDue` (42) y `TabOwes` (43). El operador ajeno reusa `NotOperator` (26) y el plazo inválido, `InvalidDays` (11).
+- Qué puede hacer el operador y qué no: anota deuda, hasta la garantía. No puede mover la garantía, cobrar para sí ni cerrar la cuenta.
+- Cambio durante el desarrollo: el plazo de pago empezó en días (`e8a5647`) y pasó a segundos (`241e3fe`), para poder usar `collect_tab` en testnet sin esperar un día y por coherencia con los demás plazos.
+- Código: `e8a5647` y `241e3fe`. Versión en `07d28e5`.
+- En la red (primero en una red Stellar local, después en testnet):
+  - contrato [`CCGPAGLTT7WMVSIESZXPB2AF72I2DYZHMI42VJEPOIL726JM3HKRC4WH`](https://stellar.expert/explorer/testnet/contract/CCGPAGLTT7WMVSIESZXPB2AF72I2DYZHMI42VJEPOIL726JM3HKRC4WH), WASM `c15dcce7…`;
+  - [`open_tab` `f718340c…`](https://stellar.expert/explorer/testnet/tx/f718340c316cdf6307844b276cdf6f140ed7670c5cfc881b67653f868c7f6b97) (1.00 USDC de garantía, 1 h para pagar);
+  - [`settle_tab` `44490c5d…`](https://stellar.expert/explorer/testnet/tx/44490c5d758ab2e241e1538dd72a96742757de673f01677742d609ac90d11977) (0.80 de deuda con dos editoriales, pagados con una firma);
+  - [`collect_tab` `8a816cc1…`](https://stellar.expert/explorer/testnet/tx/8a816cc19e1fa8edb790ff03f310d40a0178b94dee9b9cdf640b292b85eaade0) (otro lector, con plazo de 60 s y sin pagar: la deuda sale de la garantía);
+  - [`close_tab` `2d1edf5e…`](https://stellar.expert/explorer/testnet/tx/2d1edf5ebcf6a6fd1e99edc0033bc63cdaf8bf4f75ffbf79fc607953427e825c) (la garantía vuelve completa).
+- Pruebas: 17 nuevas, 152 en total, en `src/test/tab.rs`. Se rompió el código de 42 formas a propósito y alguna prueba detectó cada una.
 
 ## 0.9.0 (27 nov 2026)
 

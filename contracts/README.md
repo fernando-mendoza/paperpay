@@ -4,7 +4,7 @@ Dos contratos: [`splitter`](#splitter-reparto-98-editorial--2-paperpay) (los pag
 
 ## `splitter`: reparto 98% editorial / 2% PaperPay
 
-Cobra lecturas y las reparte en la misma transacción. El USDC va directo de la cuenta que paga a la editorial (monto − comisión) y a la tesorería de PaperPay (comisión): los pagos no pasan por el contrato. Las excepciones guardan dinero en garantía: las campañas de acceso abierto (desde la v0.6.0), los fondos de patrocinio (v0.7.0), las recompensas (v0.8.0) y los vales de lectura (v0.9.0), abajo.
+Cobra lecturas y las reparte en la misma transacción. El USDC va directo de la cuenta que paga a la editorial (monto − comisión) y a la tesorería de PaperPay (comisión): los pagos no pasan por el contrato. Las excepciones guardan dinero en garantía: las campañas de acceso abierto (desde la v0.6.0), los fondos de patrocinio (v0.7.0), las recompensas (v0.8.0), los vales de lectura (v0.9.0) y la garantía de las cuentas abiertas (v0.10.0), abajo.
 
 Desde la v0.3.0 también regala listas de lectura (`gift_batch`), cobra propinas (`tip`) y registra devoluciones (`refund`). Las propinas y las devoluciones emiten su propio evento, nunca `paid`, así que no dan acceso a ningún artículo.
 
@@ -54,6 +54,16 @@ La v0.9.0 suma **vales de lectura**, la cuarta custodia: lecturas prepagadas que
 
 La firma de un vale solo sirve para ese lector, ese artículo y este contrato. Quien lee no necesita cuenta en la red ni USDC.
 
+La v0.10.0 suma la **cuenta abierta**, la quinta custodia: leer ahora y pagar todo junto con una firma.
+
+- `open_tab`: quien lee deja una garantía y nombra a un operador (el sitio);
+- `charge_tab` (de soporte, no mueve fondos): el operador anota cada lectura como deuda con su editorial. La deuda nunca pasa de la garantía;
+- `settle_tab`: quien lee paga toda la deuda con una firma, y cada editorial cobra su 98%;
+- `collect_tab`: si no pagó a tiempo, cualquiera cobra la deuda de la garantía;
+- `close_tab`: sin deuda, quien lee recupera su garantía.
+
+El operador solo anota deuda: no puede mover la garantía ni cerrar la cuenta. Lo que se debe siempre está cubierto, porque la deuda no pasa de la garantía.
+
 | Función | Qué hace |
 | --- | --- |
 | `__constructor(token, treasury, fee_bps, pass_day_price, open_day_price)` | Fija el token (SAC de USDC), la tesorería, la comisión en puntos base (`200` = 2%, máximo `1000`) y, desde la v0.5.0, el precio de un día de pase y de un día de artículo abierto (mayores que 0). No cambia después: no hay admin. |
@@ -91,6 +101,12 @@ La firma de un vale solo sirve para ese lector, ese artículo y este contrato. Q
 | `redeem_voucher(key, signature, reader, paper_id) -> Split` | Canjea el vale de `key`: paga `paper_id` para `reader`, 98/2 desde el contrato a la editorial del vale. **No pide la firma de ninguna cuenta:** `signature` es la firma ed25519 de la llave del vale sobre `(contrato, reader, paper_id)` en XDR, y cualquiera puede enviarla. Una vez, y antes de vencer. Emite `paid` (con `payer` = quien compró) y `voucher_redeemed`. **Desde la v0.9.0.** |
 | `reclaim_vouchers(buyer, keys) -> i128` | `buyer` recupera el valor de sus vales vencidos sin usar, sin comisión. Si uno de la lista no es suyo, ya se usó o sigue vigente, no se devuelve ninguno. Solo firma `buyer`. Emite `vouchers_reclaimed`. **Desde la v0.9.0.** |
 | `voucher(key) -> Option<Voucher>` | El vale (`buyer`, `publisher`, `value`, `expires_at`, `open`), sin mover fondos. **Desde la v0.9.0.** |
+| `open_tab(reader, operator, deposit, period)` | `reader` deja `deposit` en el contrato como garantía y nombra a `operator`, la única cuenta que puede anotarle lecturas. `period` son los segundos para pagar desde la primera lectura sin pagar (hasta 31 días). Una cuenta por lector (`TabExists`). Solo firma `reader`. Emite `tab_opened`. **Desde la v0.10.0.** |
+| `charge_tab(operator, reader, publisher, paper_id, amount) -> i128` | De soporte, **no mueve fondos**: el operador anota una lectura como deuda de `reader` con `publisher`. Falla si la deuda pasaría de la garantía o de 10 editoriales (`TabFull`). Solo firma `operator`. Emite `charged` y devuelve la deuda total. **Desde la v0.10.0.** |
+| `settle_tab(reader) -> Split` | `reader` paga toda su deuda con una firma: el total sale de su wallet; cada editorial recibe el 98% de lo suyo y la tesorería el 2%. Quien no puede recibir queda con su parte pendiente para `claim`. La garantía no se toca. Emite `tab_settled`. **Desde la v0.10.0.** |
+| `collect_tab(reader) -> Split` | Cobra de la garantía la deuda vencida de `reader`, con el mismo reparto. Solo después del plazo de pago (`TabNotDue` antes). **Sin firmas:** la envía cualquiera. Emite `tab_collected`. **Desde la v0.10.0.** |
+| `close_tab(reader) -> i128` | `reader` cierra su cuenta y recupera la garantía que queda. Solo sin deuda (`TabOwes`). Solo firma `reader`. Emite `tab_closed`. **Desde la v0.10.0.** |
+| `tab(reader) -> Option<Tab>` | La cuenta abierta (`operator`, `deposit`, `period`, `owed`, `due`, `debts`), sin mover fondos. **Desde la v0.10.0.** |
 | `split(amount) -> Split` | El reparto que aplicaría `pay`, sin mover fondos. |
 | `config() -> Config` | La configuración fijada al desplegar. |
 
@@ -123,14 +139,14 @@ La firma de un vale solo sirve para ese lector, ese artículo y este contrato. Q
 - **`pay_authors` en la red:** el `paid` lleva solo al primer autor; lo que recibió cada coautor se ve en las transferencias del token de esa transacción.
 - **Acceso:** la API solo da acceso por eventos `paid` (`paidReceipts` en `apps/api/src/services/splitter.service.ts`). Una propina o una devolución nunca abren un artículo. Lo que llegó desde la v0.5.0 (pases, artículos abiertos, campañas, fondos y lo que sigue) existe en testnet, pero la API todavía no lo usa.
 - **Quién valida qué:** el contrato garantiza el reparto. La API sigue decidiendo el precio y la editorial de cada artículo, y valida que el evento coincida antes de dar acceso.
-- **Errores:** `FeeTooHigh` (1), `InvalidAmount` (2), `InvalidPaperId` (3; vacío o de más de 64 bytes), `AmountOverflow` (4), `EmptyBatch` (5), `BatchTooLarge` (6), `DuplicatePaper` (7), `InvalidShares` (8; partes vacías, en 0, de más del 100%, que no suman 100% o con un autor repetido), `TooManyAuthors` (9; más de 10 coautores), `SelfReferral` (10; `referrer` igual a `payer`), `InvalidDays` (11; 0 o más de 31 días), `WrongPrice` (12; `amount` distinto de días × precio por día), `TooLong` (13; un acceso que vencería a más de 90 días o una suscripción de más de 150), `InvalidRenewals` (14; 0 o más de 12), `NoSubscription` (15), `RenewTooEarly` (16; al pase le falta más de un día), `InvalidDeadline` (17; plazo pasado o a más de 90 días), `NoCampaign` (18), `CampaignClosed` (19; la campaña ya no recibe aportes o ya se liberó), `OverGoal` (20; el aporte pasa de lo que falta), `GoalNotReached` (21), `NothingToClaim` (22), `CampaignNotFailed` (23; todavía no vence, llegó a la meta o se liberó), `NothingToRefund` (24), `NoPool` (25), `NotOperator` (26; quien firma no es el operador del fondo), `AboveMaxPerRead` (27), `PoolTooLow` (28; al fondo no le alcanza para la lectura o el retiro), `AlreadySponsored` (29; el fondo ya pagó ese artículo para ese lector en las últimas 24 h), `NoBounty` (30; no hay recompensa con ese id de esa cuenta), `BountyClosed` (31; ya se pagó o se canceló), `BountyActive` (32; no se cancela antes del plazo), `NoVoucher` (33; no hay vale con esa llave, o no es de esa cuenta), `VoucherSpent` (34; ya se canjeó o se devolvió), `VoucherExpired` (35), `VoucherActive` (36; no se devuelve antes de vencer) y `VoucherExists` (37; esa llave ya se usó para un vale).
+- **Errores:** `FeeTooHigh` (1), `InvalidAmount` (2), `InvalidPaperId` (3; vacío o de más de 64 bytes), `AmountOverflow` (4), `EmptyBatch` (5), `BatchTooLarge` (6), `DuplicatePaper` (7), `InvalidShares` (8; partes vacías, en 0, de más del 100%, que no suman 100% o con un autor repetido), `TooManyAuthors` (9; más de 10 coautores), `SelfReferral` (10; `referrer` igual a `payer`), `InvalidDays` (11; 0 o más de 31 días), `WrongPrice` (12; `amount` distinto de días × precio por día), `TooLong` (13; un acceso que vencería a más de 90 días o una suscripción de más de 150), `InvalidRenewals` (14; 0 o más de 12), `NoSubscription` (15), `RenewTooEarly` (16; al pase le falta más de un día), `InvalidDeadline` (17; plazo pasado o a más de 90 días), `NoCampaign` (18), `CampaignClosed` (19; la campaña ya no recibe aportes o ya se liberó), `OverGoal` (20; el aporte pasa de lo que falta), `GoalNotReached` (21), `NothingToClaim` (22), `CampaignNotFailed` (23; todavía no vence, llegó a la meta o se liberó), `NothingToRefund` (24), `NoPool` (25), `NotOperator` (26; quien firma no es el operador del fondo), `AboveMaxPerRead` (27), `PoolTooLow` (28; al fondo no le alcanza para la lectura o el retiro), `AlreadySponsored` (29; el fondo ya pagó ese artículo para ese lector en las últimas 24 h), `NoBounty` (30; no hay recompensa con ese id de esa cuenta), `BountyClosed` (31; ya se pagó o se canceló), `BountyActive` (32; no se cancela antes del plazo), `NoVoucher` (33; no hay vale con esa llave, o no es de esa cuenta), `VoucherSpent` (34; ya se canjeó o se devolvió), `VoucherExpired` (35), `VoucherActive` (36; no se devuelve antes de vencer), `VoucherExists` (37; esa llave ya se usó para un vale), `NoTab` (38), `TabExists` (39; una cuenta abierta por lector), `TabFull` (40; la deuda pasaría de la garantía o de 10 editoriales), `NothingOwed` (41), `TabNotDue` (42; todavía no vence el plazo de pago) y `TabOwes` (43; no se cierra con deuda).
 
 ### Probar
 
 Requiere Rust estable y el target `wasm32v1-none` (`rustup target add wasm32v1-none`).
 
 ```bash
-pnpm test:contracts            # cargo test: 135 pruebas con un SAC de USDC simulado
+pnpm test:contracts            # cargo test: 152 pruebas con un SAC de USDC simulado
 ```
 
 ### Compilar el WASM
@@ -212,6 +228,19 @@ inv --source lector --send no -- campaign --campaign_id 0
 Datos completos en [`deployments/testnet.json`](deployments/testnet.json).
 
 > **Qué versión usa el sitio.** El sitio y la API usan la **v0.4.0** (`productionContractId`) desde el 25 de noviembre de 2026 (CDMX; 00:18 UTC del 26), con `pay`, `pay_ref` (referidos) y `gift`. La v0.4.0 tiene todo lo de la v0.3.0 (`gift_batch`, `tip` y `refund`) más `pay_authors` y `pay_ref`. La v0.2.0, que usó el sitio del 23 al 25 de noviembre, quedó en `SPLITTER_LEGACY_CONTRACT_IDS`: sus regalos se pueden reclamar y sus lecturas siguen en el contador. Los pagos nuevos van solo a la v0.4.0. La **v0.5.0** (pases, suscripción y artículos abiertos) está desplegada y probada en testnet desde el 25 de noviembre de 2026 (CDMX; 05:04 UTC del 26), pero el sitio y la API todavía no la usan. La **v0.6.0** (campañas de acceso abierto y `claim`) está desplegada y probada en testnet desde el 26 de noviembre de 2026 (00:18 CDMX); el sitio y la API tampoco la usan.
+
+| v0.10.0 | Valor |
+| --- | --- |
+| Contrato | [`CCGPAGLTT7WMVSIESZXPB2AF72I2DYZHMI42VJEPOIL726JM3HKRC4WH`](https://stellar.expert/explorer/testnet/contract/CCGPAGLTT7WMVSIESZXPB2AF72I2DYZHMI42VJEPOIL726JM3HKRC4WH) |
+| WASM (sha256) | `c15dcce77127f2cb25e3f27830aaea1597cdb68a9837b44b5145434821638887` (67,396 bytes), igual al que se baja de la red |
+| Constructor | El mismo de v0.5.0 |
+| `open_tab` | [`f718340c…`](https://stellar.expert/explorer/testnet/tx/f718340c316cdf6307844b276cdf6f140ed7670c5cfc881b67653f868c7f6b97): un lector deja 1.00 USDC de garantía, con 1 h para pagar |
+| `charge_tab` (soporte) | [`319c8e3d…`](https://stellar.expert/explorer/testnet/tx/319c8e3db2487db3eac13febf778947c4672d0eefed4d47d08027568442c7638) y [`ab76abd6…`](https://stellar.expert/explorer/testnet/tx/ab76abd6d766e7244e90615ff98278c22fca1858ad57aa12a2772149dc9f975d): el operador anota 0.50 con la editorial demo y 0.30 con una segunda editorial. No se mueve nada |
+| `settle_tab` | [`44490c5d…`](https://stellar.expert/explorer/testnet/tx/44490c5d758ab2e241e1538dd72a96742757de673f01677742d609ac90d11977): el lector paga 0.80 con una firma. 0.49 a la editorial demo, 0.294 a la segunda y 0.016 a la tesorería. La garantía sigue completa |
+| `close_tab` | [`2d1edf5e…`](https://stellar.expert/explorer/testnet/tx/2d1edf5ebcf6a6fd1e99edc0033bc63cdaf8bf4f75ffbf79fc607953427e825c): sin deuda, la garantía de 1.00 vuelve a su wallet |
+| `collect_tab` | Otro lector abre una cuenta con 60 s para pagar ([`2d4eb23e…`](https://stellar.expert/explorer/testnet/tx/2d4eb23e476d2c1b90ad3b4ad030c5bce32216bedbfdce676e8ff92d0ea8fc49)), se le anota 0.50 ([`782c726f…`](https://stellar.expert/explorer/testnet/tx/782c726f57fe735a070ca75bf508dadf5ae3f05aa2c6f51c11f9fb71e2f10fd0)) y no paga. Vencido el plazo, [`8a816cc1…`](https://stellar.expert/explorer/testnet/tx/8a816cc19e1fa8edb790ff03f310d40a0178b94dee9b9cdf640b292b85eaade0): **otra cuenta** cobra la deuda de la garantía, sin firma de quien lee. Le quedan 0.50 de garantía, que recupera al cerrar ([`0ef7027a…`](https://stellar.expert/explorer/testnet/tx/0ef7027a70ec22ffc137f6d09ffa0bcab6445e8364d9bf6b68ae15cd5f8b5fce)) |
+
+Antes de enviar, el script simuló lo que no debe pasar: una segunda cuenta (#39), quien lee anotándose lecturas (#26), deuda mayor que la garantía (#40), cobrar de la garantía antes del plazo (#42), cerrar con deuda (#43) y pagar sin deuda (#41). Al final, el contrato tiene saldo 0.
 
 | v0.9.0 | Valor |
 | --- | --- |
