@@ -154,7 +154,7 @@ pub enum Error {
     /// `pay_ref` con `referrer` igual a `payer`: sería un descuento, no una recomendación.
     SelfReferral = 10,
     /// Días fuera de rango: 0 o más de `MAX_PASS_DAYS` (un pase, un artículo abierto o el plazo
-    /// de pago de una cuenta abierta).
+    /// de pago de una cuenta abierta, que va en segundos).
     InvalidDays = 11,
     /// `amount` distinto de días × precio por día de la configuración.
     WrongPrice = 12,
@@ -343,14 +343,14 @@ pub struct Voucher {
 
 /// Una cuenta abierta: quien lee dejó `deposit` en el contrato como garantía y `operator` anota sus
 /// lecturas en `debts` (lo que se le debe a cada editorial). `owed` es la suma, que nunca pasa de
-/// `deposit`. Desde la primera lectura sin pagar hay `days` días para pagar: `due` (segundos Unix)
-/// es cuándo vence ese plazo, o 0 si no hay deuda.
+/// `deposit`. Desde la primera lectura sin pagar hay `period` segundos para pagar: `due` (segundos
+/// Unix) es cuándo vence ese plazo, o 0 si no hay deuda.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Tab {
     pub operator: Address,
     pub deposit: i128,
-    pub days: u32,
+    pub period: u64,
     pub owed: i128,
     pub due: u64,
     pub debts: Map<Address, i128>,
@@ -723,7 +723,7 @@ pub struct TabOpened {
     pub reader: Address,
     pub operator: Address,
     pub deposit: i128,
-    pub days: u32,
+    pub period: u64,
 }
 
 /// Una lectura anotada en una cuenta abierta. Topics: `["charged", reader, publisher]`. No movió
@@ -1992,15 +1992,15 @@ impl Splitter {
 
     /// `reader` abre una cuenta para leer ahora y pagar después: deja `deposit` en el contrato como
     /// garantía y nombra a `operator` (el sitio), la única cuenta que puede anotarle lecturas. La
-    /// deuda nunca pasa de la garantía. Desde la primera lectura sin pagar tiene `days` días (de 1
-    /// a `MAX_PASS_DAYS`) para pagar con `settle_tab`; si no, cualquiera cobra de la garantía con
-    /// `collect_tab`. Una cuenta por lector. Solo firma `reader`. Emite `tab_opened`.
-    pub fn open_tab(env: Env, reader: Address, operator: Address, deposit: i128, days: u32) {
+    /// deuda nunca pasa de la garantía. Desde la primera lectura sin pagar tiene `period` segundos
+    /// (hasta `MAX_PASS_DAYS` días) para pagar con `settle_tab`; si no, cualquiera cobra de la
+    /// garantía con `collect_tab`. Una cuenta por lector. Solo firma `reader`. Emite `tab_opened`.
+    pub fn open_tab(env: Env, reader: Address, operator: Address, deposit: i128, period: u64) {
         reader.require_auth();
         if deposit <= 0 {
             panic_with_error!(&env, Error::InvalidAmount);
         }
-        if days == 0 || days > MAX_PASS_DAYS {
+        if period == 0 || period > MAX_PASS_DAYS as u64 * DAY_SECONDS {
             panic_with_error!(&env, Error::InvalidDays);
         }
         let key = DataKey::Tab(reader.clone());
@@ -2019,7 +2019,7 @@ impl Splitter {
             &Tab {
                 operator: operator.clone(),
                 deposit,
-                days,
+                period,
                 owed: 0,
                 due: 0,
                 debts: Map::new(&env),
@@ -2032,7 +2032,7 @@ impl Splitter {
             reader,
             operator,
             deposit,
-            days,
+            period,
         }
         .publish(&env);
     }
@@ -2066,7 +2066,7 @@ impl Splitter {
             panic_with_error!(&env, Error::TabFull);
         }
         if tab.owed == 0 {
-            tab.due = env.ledger().timestamp() + tab.days as u64 * DAY_SECONDS;
+            tab.due = env.ledger().timestamp() + tab.period;
         }
         tab.owed = owed;
         // La deuda con una editorial es parte de `owed`, que ya se sumó sin desbordarse.

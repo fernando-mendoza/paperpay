@@ -14,12 +14,13 @@ struct Account {
 }
 
 impl Setup<'_> {
-    /// Una cuenta abierta con 2 USDC de garantía y 7 días para pagar. Quien lee tiene 1 USDC más.
+    /// Una cuenta abierta con 2 USDC de garantía y 7 días (en segundos) para pagar. Quien lee tiene 1 USDC más.
     fn opened_tab(&self) -> Account {
         let reader = Address::generate(&self.env);
         let operator = Address::generate(&self.env);
         self.fund(&reader, DEPOSIT + 10_000_000);
-        self.splitter.open_tab(&reader, &operator, &DEPOSIT, &7);
+        self.splitter
+            .open_tab(&reader, &operator, &DEPOSIT, &(7 * DAY));
         Account { reader, operator }
     }
 
@@ -46,7 +47,8 @@ fn abrir_una_cuenta_deja_la_garantia_en_el_contrato() {
     let reader = Address::generate(&s.env);
     let operator = Address::generate(&s.env);
     s.fund(&reader, DEPOSIT + PRICE);
-    s.splitter.open_tab(&reader, &operator, &DEPOSIT, &7);
+    s.splitter
+        .open_tab(&reader, &operator, &DEPOSIT, &(7 * DAY));
     let receipts = s.receipts();
 
     assert_eq!(s.usdc.balance(&reader), PRICE);
@@ -60,7 +62,7 @@ fn abrir_una_cuenta_deja_la_garantia_en_el_contrato() {
         Some(Tab {
             operator: operator.clone(),
             deposit: DEPOSIT,
-            days: 7,
+            period: 7 * DAY,
             owed: 0,
             due: 0,
             debts: Map::new(&s.env),
@@ -70,7 +72,7 @@ fn abrir_una_cuenta_deja_la_garantia_en_el_contrato() {
         reader: reader.clone(),
         operator,
         deposit: DEPOSIT,
-        days: 7,
+        period: 7 * DAY,
     };
     assert_eq!(receipts, [expected.to_xdr(&s.env, &s.splitter.address)]);
 }
@@ -81,7 +83,8 @@ fn abrir_solo_pide_la_firma_de_quien_lee() {
     let reader = Address::generate(&s.env);
     let operator = Address::generate(&s.env);
     s.fund(&reader, DEPOSIT);
-    s.splitter.open_tab(&reader, &operator, &DEPOSIT, &7);
+    s.splitter
+        .open_tab(&reader, &operator, &DEPOSIT, &(7 * DAY));
 
     assert_eq!(
         s.env.auths(),
@@ -91,7 +94,7 @@ fn abrir_solo_pide_la_firma_de_quien_lee() {
                 function: AuthorizedFunction::Contract((
                     s.splitter.address.clone(),
                     Symbol::new(&s.env, "open_tab"),
-                    (reader.clone(), operator.clone(), DEPOSIT, 7u32).into_val(&s.env),
+                    (reader.clone(), operator.clone(), DEPOSIT, 7 * DAY).into_val(&s.env),
                 )),
                 sub_invocations: std::vec![s.transfer_auth(&reader, &s.splitter.address, DEPOSIT)],
             }
@@ -108,13 +111,14 @@ fn abrir_rechaza_garantia_y_plazo_invalidos_una_segunda_cuenta_y_sin_firma_no_ab
 
     for deposit in [0, -1] {
         assert_eq!(
-            s.splitter.try_open_tab(&reader, &operator, &deposit, &7),
+            s.splitter.try_open_tab(&reader, &operator, &deposit, &DAY),
             Err(Ok(Error::InvalidAmount.into()))
         );
     }
-    for days in [0, MAX_PASS_DAYS + 1] {
+    for period in [0, MAX_PASS_DAYS as u64 * DAY + 1] {
         assert_eq!(
-            s.splitter.try_open_tab(&reader, &operator, &DEPOSIT, &days),
+            s.splitter
+                .try_open_tab(&reader, &operator, &DEPOSIT, &period),
             Err(Ok(Error::InvalidDays.into()))
         );
     }
@@ -124,19 +128,19 @@ fn abrir_rechaza_garantia_y_plazo_invalidos_una_segunda_cuenta_y_sin_firma_no_ab
     s.env.set_auths(&[]);
     assert!(s
         .splitter
-        .try_open_tab(&reader, &operator, &DEPOSIT, &7)
+        .try_open_tab(&reader, &operator, &DEPOSIT, &DAY)
         .is_err());
     assert_eq!(s.splitter.tab(&reader), None);
 
-    // Los bordes del plazo valen (1 y 31 días), y una cuenta por lector.
+    // Los bordes del plazo valen (1 segundo y 31 días), y una cuenta por lector.
     s.env.mock_all_auths();
     s.splitter
-        .open_tab(&reader, &operator, &DEPOSIT, &MAX_PASS_DAYS);
+        .open_tab(&reader, &operator, &DEPOSIT, &(MAX_PASS_DAYS as u64 * DAY));
     let other = Address::generate(&s.env);
     s.fund(&other, DEPOSIT);
     s.splitter.open_tab(&other, &operator, &DEPOSIT, &1);
     assert_eq!(
-        s.splitter.try_open_tab(&reader, &operator, &DEPOSIT, &7),
+        s.splitter.try_open_tab(&reader, &operator, &DEPOSIT, &DAY),
         Err(Ok(Error::TabExists.into()))
     );
     assert_eq!(s.usdc.balance(&reader), 2 * DEPOSIT);
@@ -354,7 +358,7 @@ fn quien_lee_paga_toda_la_deuda_con_una_firma_y_cada_editorial_cobra_su_98() {
         Tab {
             operator: account.operator.clone(),
             deposit: DEPOSIT,
-            days: 7,
+            period: 7 * DAY,
             owed: 0,
             due: 0,
             debts: Map::new(&s.env),

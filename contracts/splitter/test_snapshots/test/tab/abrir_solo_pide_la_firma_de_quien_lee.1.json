@@ -89,7 +89,7 @@
                   "i128": "20000000"
                 },
                 {
-                  "u32": 7
+                  "u64": "604800"
                 }
               ]
             }
@@ -233,14 +233,6 @@
                 "map": [
                   {
                     "key": {
-                      "symbol": "days"
-                    },
-                    "val": {
-                      "u32": 7
-                    }
-                  },
-                  {
-                    "key": {
                       "symbol": "debts"
                     },
                     "val": {
@@ -277,6 +269,14 @@
                     },
                     "val": {
                       "i128": "0"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "period"
+                    },
+                    "val": {
+                      "u64": "604800"
                     }
                   }
                 ]
@@ -708,14 +708,6 @@
               "map": [
                 {
                   "key": {
-                    "symbol": "days"
-                  },
-                  "val": {
-                    "u32": 7
-                  }
-                },
-                {
-                  "key": {
                     "symbol": "deposit"
                   },
                   "val": {
@@ -728,6 +720,14 @@
                   },
                   "val": {
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "period"
+                  },
+                  "val": {
+                    "u64": "604800"
                   }
                 }
               ]
