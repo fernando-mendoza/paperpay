@@ -4,10 +4,10 @@
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "productionContractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
   "splitter": {
-    "version": "0.12.0",
-    "contractId": "CCFNCZVQFRYDFRUE6CD25QVT7RRRFKMFHAU6TB7U6HWFPECLUQECHIY6",
-    "wasmSha256": "87930abdbd1ec366a55e72dd97ce3eecfcb38b20483f44f444a63f71d3b9f4b6",
-    "source": "contracts/splitter @ 2b9fb29, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+    "version": "0.13.0",
+    "contractId": "CDHBL4S7H5QEXL7HEP47NUOGJ4JBJDVG6WHBG6GNTUMG7TIF3LT73HSJ",
+    "wasmSha256": "359985bc647adb3c3bea22c29604c8d8f833bd15ffcf76244dc80ec711cb9c6c",
+    "source": "contracts/splitter @ 694aaa2, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
     "constructor": {
       "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
@@ -15,39 +15,29 @@
       "pass_day_price": 10000000,
       "open_day_price": 50000000
     },
-    "uploadTx": "6956073494ab0d8ab617e1b4ceec321d986047d9e1dcf4c0242e8c183182c13f",
-    "deployTx": "eb1f39454091efa50297cd3cc8c9e6781fc02f882300dfa7ee21a85aab169bb1",
-    "deployedAt": "2026-11-27T07:17:59Z",
+    "uploadTx": "3a9e96d1e563062d0186f097b7fddf4c83a3a90344e56f5afc3cfad6733088ca",
+    "deployTx": "8662e5a432ac8446b416c5c475a02ee05ca4feac63d578de5426959eb3dafd6f",
+    "deployedAt": "2026-11-27T21:54:29Z",
     "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
-    "custody": "además de lo anterior, guarda la caja de cada journal club; sale solo por una lectura aprobada por el quórum (approve_read, a la editorial y la tesorería) o con cada miembro que sale (leave_club, su parte igual); sin admin, y quien crea el club no tiene poder sobre la caja",
+    "custody": "además de lo anterior, guarda los pagos contra entrega sin cobrar; cada uno sale solo hacia su editorial y la tesorería (unlock_payment, con la llave y antes del plazo) o, desde el plazo, de vuelta a quien pagó (reclaim_payment); sin admin",
     "usage": {
-      "create_club": {
-        "tx": "b12604ec7e63f3982b17fa3fc625098a7db84b33f34ce051fa026c6ae1da93f5",
-        "what": "soporte: GDMAONCHGCVTJP5VC72H7E4I3HHXBTDLF33CO33LY4IHXHKR7PJRARMB crea un club con cuota 5000000 y quórum 2",
-        "result": "club 0; no mueve fondos; evento club_created"
+      "lock_payment": {
+        "tx": "85f946b15692159ba7d1830a1a722a08e5e260c9f09737be5081e1783853c24d",
+        "what": "GBECDTST5LB4E2MUAYRBZNYVPWKZXRUMXGSFFM2K3MFE2MQCIWWWBOE5 bloquea 5000000 por crispr-nanomedicine-biotech contra el hash 39aa557aecb15ed2e2047584f2ef8730a304e2feae0f91dd0cfac287110852f8, plazo de 1 h",
+        "result": "pago 0; 5000000 al contrato; evento payment_locked. Segundo pago (1), 0bbf88f74bd27ac2a30331277cfb33257bcd1c6941a364b08f30bae5f760ef3c: 3000000 con plazo de 90 s"
       },
-      "join_club": {
-        "tx": "55f701c0dbd2fc38fb27af99d8a85b44373ec499a53cd9042fd3f5bb51291c6e",
-        "what": "Ana paga su cuota; después Beto (6861f99e9e50a43dffa57426619395ad1d723dcc02226c3b64aaf58e137d08ca) y Caro (dc94e6a4cea73211c42798fb17a911e00444f93ce743e2ad1cc8a1d1ff59421f)",
-        "result": "5000000 de cada miembro al contrato; caja 15000000; eventos club_joined"
+      "unlock_payment": {
+        "tx": "670863f5817621ee10a7ebae8a036995f18b01016ebf4a6ca9870fdd1a5556e5",
+        "what": "otra cuenta presenta la llave d75ba187b2ab56aaf6fdb030f0ec8a5e7e71cecb205cb1cc34be2aa67aaef7ee del pago 0",
+        "result": "4900000 a la editorial demo y 100000 a la tesorería; eventos paid y payment_unlocked (con la llave)"
       },
-      "propose_read": {
-        "tx": "93e67d0fc0b32ef48f071e52eda329eba545f312c0fa67a14a83ff778f6767e7",
-        "what": "soporte: Ana propone pagar 5000000 a la editorial demo por crispr-nanomedicine-biotech",
-        "result": "propuesta 0, con la aprobación de Ana; no mueve fondos; evento read_proposed"
-      },
-      "approve_read": {
-        "tx": "987b89f299eeb27a39e262745b3f487f122aa537936c8be3d0470ee91b1f4633",
-        "what": "Beto aprueba la propuesta 0: segunda aprobación, quórum completo",
-        "result": "4900000 a la editorial demo y 100000 a la tesorería, desde la caja; caja 10000000; eventos club_paid (con los tres miembros) y read_approved"
-      },
-      "leave_club": {
-        "tx": "c25c6345ef643aed6e346a46ee0c4ed133d37b358b5d52a43e122866cdf4c1c6",
-        "what": "Caro sale; después Beto (ff865cc8af0a78d5c704f43167ac099b199084380c39449385af2bb3ecee6c63) y Ana (dff630317bfab578f6844a54bce4021f2fc83eb856463cf04c0d95eac60811df)",
-        "result": "3333333 a Caro, 3333333 a Beto y 3333334 a Ana; caja 0; eventos club_left"
+      "reclaim_payment": {
+        "tx": "a8943076a34bc1e0a1e0a7c921ca9e957bf1b6db5a9ec8f55ebadb08aa14617b",
+        "what": "vencido el plazo del pago 1 sin llave, quien pagó lo recupera",
+        "result": "3000000 de vuelta, sin comisión; evento payment_reclaimed"
       }
     },
-    "checks": "simulados antes de enviar: quórum de 1 (#51), entrar dos veces (#53), un extraño aprobando (#54), aprobar dos veces (#58), proponer más que la caja (#55), aprobar una propuesta pagada (#57), proponer después de salir (#54). Al final: saldo del contrato 0"
+    "checks": "simulados antes de enviar: liberar con otra llave (#61), presentar el hash como llave (#61), recuperar antes del plazo (#63), otra cuenta recuperando (#59), liberar dos veces (#60), la llave después del plazo (#62), recuperar dos veces (#60). Al final: saldo del contrato 0, tesorería +100000"
   },
   "boveda": {
     "version": "0.1.0",
@@ -81,6 +71,52 @@
     "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."
   },
   "previous": [
+    {
+      "version": "0.12.0",
+      "contractId": "CCFNCZVQFRYDFRUE6CD25QVT7RRRFKMFHAU6TB7U6HWFPECLUQECHIY6",
+      "wasmSha256": "87930abdbd1ec366a55e72dd97ce3eecfcb38b20483f44f444a63f71d3b9f4b6",
+      "source": "contracts/splitter @ 2b9fb29, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200,
+        "pass_day_price": 10000000,
+        "open_day_price": 50000000
+      },
+      "uploadTx": "6956073494ab0d8ab617e1b4ceec321d986047d9e1dcf4c0242e8c183182c13f",
+      "deployTx": "eb1f39454091efa50297cd3cc8c9e6781fc02f882300dfa7ee21a85aab169bb1",
+      "deployedAt": "2026-11-27T07:17:59Z",
+      "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
+      "custody": "además de lo anterior, guarda la caja de cada journal club; sale solo por una lectura aprobada por el quórum (approve_read, a la editorial y la tesorería) o con cada miembro que sale (leave_club, su parte igual); sin admin, y quien crea el club no tiene poder sobre la caja",
+      "usage": {
+        "create_club": {
+          "tx": "b12604ec7e63f3982b17fa3fc625098a7db84b33f34ce051fa026c6ae1da93f5",
+          "what": "soporte: GDMAONCHGCVTJP5VC72H7E4I3HHXBTDLF33CO33LY4IHXHKR7PJRARMB crea un club con cuota 5000000 y quórum 2",
+          "result": "club 0; no mueve fondos; evento club_created"
+        },
+        "join_club": {
+          "tx": "55f701c0dbd2fc38fb27af99d8a85b44373ec499a53cd9042fd3f5bb51291c6e",
+          "what": "Ana paga su cuota; después Beto (6861f99e9e50a43dffa57426619395ad1d723dcc02226c3b64aaf58e137d08ca) y Caro (dc94e6a4cea73211c42798fb17a911e00444f93ce743e2ad1cc8a1d1ff59421f)",
+          "result": "5000000 de cada miembro al contrato; caja 15000000; eventos club_joined"
+        },
+        "propose_read": {
+          "tx": "93e67d0fc0b32ef48f071e52eda329eba545f312c0fa67a14a83ff778f6767e7",
+          "what": "soporte: Ana propone pagar 5000000 a la editorial demo por crispr-nanomedicine-biotech",
+          "result": "propuesta 0, con la aprobación de Ana; no mueve fondos; evento read_proposed"
+        },
+        "approve_read": {
+          "tx": "987b89f299eeb27a39e262745b3f487f122aa537936c8be3d0470ee91b1f4633",
+          "what": "Beto aprueba la propuesta 0: segunda aprobación, quórum completo",
+          "result": "4900000 a la editorial demo y 100000 a la tesorería, desde la caja; caja 10000000; eventos club_paid (con los tres miembros) y read_approved"
+        },
+        "leave_club": {
+          "tx": "c25c6345ef643aed6e346a46ee0c4ed133d37b358b5d52a43e122866cdf4c1c6",
+          "what": "Caro sale; después Beto (ff865cc8af0a78d5c704f43167ac099b199084380c39449385af2bb3ecee6c63) y Ana (dff630317bfab578f6844a54bce4021f2fc83eb856463cf04c0d95eac60811df)",
+          "result": "3333333 a Caro, 3333333 a Beto y 3333334 a Ana; caja 0; eventos club_left"
+        }
+      },
+      "checks": "simulados antes de enviar: quórum de 1 (#51), entrar dos veces (#53), un extraño aprobando (#54), aprobar dos veces (#58), proponer más que la caja (#55), aprobar una propuesta pagada (#57), proponer después de salir (#54). Al final: saldo del contrato 0"
+    },
     {
       "version": "0.11.0",
       "contractId": "CCMUYU5MMWGSQY7XF4W3ND2CIGXZZSDTRSDN23J4756CS6IRSR5MTJDZ",
