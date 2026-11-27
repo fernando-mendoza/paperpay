@@ -374,7 +374,12 @@ fn si_el_dueno_se_suscribe_despues_el_agente_no_gasta_la_autorizacion_de_la_susc
     assert_eq!(allowance(&s, &s.payer), reserved);
     assert_eq!(s.usdc.balance(&s.publisher), publisher_before);
 
-    // Revocar el permiso tampoco toca la autorización, que ahora es de la suscripción.
+    // Revocar el permiso tampoco toca la autorización, que ahora es de la suscripción. Y sigue
+    // pidiendo la firma del dueño, aunque aquí no haya ninguna llamada al token que la exija.
+    s.env.set_auths(&[]);
+    assert!(s.splitter.try_revoke_agent(&s.payer).is_err());
+    assert!(s.splitter.agent(&s.payer).is_some());
+    s.env.mock_all_auths();
     s.splitter.revoke_agent(&s.payer);
     assert_eq!(s.splitter.agent(&s.payer), None);
     assert_eq!(allowance(&s, &s.payer), reserved);
