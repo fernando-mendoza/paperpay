@@ -23,7 +23,7 @@
 //!   un día o menos. Los fondos siguen en la wallet de quien lee hasta cada cobro.
 //! - `sponsor_open`: alguien paga para que un artículo quede abierto para todos N días.
 //!
-//! Campañas de acceso abierto, la única custodia del contrato:
+//! Campañas de acceso abierto, la primera custodia del contrato:
 //! - `open_campaign`: la editorial ofrece liberar un artículo para todos si los aportes llegan a
 //!   una meta antes de un plazo.
 //! - `pledge`: un aporte hacia la meta. Queda guardado en el contrato hasta que se cumple la meta
@@ -33,6 +33,14 @@
 //!   tesorería el 2%, y el artículo queda liberado.
 //! - `refund_pledge`: si vence el plazo sin llegar a la meta, cualquiera la ejecuta y cada aporte
 //!   vuelve completo a quien lo hizo.
+//!
+//! Fondos de patrocinio, la segunda custodia: alguien deja dinero para pagar lecturas de otros.
+//! - `fund_pool`: un patrocinador deposita para las lecturas de una editorial y nombra a un
+//!   operador, con un tope por lectura.
+//! - `pay_sponsored`: el operador paga una lectura con el fondo, para un lector que no paga ni
+//!   firma. Solo puede pagarle a la editorial del fondo, hasta el tope, y una vez por artículo y
+//!   lector cada 24 h.
+//! - `withdraw_pool`: el patrocinador retira lo que no se usó, cuando quiera.
 //!
 //! Si una cuenta no puede recibir lo que le paga el contrato (por ejemplo, una editorial nueva sin
 //! trustline de USDC), su parte no se pierde ni bloquea a nadie: queda pendiente a su nombre, y
@@ -88,6 +96,8 @@ const INSTANCE_TTL_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
 const INSTANCE_TTL_EXTEND_TO: u32 = 30 * DAY_IN_LEDGERS;
 // Un ledger cada ~5 s. Las entradas con vencimiento viven hasta él y una semana más.
 const LEDGER_SECONDS: u64 = 5;
+/// Cuánto dura el marcador de una lectura patrocinada: un día de ledgers (~24 h).
+const SPONSORED_TTL_LEDGERS: u32 = DAY_IN_LEDGERS;
 const TTL_MARGIN_LEDGERS: u32 = 7 * DAY_IN_LEDGERS;
 
 #[contracterror]
@@ -145,6 +155,16 @@ pub enum Error {
     CampaignNotFailed = 23,
     /// Esa cuenta no tiene aporte en garantía en la campaña (nunca aportó o ya se le devolvió).
     NothingToRefund = 24,
+    /// Ese patrocinador no tiene fondo para esa editorial.
+    NoPool = 25,
+    /// Quien firma no es el operador del fondo.
+    NotOperator = 26,
+    /// La lectura cuesta más que el tope por lectura del fondo.
+    AboveMaxPerRead = 27,
+    /// Al fondo no le alcanza para esa lectura o para ese retiro.
+    PoolTooLow = 28,
+    /// El fondo ya pagó ese artículo para ese lector en las últimas 24 h.
+    AlreadySponsored = 29,
 }
 
 #[contracttype]
@@ -226,6 +246,17 @@ pub struct Campaign {
     pub released: bool,
 }
 
+/// Un fondo de patrocinio: lo que un patrocinador dejó en el contrato para pagar lecturas de una
+/// editorial. `operator` es la única cuenta que puede gastarlo (`pay_sponsored`), hasta
+/// `max_per_read` por lectura. `balance` es lo que queda.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Pool {
+    pub operator: Address,
+    pub max_per_read: i128,
+    pub balance: i128,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -244,6 +275,11 @@ enum DataKey {
     Pledge(u32, Address),
     /// Lo que el contrato le debe a una cuenta que no pudo recibir un pago.
     Owed(Address),
+    /// El fondo de patrocinio de `sponsor` para las lecturas de `publisher`.
+    Pool(Address, Address),
+    /// Marcador temporal: el fondo de `sponsor` ya pagó `paper_id` para `reader`. Vence solo en
+    /// `SPONSORED_TTL_LEDGERS`.
+    Sponsored(Address, Address, String),
 }
 
 /// Comprobante de un artículo pagado. Topics: `["paid", publisher, reader]`.
@@ -444,6 +480,48 @@ pub struct Refunded {
     pub reader: Address,
     pub paper_id: String,
     pub amount: i128,
+}
+
+/// Un depósito a un fondo de patrocinio. Topics: `["pool_funded", sponsor, publisher]`.
+/// `balance` es el saldo del fondo después del depósito.
+#[contractevent(topics = ["pool_funded"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PoolFunded {
+    #[topic]
+    pub sponsor: Address,
+    #[topic]
+    pub publisher: Address,
+    pub operator: Address,
+    pub max_per_read: i128,
+    pub amount: i128,
+    pub balance: i128,
+}
+
+/// Una lectura pagada por un fondo. Topics: `["sponsored", sponsor, reader]`. Acompaña al `paid`
+/// de la misma lectura; `balance` es lo que le queda al fondo.
+#[contractevent(topics = ["sponsored"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SponsoredRead {
+    #[topic]
+    pub sponsor: Address,
+    #[topic]
+    pub reader: Address,
+    pub paper_id: String,
+    pub publisher: Address,
+    pub amount: i128,
+    pub balance: i128,
+}
+
+/// Un retiro de un fondo de patrocinio. Topics: `["pool_withdrawn", sponsor, publisher]`.
+#[contractevent(topics = ["pool_withdrawn"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PoolWithdrawn {
+    #[topic]
+    pub sponsor: Address,
+    #[topic]
+    pub publisher: Address,
+    pub amount: i128,
+    pub balance: i128,
 }
 
 #[contract]
@@ -1181,6 +1259,178 @@ impl Splitter {
         owed
     }
 
+    /// `sponsor` deposita `amount` en su fondo para pagar lecturas de `publisher`. El dinero pasa
+    /// de su wallet al contrato y solo tiene dos salidas: una lectura de esa editorial
+    /// (`pay_sponsored`) o de vuelta a `sponsor` (`withdraw_pool`). `operator` es la única cuenta
+    /// que puede gastarlo, hasta `max_per_read` por lectura. Un depósito nuevo se suma al saldo y
+    /// reemplaza al operador y al tope. Solo firma `sponsor`. Emite `pool_funded` y devuelve el
+    /// saldo del fondo.
+    pub fn fund_pool(
+        env: Env,
+        sponsor: Address,
+        publisher: Address,
+        operator: Address,
+        max_per_read: i128,
+        amount: i128,
+    ) -> i128 {
+        sponsor.require_auth();
+        if amount <= 0 || max_per_read <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let key = DataKey::Pool(sponsor.clone(), publisher.clone());
+        let before: i128 = match env.storage().persistent().get::<DataKey, Pool>(&key) {
+            Some(pool) => pool.balance,
+            None => 0,
+        };
+        let balance = add(&env, before, amount);
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &sponsor,
+            env.current_contract_address(),
+            &amount,
+        );
+        env.storage().persistent().set(
+            &key,
+            &Pool {
+                operator: operator.clone(),
+                max_per_read,
+                balance,
+            },
+        );
+        keep_max(&env, &key);
+        extend_instance_ttl(&env);
+
+        PoolFunded {
+            sponsor,
+            publisher,
+            operator,
+            max_per_read,
+            amount,
+            balance,
+        }
+        .publish(&env);
+
+        balance
+    }
+
+    /// El operador del fondo de `sponsor` paga una lectura de `paper_id` para `reader`: `amount`
+    /// sale del fondo y se reparte 98/2 entre `publisher` y la tesorería, directo desde el
+    /// contrato. Ni `sponsor` ni `reader` firman: solo `operator`, que tiene que ser el del fondo.
+    /// El contrato hace cumplir las reglas del fondo: solo paga a su editorial, no más de
+    /// `max_per_read` por lectura, no más de lo que queda y una sola vez por artículo y lector
+    /// cada 24 h. Si la editorial no puede recibir, falla y el fondo queda intacto. Emite `paid`
+    /// (con `payer = sponsor`) y `sponsored`, y devuelve el reparto.
+    pub fn pay_sponsored(
+        env: Env,
+        operator: Address,
+        sponsor: Address,
+        reader: Address,
+        paper_id: String,
+        publisher: Address,
+        amount: i128,
+    ) -> Split {
+        operator.require_auth();
+        validate_paper_id(&env, &paper_id);
+        let key = DataKey::Pool(sponsor.clone(), publisher.clone());
+        let mut pool = read_pool(&env, &key);
+        if pool.operator != operator {
+            panic_with_error!(&env, Error::NotOperator);
+        }
+        let config = read_config(&env);
+        let split = compute_split(&env, amount, config.fee_bps);
+        if amount > pool.max_per_read {
+            panic_with_error!(&env, Error::AboveMaxPerRead);
+        }
+        if amount > pool.balance {
+            panic_with_error!(&env, Error::PoolTooLow);
+        }
+        let marker = DataKey::Sponsored(sponsor.clone(), reader.clone(), paper_id.clone());
+        if env.storage().temporary().has(&marker) {
+            panic_with_error!(&env, Error::AlreadySponsored);
+        }
+
+        pool.balance -= amount;
+        env.storage().persistent().set(&key, &pool);
+        keep_max(&env, &key);
+        env.storage().temporary().set(&marker, &true);
+        env.storage()
+            .temporary()
+            .extend_ttl(&marker, SPONSORED_TTL_LEDGERS, SPONSORED_TTL_LEDGERS);
+        transfer_split(
+            &env,
+            &config,
+            &env.current_contract_address(),
+            &publisher,
+            &split,
+        );
+        extend_instance_ttl(&env);
+
+        Paid {
+            publisher: publisher.clone(),
+            reader: reader.clone(),
+            paper_id: paper_id.clone(),
+            payer: sponsor.clone(),
+            amount,
+            fee: split.fee,
+        }
+        .publish(&env);
+        SponsoredRead {
+            sponsor,
+            reader,
+            paper_id,
+            publisher,
+            amount,
+            balance: pool.balance,
+        }
+        .publish(&env);
+
+        split
+    }
+
+    /// `sponsor` retira `amount` de su fondo para `publisher`: vuelve del contrato a su wallet.
+    /// Puede retirar una parte o todo, cuando quiera; el operador no puede retirar. Solo firma
+    /// `sponsor`. Emite `pool_withdrawn` y devuelve lo que queda en el fondo.
+    pub fn withdraw_pool(env: Env, sponsor: Address, publisher: Address, amount: i128) -> i128 {
+        sponsor.require_auth();
+        if amount <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let key = DataKey::Pool(sponsor.clone(), publisher.clone());
+        let mut pool = read_pool(&env, &key);
+        if amount > pool.balance {
+            panic_with_error!(&env, Error::PoolTooLow);
+        }
+        pool.balance -= amount;
+        env.storage().persistent().set(&key, &pool);
+        keep_max(&env, &key);
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &env.current_contract_address(),
+            &sponsor,
+            &amount,
+        );
+        extend_instance_ttl(&env);
+
+        PoolWithdrawn {
+            sponsor,
+            publisher,
+            amount,
+            balance: pool.balance,
+        }
+        .publish(&env);
+
+        pool.balance
+    }
+
+    /// El fondo de patrocinio de `sponsor` para `publisher`, si existe.
+    pub fn pool(env: Env, sponsor: Address, publisher: Address) -> Option<Pool> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Pool(sponsor, publisher))
+    }
+
     /// Lo que el contrato le debe a `account` (pagos que no pudo recibir).
     pub fn owed(env: Env, account: Address) -> i128 {
         env.storage()
@@ -1304,7 +1554,8 @@ fn charge_batch(env: &Env, payer: &Address, reader: &Address, items: Vec<Item>) 
     total
 }
 
-/// Mueve un reparto de `payer` a la editorial y a la tesorería (omite montos en cero).
+/// Mueve un reparto de `payer` a la editorial y a la tesorería (omite montos en cero). `payer` es
+/// quien firmó o, en `pay_sponsored`, el propio contrato.
 fn transfer_split(env: &Env, config: &Config, payer: &Address, publisher: &Address, split: &Split) {
     let usdc = token::Client::new(env, &config.token);
     if split.publisher > 0 {
@@ -1368,13 +1619,26 @@ fn credit(env: &Env, to: &Address, amount: i128) {
     env.storage()
         .persistent()
         .set(&key, &add(env, owed, amount));
-    let max = env.storage().max_ttl();
-    env.storage().persistent().extend_ttl(&key, max, max);
+    keep_max(env, &key);
     Credited {
         account: to.clone(),
         amount,
     }
     .publish(env);
+}
+
+fn read_pool(env: &Env, key: &DataKey) -> Pool {
+    match env.storage().persistent().get(key) {
+        Some(pool) => pool,
+        None => panic_with_error!(env, Error::NoPool),
+    }
+}
+
+/// Lleva al TTL máximo de la red una entrada persistente que no tiene fecha de vencimiento (si
+/// se archiva, se restaura con su saldo intacto).
+fn keep_max(env: &Env, key: &DataKey) {
+    let max = env.storage().max_ttl();
+    env.storage().persistent().extend_ttl(key, max, max);
 }
 
 fn read_campaign(env: &Env, campaign_id: u32) -> Campaign {

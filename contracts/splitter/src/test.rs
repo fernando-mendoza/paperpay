@@ -17,6 +17,8 @@ use soroban_sdk::{
     vec, Address, Env, Event, IntoVal, String, Symbol, Vec,
 };
 
+mod pool;
+
 /// $0.50 USDC con 7 decimales.
 const PRICE: i128 = 5_000_000;
 const FEE_BPS: u32 = 200;
