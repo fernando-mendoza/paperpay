@@ -6,6 +6,7 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 
 | Versión | Contrato (testnet) | Funciones nuevas | Pruebas | ¿La usa el sitio? |
 | --- | --- | --- | --- | --- |
+| [0.13.0](#0130-27-nov-2026) | `CDHBL4…3HSJ` | `lock_payment`, `unlock_payment`, `reclaim_payment` | 199 | No |
 | [0.12.0](#0120-27-nov-2026) | `CCFNCZ…HIY6` | `join_club`, `approve_read`, `leave_club` (más `create_club` y `propose_read`, de soporte) | 184 | No |
 | [0.11.0](#0110-27-nov-2026) | `CCMUYU…TJDZ` | `buy_global_pass`, `settle_pass`, `cancel_pass` (más `use_pass`, de soporte) | 167 | No |
 | [0.10.0](#0100-27-nov-2026) | `CCGPAG…C4WH` | `open_tab`, `settle_tab`, `collect_tab`, `close_tab` (más `charge_tab`, de soporte) | 152 | No |
@@ -18,6 +19,25 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 | [0.3.0](#030-25-nov-2026) | `CCQRUT…HEQD` | `gift_batch`, `tip`, `refund` | 32 | No |
 | [0.2.0](#020-23-nov-2026) | `CAIMQY…HOR5` | `pay_batch`, `gift` | 21 | Del 23 al 25 de noviembre. Sigue como contrato anterior: sus regalos y lecturas valen |
 | [0.1.0](#010-23-nov-2026) | `CDOUF6…BPOZ` | `pay`, `split`, `config` | 11 | No (reemplazada) |
+
+## 0.13.0 (27 nov 2026)
+
+Pago contra entrega: la editorial solo cobra si entrega la llave que abre el artículo. Es la **octava custodia** y la primera función donde el contrato comprueba la entrega por sí mismo, con un hash.
+
+- **`lock_payment(reader, publisher, paper_id, amount, key_hash, deadline)`:** quien lee deja el pago en el contrato, atado a `key_hash` (el sha256 de la llave de 32 bytes que abre el artículo cifrado), con un plazo de hasta 7 días. Emite `payment_locked`.
+- **`unlock_payment(lock_id, key)`:** quien presenta la llave antes del plazo libera el pago: 98% a la editorial y 2% a la tesorería. No pide firma: la llave es la prueba, y el dinero solo puede ir a la editorial del pago. La llave queda publicada en `payment_unlocked`, así que quien pagó la recibe en la misma transacción en que la editorial cobra. Emite también `paid`.
+- **`reclaim_payment(reader, lock_id)`:** si la llave no llegó, desde el plazo quien pagó recupera todo, sin comisión (`LockActive` antes). Emite `payment_reclaimed`.
+- De lectura: `lock`.
+- Errores nuevos: `NoLock` (59), `LockClosed` (60), `WrongKey` (61), `LockExpired` (62) y `LockActive` (63). El plazo inválido reusa `InvalidDeadline` (17).
+- Las dos salidas no se pisan: antes del plazo el dinero solo puede ir a la editorial (con la llave); desde el plazo, solo de vuelta a quien pagó.
+- Lo que el contrato garantiza y lo que no: garantiza que la editorial no cobra sin publicar una llave cuyo sha256 es el pactado. No puede saber si esa llave abre de verdad el artículo: eso lo comprueba quien lee contra el archivo cifrado que recibió. Cada compra debe llevar su propia llave, porque una llave publicada ya no es secreta.
+- Código: `f1dc43e`. Versión en `694aaa2`.
+- En la red (primero en una red Stellar local, después en testnet):
+  - contrato [`CDHBL4S7H5QEXL7HEP47NUOGJ4JBJDVG6WHBG6GNTUMG7TIF3LT73HSJ`](https://stellar.expert/explorer/testnet/contract/CDHBL4S7H5QEXL7HEP47NUOGJ4JBJDVG6WHBG6GNTUMG7TIF3LT73HSJ), WASM `359985bc…`;
+  - [`lock_payment` `85f946b1…`](https://stellar.expert/explorer/testnet/tx/85f946b15692159ba7d1830a1a722a08e5e260c9f09737be5081e1783853c24d) (0.50 USDC bloqueados, plazo de 1 h);
+  - [`unlock_payment` `670863f5…`](https://stellar.expert/explorer/testnet/tx/670863f5817621ee10a7ebae8a036995f18b01016ebf4a6ca9870fdd1a5556e5) (otra cuenta presenta la llave: 0.49 a la editorial demo y 0.01 a la tesorería);
+  - [`reclaim_payment` `a8943076…`](https://stellar.expert/explorer/testnet/tx/a8943076a34bc1e0a1e0a7c921ca9e957bf1b6db5a9ec8f55ebadb08aa14617b) (otro pago de 0.30, con plazo de 90 s y sin llave: vuelve completo).
+- Pruebas: 15 nuevas, 199 en total, en `src/test/lock.rs`. Se rompió el código de 32 formas a propósito y alguna prueba detectó cada una.
 
 ## 0.12.0 (27 nov 2026)
 
