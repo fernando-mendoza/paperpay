@@ -4,10 +4,10 @@
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "productionContractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
   "splitter": {
-    "version": "0.10.0",
-    "contractId": "CCGPAGLTT7WMVSIESZXPB2AF72I2DYZHMI42VJEPOIL726JM3HKRC4WH",
-    "wasmSha256": "c15dcce77127f2cb25e3f27830aaea1597cdb68a9837b44b5145434821638887",
-    "source": "contracts/splitter @ 07d28e5, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+    "version": "0.11.0",
+    "contractId": "CCMUYU5MMWGSQY7XF4W3ND2CIGXZZSDTRSDN23J4756CS6IRSR5MTJDZ",
+    "wasmSha256": "13d7433d0ae1f3ff25a28fa9021848c42dd8332e8e81585111acbdd31c7a78f1",
+    "source": "contracts/splitter @ ed3cf62, soroban-sdk 29.0.1, stellar-cli 30.0.1",
     "constructor": {
       "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
@@ -15,39 +15,34 @@
       "pass_day_price": 10000000,
       "open_day_price": 50000000
     },
-    "uploadTx": "116c89aac8c658ad82087f53a65b7365ba2129c3347bf4e1caa64452b2c2c040",
-    "deployTx": "370ccb5a1809d1eb1b3f07cc9d2405d63068e9734afcbab07cc33ef249b158fe",
-    "deployedAt": "2026-11-27T06:52:49Z",
+    "uploadTx": "154609bd89385999e02ef80ee1cd02474b6b2b86e779474a051fb58f72077139",
+    "deployTx": "c2b7465c6ab180537b0c622e79899fe37f8ecd11934068689516eabc6f1e726a",
+    "deployedAt": "2026-11-27T07:06:14Z",
     "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
-    "custody": "además de campañas, pendientes, fondos, recompensas y vales, guarda la garantía de cada cuenta abierta; sale solo hacia las editoriales a las que se les debe (collect_tab, vencido el plazo) o de vuelta a quien lee (close_tab, sin deuda); sin admin",
+    "custody": "además de lo anterior, guarda lo pagado por cada Pase PaperPay hasta que vence; sale solo hacia las editoriales leídas y la tesorería (settle_pass) o de vuelta a quien pagó (settle_pass sin lecturas, o cancel_pass); sin admin",
     "usage": {
-      "open_tab": {
-        "tx": "f718340c316cdf6307844b276cdf6f140ed7670c5cfc881b67653f868c7f6b97",
-        "what": "GDVD4QRUCPRVIYBZK4NLDODAXGKUJ7LJ3SILIHSNYOPXCFA4RHLHDPM7 deja 10000000 de garantía con 3600 s para pagar; operador GC4MKTMH4ZCSD5XRB4GTADEX4AFLFROBKQFOSQHXMJIW2GJMQX5NPXQT",
-        "result": "10000000 de quien lee al contrato; evento tab_opened"
+      "buy_global_pass": {
+        "tx": "79f0b9447ea1580e17eab14088cdf1a0be7e8adccb69407930af7c0cb3f87ab1",
+        "what": "GBP26V2LXKEUZICLOIXRIQZXJHIPSB7ERLNDC52GI7BEAPFGZ4SFDM5Y paga 20000000 por un pase de 120 s; operador GC2QTWDRKPG53FAFQCBIW4ARCHJT5ZAN4N7ROTHIGU6XM4IAFRILHVUO",
+        "result": "20000000 de quien lee al contrato; evento global_pass"
       },
-      "charge_tab": {
-        "tx": "319c8e3db2487db3eac13febf778947c4672d0eefed4d47d08027568442c7638",
-        "what": "soporte: el operador anota 5000000 con la editorial demo; después, ab76abd6d766e7244e90615ff98278c22fca1858ad57aa12a2772149dc9f975d: 3000000 con GCP25SEEX2ZKKLRUDVBD2BHYWLVXKVDM3OQ2RPKBAGBOVYNIKZQ67XUX",
-        "result": "no mueve fondos; evento charged; deuda 8000000"
+      "use_pass": {
+        "tx": "b2fb49ea75328ae4bb468cf327015e44777adcbb640122a085606a5b9cd1576c",
+        "what": "soporte: el operador anota 4 lecturas, 3 de la editorial demo y 1 de GAILRCQJUVH72SSUQT4CXSWZIAR2JS2YX6VEH3JE6ERRMTMFBE5B3AAU (261651e3270794ff369e9cf58cf2fa8b2fe01cd845ea4886c125bdcf41a6858b)",
+        "result": "no mueve fondos; eventos pass_read"
       },
-      "settle_tab": {
-        "tx": "44490c5d758ab2e241e1538dd72a96742757de673f01677742d609ac90d11977",
-        "what": "quien lee paga toda su deuda (8000000) con una firma",
-        "result": "4900000 a la editorial demo, 2940000 a la segunda y 160000 a la tesorería; la garantía sigue en 10000000; evento tab_settled"
+      "cancel_pass": {
+        "tx": "e1284a02885e3a8a8b02745cdae567a3d0b04a073c704f89568b8a70b5f9b6ca",
+        "what": "GBUT5SPE5INRC7HY2HROYOAHAWTZOFNTNOLWY7N73AWHNE4LG4ZUR43O compró un pase de 10000000 (815ddaf9daf4b2b2d5718d312574e8ffd7b71b55d02a9be8f812228a70d7e508) y lo cancela sin lecturas",
+        "result": "10000000 de vuelta; evento pass_cancelled"
       },
-      "close_tab": {
-        "tx": "2d1edf5ebcf6a6fd1e99edc0033bc63cdaf8bf4f75ffbf79fc607953427e825c",
-        "what": "sin deuda, quien lee cierra la cuenta",
-        "result": "10000000 de vuelta; evento tab_closed"
-      },
-      "collect_tab": {
-        "tx": "8a816cc19e1fa8edb790ff03f310d40a0178b94dee9b9cdf640b292b85eaade0",
-        "what": "GAQYWGLKXFYMWGXH5HKCYE7S63FABAEJOSZW4ITDIUPCDRV4LQI6OSIF abrió con 60 s para pagar (2d4eb23e476d2c1b90ad3b4ad030c5bce32216bedbfdce676e8ff92d0ea8fc49), se le anotó 5000000 (782c726f57fe735a070ca75bf508dadf5ae3f05aa2c6f51c11f9fb71e2f10fd0) y no pagó; vencido el plazo, otra cuenta envía collect_tab",
-        "result": "4900000 a la editorial demo y 100000 a la tesorería, desde la garantía; quedan 5000000, que recupera con close_tab (0ef7027a70ec22ffc137f6d09ffa0bcab6445e8364d9bf6b68ae15cd5f8b5fce); evento tab_collected"
+      "settle_pass": {
+        "tx": "268e4d4f9f5cef7a0b9921c93bb67716b7a21053b8b816e082d92f8b3c565fa2",
+        "what": "vencido el pase de 20000000, otra cuenta lo liquida sin firma de quien lee",
+        "result": "400000 a la tesorería, 14700000 a la editorial demo (3 lecturas) y 4900000 a la segunda (1 lectura); eventos pass_share × 2 y pass_settled"
       }
     },
-    "checks": "simulados antes de enviar: segunda cuenta (#39), quien lee anotándose lecturas (#26), deuda mayor que la garantía (#40), cobrar antes del plazo (#42), cerrar con deuda (#43), pagar sin deuda (#41). Al final: saldo del contrato 0"
+    "checks": "simulados antes de enviar: segundo pase (#45), quien lee anotándose lecturas (#26), liquidar antes de vencer (#48), cancelar con lecturas (#49), anotar en un pase vencido (#46), liquidar dos veces (#44). Al final: saldo del contrato 0"
   },
   "boveda": {
     "version": "0.1.0",
@@ -81,6 +76,52 @@
     "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."
   },
   "previous": [
+    {
+      "version": "0.10.0",
+      "contractId": "CCGPAGLTT7WMVSIESZXPB2AF72I2DYZHMI42VJEPOIL726JM3HKRC4WH",
+      "wasmSha256": "c15dcce77127f2cb25e3f27830aaea1597cdb68a9837b44b5145434821638887",
+      "source": "contracts/splitter @ 07d28e5, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200,
+        "pass_day_price": 10000000,
+        "open_day_price": 50000000
+      },
+      "uploadTx": "116c89aac8c658ad82087f53a65b7365ba2129c3347bf4e1caa64452b2c2c040",
+      "deployTx": "370ccb5a1809d1eb1b3f07cc9d2405d63068e9734afcbab07cc33ef249b158fe",
+      "deployedAt": "2026-11-27T06:52:49Z",
+      "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
+      "custody": "además de campañas, pendientes, fondos, recompensas y vales, guarda la garantía de cada cuenta abierta; sale solo hacia las editoriales a las que se les debe (collect_tab, vencido el plazo) o de vuelta a quien lee (close_tab, sin deuda); sin admin",
+      "usage": {
+        "open_tab": {
+          "tx": "f718340c316cdf6307844b276cdf6f140ed7670c5cfc881b67653f868c7f6b97",
+          "what": "GDVD4QRUCPRVIYBZK4NLDODAXGKUJ7LJ3SILIHSNYOPXCFA4RHLHDPM7 deja 10000000 de garantía con 3600 s para pagar; operador GC4MKTMH4ZCSD5XRB4GTADEX4AFLFROBKQFOSQHXMJIW2GJMQX5NPXQT",
+          "result": "10000000 de quien lee al contrato; evento tab_opened"
+        },
+        "charge_tab": {
+          "tx": "319c8e3db2487db3eac13febf778947c4672d0eefed4d47d08027568442c7638",
+          "what": "soporte: el operador anota 5000000 con la editorial demo; después, ab76abd6d766e7244e90615ff98278c22fca1858ad57aa12a2772149dc9f975d: 3000000 con GCP25SEEX2ZKKLRUDVBD2BHYWLVXKVDM3OQ2RPKBAGBOVYNIKZQ67XUX",
+          "result": "no mueve fondos; evento charged; deuda 8000000"
+        },
+        "settle_tab": {
+          "tx": "44490c5d758ab2e241e1538dd72a96742757de673f01677742d609ac90d11977",
+          "what": "quien lee paga toda su deuda (8000000) con una firma",
+          "result": "4900000 a la editorial demo, 2940000 a la segunda y 160000 a la tesorería; la garantía sigue en 10000000; evento tab_settled"
+        },
+        "close_tab": {
+          "tx": "2d1edf5ebcf6a6fd1e99edc0033bc63cdaf8bf4f75ffbf79fc607953427e825c",
+          "what": "sin deuda, quien lee cierra la cuenta",
+          "result": "10000000 de vuelta; evento tab_closed"
+        },
+        "collect_tab": {
+          "tx": "8a816cc19e1fa8edb790ff03f310d40a0178b94dee9b9cdf640b292b85eaade0",
+          "what": "GAQYWGLKXFYMWGXH5HKCYE7S63FABAEJOSZW4ITDIUPCDRV4LQI6OSIF abrió con 60 s para pagar (2d4eb23e476d2c1b90ad3b4ad030c5bce32216bedbfdce676e8ff92d0ea8fc49), se le anotó 5000000 (782c726f57fe735a070ca75bf508dadf5ae3f05aa2c6f51c11f9fb71e2f10fd0) y no pagó; vencido el plazo, otra cuenta envía collect_tab",
+          "result": "4900000 a la editorial demo y 100000 a la tesorería, desde la garantía; quedan 5000000, que recupera con close_tab (0ef7027a70ec22ffc137f6d09ffa0bcab6445e8364d9bf6b68ae15cd5f8b5fce); evento tab_collected"
+        }
+      },
+      "checks": "simulados antes de enviar: segunda cuenta (#39), quien lee anotándose lecturas (#26), deuda mayor que la garantía (#40), cobrar antes del plazo (#42), cerrar con deuda (#43), pagar sin deuda (#41). Al final: saldo del contrato 0"
+    },
     {
       "version": "0.9.0",
       "contractId": "CCGNE2XUYN2FNRE3EBE3HSNS7Q3EW4CTISUR6RYBUWQ7ACWZGI4GMYGB",
