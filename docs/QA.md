@@ -1,5 +1,19 @@
 # Estado de QA
 
+## Revisión del 27 de noviembre de 2026: contrato v0.9.0 (vales de lectura)
+
+- `pnpm test:contracts`: 135 pruebas (16 nuevas, en `contracts/splitter/src/test/voucher.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios. Las pruebas firman con `ed25519-dalek`, que entra solo como dependencia de pruebas.
+  - **Sin firma de cuenta:** el canje se prueba con las autorizaciones vacías (`set_auths(&[])`): lo único que autoriza es la firma del vale.
+  - **A qué está atada la firma:** falla para otro lector, otro artículo, otro vale, una firma hecha con otra llave y el mismo vale comprado en otro contrato.
+  - **Vector compartido:** el mensaje que arma Rust es, byte por byte, el que da `stellar xdr encode` para los mismos datos, y el contrato acepta una firma hecha sobre esos bytes. Así un script (o el sitio) puede firmar fuera de Rust.
+  - **Vencimiento:** un vale se canjea hasta un segundo antes de vencer y se devuelve desde el segundo exacto.
+  - **Llaves de un solo uso:** una llave repetida en la misma compra, de otro vale, o de un vale ya canjeado o devuelto se rechaza (`VoucherExists`).
+  - **Devolución todo o nada:** con un vale ajeno, usado, repetido o desconocido en la lista, no se devuelve ninguno.
+  - **Invariante de custodia:** el saldo del contrato es siempre vales sin usar + fondos.
+- Mutaciones (32), con `tools/mutaciones-v090.py` del run `2026-11-27-paperpay-contrato-v070` del hub: todas detectadas. Entre ellas: canje sin verificar la firma, la firma sin el lector, sin el artículo o sin el contrato, la misma llave para dos vales, cobrar un solo vale aunque sean varios, canjear vencido, devolver vales ajenos o antes de vencer.
+- Red Stellar local y testnet (`tools/usar-v090.sh`, 27-nov 00:32 CDMX): llaves y firma hechas con `openssl`, mensaje armado con `stellar xdr encode`. El canje lo envió otra cuenta para un lector que no existe en la red. Saldo final del contrato: 0.
+- **No probado:** la firma desde el navegador (el sitio no usa todavía los vales) y vales que se archivan después de su gracia de 30 días (habría que restaurar la entrada antes de devolverlos).
+
 ## Revisión del 27 de noviembre de 2026: contrato v0.8.0 (recompensas)
 
 - `pnpm test:contracts`: 119 pruebas (14 nuevas, en `contracts/splitter/src/test/bounty.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
