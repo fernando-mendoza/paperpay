@@ -1,5 +1,17 @@
 # Estado de QA
 
+## Revisión del 27 de noviembre de 2026: contrato v0.8.0 (recompensas)
+
+- `pnpm test:contracts`: 119 pruebas (14 nuevas, en `contracts/splitter/src/test/bounty.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
+  - **Plazo:** no se cancela un segundo antes del plazo y sí en el segundo exacto; los bordes de `post_bounty` (un segundo después de ahora y justo 90 días) valen.
+  - **Reparto:** 60/40 con el 2% a la tesorería; con montos que no dividen exacto, el stroop que sobra va al primer ganador y el contrato queda en 0.
+  - **Ganador sin trustline:** con una cuenta G inyectada en el ledger, su parte queda pendiente (`credited`), los demás cobran y después la cobra con `claim`.
+  - **Quién puede:** un extraño y el propio ganador no pueden repartir ni cancelar (`NoBounty`); quien publicó no puede ponerse como ganador (`InvalidShares`).
+  - **Invariante de custodia:** el saldo del contrato es siempre recompensas abiertas + fondos + pendientes.
+- Mutaciones (25), con `tools/mutaciones-v080.py` del run `2026-11-27-paperpay-contrato-v070` del hub: todas detectadas. Entre ellas: funciones sin firma, recompensa de 0, plazo sin tope, ids que no avanzan, repartir una recompensa ajena o cerrada, premiarse a sí mismo, el redondeo perdido, los ganadores cobrando directo (uno sin trustline tumbaría todo) y cancelar antes del plazo.
+- Red Stellar local y testnet (`tools/usar-v080.sh`, 27-nov 00:17 CDMX): las tres funciones usadas, el segundo ganador sin trustline cobrando con `claim`, y tres errores simulados antes de enviar (#30, #31 y #32). Saldo final del contrato: 0.
+- **No probado:** no hay pantalla ni API para las recompensas. Que quien publicó premie a una cuenta suya no lo puede impedir el contrato (solo impide que se ponga a sí mismo).
+
 ## Revisión del 27 de noviembre de 2026: contrato v0.7.0 (fondos de patrocinio)
 
 - `pnpm test:contracts`: 105 pruebas (16 nuevas, en `contracts/splitter/src/test/pool.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
