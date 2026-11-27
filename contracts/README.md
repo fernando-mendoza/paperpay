@@ -4,7 +4,7 @@ Dos contratos: [`splitter`](#splitter-reparto-98-editorial--2-paperpay) (los pag
 
 ## `splitter`: reparto 98% editorial / 2% PaperPay
 
-Cobra lecturas y las reparte en la misma transacción. El USDC va directo de la cuenta que paga a la editorial (monto − comisión) y a la tesorería de PaperPay (comisión): los pagos no pasan por el contrato. Las excepciones guardan dinero en garantía: las campañas de acceso abierto (desde la v0.6.0), los fondos de patrocinio (v0.7.0), las recompensas (v0.8.0), los vales de lectura (v0.9.0), la garantía de las cuentas abiertas (v0.10.0) y los Pases PaperPay sin liquidar (v0.11.0), abajo.
+Cobra lecturas y las reparte en la misma transacción. El USDC va directo de la cuenta que paga a la editorial (monto − comisión) y a la tesorería de PaperPay (comisión): los pagos no pasan por el contrato. Las excepciones guardan dinero en garantía: las campañas de acceso abierto (desde la v0.6.0), los fondos de patrocinio (v0.7.0), las recompensas (v0.8.0), los vales de lectura (v0.9.0), la garantía de las cuentas abiertas (v0.10.0), los Pases PaperPay sin liquidar (v0.11.0) y las cajas de los journal clubs (v0.12.0), abajo.
 
 Desde la v0.3.0 también regala listas de lectura (`gift_batch`), cobra propinas (`tip`) y registra devoluciones (`refund`). Las propinas y las devoluciones emiten su propio evento, nunca `paid`, así que no dan acceso a ningún artículo.
 
@@ -73,6 +73,16 @@ La v0.11.0 suma el **Pase PaperPay**, la sexta custodia: un pase para todo el ca
 
 A diferencia de `buy_pass`, que es de una sola editorial y le paga al momento, aquí nadie cobra hasta saber qué se leyó.
 
+La v0.12.0 suma el **journal club**, la séptima custodia: un grupo junta una caja común y paga las lecturas que aprueba.
+
+- `create_club` (de soporte): alguien define la cuota y cuántas aprobaciones hacen falta para pagar;
+- `join_club`: cada miembro paga su cuota a la caja del club;
+- `propose_read` (de soporte): un miembro propone pagar un artículo con la caja;
+- `approve_read`: otro miembro aprueba; la aprobación que completa el quórum paga a la editorial y a la tesorería desde la caja;
+- `leave_club`: quien sale se lleva una parte igual de lo que queda.
+
+Quien crea el club no tiene ningún poder sobre la caja: el dinero solo sale por una lectura que aprobó el quórum o con cada miembro que se va.
+
 | Función | Qué hace |
 | --- | --- |
 | `__constructor(token, treasury, fee_bps, pass_day_price, open_day_price)` | Fija el token (SAC de USDC), la tesorería, la comisión en puntos base (`200` = 2%, máximo `1000`) y, desde la v0.5.0, el precio de un día de pase y de un día de artículo abierto (mayores que 0). No cambia después: no hay admin. |
@@ -121,6 +131,12 @@ A diferencia de `buy_pass`, que es de una sola editorial y le paga al momento, a
 | `settle_pass(reader) -> Split` | Liquida el pase vencido de `reader`: 2% a la tesorería y el resto entre las editoriales en proporción a sus lecturas. Sin lecturas, todo vuelve a `reader`. Solo después de vencer (`PassActive`). **Sin firmas:** la envía cualquiera. Emite un `pass_share` por editorial y `pass_settled`. **Desde la v0.11.0.** |
 | `cancel_pass(reader) -> i128` | `reader` cancela su pase y recupera todo, mientras no tenga lecturas (`PassUsed`). Solo firma `reader`. Emite `pass_cancelled`. **Desde la v0.11.0.** |
 | `global_pass(reader) -> Option<GlobalPass>` | El pase sin liquidar (`operator`, `amount`, `until`, `reads`, `by_publisher`), sin mover fondos. **Desde la v0.11.0.** |
+| `create_club(founder, dues, quorum) -> u32` | De soporte, **no mueve fondos**: crea un journal club con cuota `dues` y un quórum de `quorum` aprobaciones (de 2 a 10). Nadie es miembro hasta que paga su cuota. Solo firma `founder`. Emite `club_created` y devuelve el id. **Desde la v0.12.0.** |
+| `join_club(member, club_id) -> i128` | `member` paga la cuota del club: pasa de su wallet a la caja, en el contrato. Hasta 10 miembros (`ClubFull`), una vez cada uno (`AlreadyMember`). Solo firma `member`. Emite `club_joined` y devuelve la caja. **Desde la v0.12.0.** |
+| `propose_read(member, club_id, publisher, paper_id, amount) -> u32` | De soporte, **no mueve fondos**: un miembro propone pagar `amount` a `publisher` por `paper_id` con la caja, si alcanza (`ClubTooLow`). Su aprobación queda contada. Solo firma `member`. Emite `read_proposed` y devuelve el id de la propuesta. **Desde la v0.12.0.** |
+| `approve_read(member, club_id, proposal_id) -> bool` | Un miembro aprueba una propuesta. Cuando las aprobaciones de miembros actuales llegan al quórum, **esta llamada paga**: 98% a la editorial y 2% a la tesorería, desde la caja. Una aprobación por miembro (`AlreadyApproved`), un pago por propuesta (`ProposalClosed`). Solo firma `member`. Emite `read_approved` y, si pagó, `club_paid`. Devuelve si pagó. **Desde la v0.12.0.** |
+| `leave_club(member, club_id) -> i128` | `member` sale y se lleva la caja entre los miembros actuales (redondeada hacia abajo); el último se lleva todo lo que queda. Sus aprobaciones dejan de contar. Solo firma `member`. Emite `club_left`. **Desde la v0.12.0.** |
+| `club(club_id) -> Option<Club>` y `proposal(club_id, proposal_id) -> Option<Proposal>` | El club (`dues`, `quorum`, `members`, `balance`, `proposals`) y una propuesta (`publisher`, `paper_id`, `amount`, `approvals`, `paid`), sin mover fondos. **Desde la v0.12.0.** |
 | `split(amount) -> Split` | El reparto que aplicaría `pay`, sin mover fondos. |
 | `config() -> Config` | La configuración fijada al desplegar. |
 
@@ -153,14 +169,14 @@ A diferencia de `buy_pass`, que es de una sola editorial y le paga al momento, a
 - **`pay_authors` en la red:** el `paid` lleva solo al primer autor; lo que recibió cada coautor se ve en las transferencias del token de esa transacción.
 - **Acceso:** la API solo da acceso por eventos `paid` (`paidReceipts` en `apps/api/src/services/splitter.service.ts`). Una propina o una devolución nunca abren un artículo. Lo que llegó desde la v0.5.0 (pases, artículos abiertos, campañas, fondos y lo que sigue) existe en testnet, pero la API todavía no lo usa.
 - **Quién valida qué:** el contrato garantiza el reparto. La API sigue decidiendo el precio y la editorial de cada artículo, y valida que el evento coincida antes de dar acceso.
-- **Errores:** `FeeTooHigh` (1), `InvalidAmount` (2), `InvalidPaperId` (3; vacío o de más de 64 bytes), `AmountOverflow` (4), `EmptyBatch` (5), `BatchTooLarge` (6), `DuplicatePaper` (7), `InvalidShares` (8; partes vacías, en 0, de más del 100%, que no suman 100% o con un autor repetido), `TooManyAuthors` (9; más de 10 coautores), `SelfReferral` (10; `referrer` igual a `payer`), `InvalidDays` (11; 0 o más de 31 días), `WrongPrice` (12; `amount` distinto de días × precio por día), `TooLong` (13; un acceso que vencería a más de 90 días o una suscripción de más de 150), `InvalidRenewals` (14; 0 o más de 12), `NoSubscription` (15), `RenewTooEarly` (16; al pase le falta más de un día), `InvalidDeadline` (17; plazo pasado o a más de 90 días), `NoCampaign` (18), `CampaignClosed` (19; la campaña ya no recibe aportes o ya se liberó), `OverGoal` (20; el aporte pasa de lo que falta), `GoalNotReached` (21), `NothingToClaim` (22), `CampaignNotFailed` (23; todavía no vence, llegó a la meta o se liberó), `NothingToRefund` (24), `NoPool` (25), `NotOperator` (26; quien firma no es el operador del fondo), `AboveMaxPerRead` (27), `PoolTooLow` (28; al fondo no le alcanza para la lectura o el retiro), `AlreadySponsored` (29; el fondo ya pagó ese artículo para ese lector en las últimas 24 h), `NoBounty` (30; no hay recompensa con ese id de esa cuenta), `BountyClosed` (31; ya se pagó o se canceló), `BountyActive` (32; no se cancela antes del plazo), `NoVoucher` (33; no hay vale con esa llave, o no es de esa cuenta), `VoucherSpent` (34; ya se canjeó o se devolvió), `VoucherExpired` (35), `VoucherActive` (36; no se devuelve antes de vencer), `VoucherExists` (37; esa llave ya se usó para un vale), `NoTab` (38), `TabExists` (39; una cuenta abierta por lector), `TabFull` (40; la deuda pasaría de la garantía o de 10 editoriales), `NothingOwed` (41), `TabNotDue` (42; todavía no vence el plazo de pago), `TabOwes` (43; no se cierra con deuda), `NoGlobalPass` (44), `PassExists` (45; un Pase PaperPay a la vez), `PassExpired` (46; ya no se le anotan lecturas), `PassFull` (47; lecturas de más de 10 editoriales), `PassActive` (48; no se liquida antes de vencer) y `PassUsed` (49; con lecturas ya no se cancela).
+- **Errores:** `FeeTooHigh` (1), `InvalidAmount` (2), `InvalidPaperId` (3; vacío o de más de 64 bytes), `AmountOverflow` (4), `EmptyBatch` (5), `BatchTooLarge` (6), `DuplicatePaper` (7), `InvalidShares` (8; partes vacías, en 0, de más del 100%, que no suman 100% o con un autor repetido), `TooManyAuthors` (9; más de 10 coautores), `SelfReferral` (10; `referrer` igual a `payer`), `InvalidDays` (11; 0 o más de 31 días), `WrongPrice` (12; `amount` distinto de días × precio por día), `TooLong` (13; un acceso que vencería a más de 90 días o una suscripción de más de 150), `InvalidRenewals` (14; 0 o más de 12), `NoSubscription` (15), `RenewTooEarly` (16; al pase le falta más de un día), `InvalidDeadline` (17; plazo pasado o a más de 90 días), `NoCampaign` (18), `CampaignClosed` (19; la campaña ya no recibe aportes o ya se liberó), `OverGoal` (20; el aporte pasa de lo que falta), `GoalNotReached` (21), `NothingToClaim` (22), `CampaignNotFailed` (23; todavía no vence, llegó a la meta o se liberó), `NothingToRefund` (24), `NoPool` (25), `NotOperator` (26; quien firma no es el operador del fondo), `AboveMaxPerRead` (27), `PoolTooLow` (28; al fondo no le alcanza para la lectura o el retiro), `AlreadySponsored` (29; el fondo ya pagó ese artículo para ese lector en las últimas 24 h), `NoBounty` (30; no hay recompensa con ese id de esa cuenta), `BountyClosed` (31; ya se pagó o se canceló), `BountyActive` (32; no se cancela antes del plazo), `NoVoucher` (33; no hay vale con esa llave, o no es de esa cuenta), `VoucherSpent` (34; ya se canjeó o se devolvió), `VoucherExpired` (35), `VoucherActive` (36; no se devuelve antes de vencer), `VoucherExists` (37; esa llave ya se usó para un vale), `NoTab` (38), `TabExists` (39; una cuenta abierta por lector), `TabFull` (40; la deuda pasaría de la garantía o de 10 editoriales), `NothingOwed` (41), `TabNotDue` (42; todavía no vence el plazo de pago), `TabOwes` (43; no se cierra con deuda), `NoGlobalPass` (44), `PassExists` (45; un Pase PaperPay a la vez), `PassExpired` (46; ya no se le anotan lecturas), `PassFull` (47; lecturas de más de 10 editoriales), `PassActive` (48; no se liquida antes de vencer), `PassUsed` (49; con lecturas ya no se cancela), `NoClub` (50), `InvalidQuorum` (51; menos de 2 o más de 10), `ClubFull` (52; 10 miembros), `AlreadyMember` (53), `NotMember` (54), `ClubTooLow` (55; a la caja no le alcanza), `NoProposal` (56), `ProposalClosed` (57; ya se pagó) y `AlreadyApproved` (58).
 
 ### Probar
 
 Requiere Rust estable y el target `wasm32v1-none` (`rustup target add wasm32v1-none`).
 
 ```bash
-pnpm test:contracts            # cargo test: 167 pruebas con un SAC de USDC simulado
+pnpm test:contracts            # cargo test: 184 pruebas con un SAC de USDC simulado
 ```
 
 ### Compilar el WASM
@@ -242,6 +258,19 @@ inv --source lector --send no -- campaign --campaign_id 0
 Datos completos en [`deployments/testnet.json`](deployments/testnet.json).
 
 > **Qué versión usa el sitio.** El sitio y la API usan la **v0.4.0** (`productionContractId`) desde el 25 de noviembre de 2026 (CDMX; 00:18 UTC del 26), con `pay`, `pay_ref` (referidos) y `gift`. La v0.4.0 tiene todo lo de la v0.3.0 (`gift_batch`, `tip` y `refund`) más `pay_authors` y `pay_ref`. La v0.2.0, que usó el sitio del 23 al 25 de noviembre, quedó en `SPLITTER_LEGACY_CONTRACT_IDS`: sus regalos se pueden reclamar y sus lecturas siguen en el contador. Los pagos nuevos van solo a la v0.4.0. La **v0.5.0** (pases, suscripción y artículos abiertos) está desplegada y probada en testnet desde el 25 de noviembre de 2026 (CDMX; 05:04 UTC del 26), pero el sitio y la API todavía no la usan. La **v0.6.0** (campañas de acceso abierto y `claim`) está desplegada y probada en testnet desde el 26 de noviembre de 2026 (00:18 CDMX); el sitio y la API tampoco la usan.
+
+| v0.12.0 | Valor |
+| --- | --- |
+| Contrato | [`CCFNCZVQFRYDFRUE6CD25QVT7RRRFKMFHAU6TB7U6HWFPECLUQECHIY6`](https://stellar.expert/explorer/testnet/contract/CCFNCZVQFRYDFRUE6CD25QVT7RRRFKMFHAU6TB7U6HWFPECLUQECHIY6) |
+| WASM (sha256) | `87930abdbd1ec366a55e72dd97ce3eecfcb38b20483f44f444a63f71d3b9f4b6` (86,618 bytes), igual al que se baja de la red |
+| Constructor | El mismo de v0.5.0 |
+| `create_club` (soporte) | [`b12604ec…`](https://stellar.expert/explorer/testnet/tx/b12604ec7e63f3982b17fa3fc625098a7db84b33f34ce051fa026c6ae1da93f5): un club con cuota de 0.50 USDC y quórum de 2. No se mueve nada |
+| `join_club` | [`55f701c0…`](https://stellar.expert/explorer/testnet/tx/55f701c0dbd2fc38fb27af99d8a85b44373ec499a53cd9042fd3f5bb51291c6e), [`6861f99e…`](https://stellar.expert/explorer/testnet/tx/6861f99e9e50a43dffa57426619395ad1d723dcc02226c3b64aaf58e137d08ca) y [`dc94e6a4…`](https://stellar.expert/explorer/testnet/tx/dc94e6a4cea73211c42798fb17a911e00444f93ce743e2ad1cc8a1d1ff59421f): Ana, Beto y Caro pagan su cuota. La caja queda en 1.50, en el contrato |
+| `propose_read` (soporte) | [`93e67d0f…`](https://stellar.expert/explorer/testnet/tx/93e67d0fc0b32ef48f071e52eda329eba545f312c0fa67a14a83ff778f6767e7): Ana propone pagar `crispr-nanomedicine-biotech` por 0.50. No se mueve nada |
+| `approve_read` | [`987b89f2…`](https://stellar.expert/explorer/testnet/tx/987b89f299eeb27a39e262745b3f487f122aa537936c8be3d0470ee91b1f4633): Beto aprueba, se completa el quórum y **esa misma llamada paga**: 0.49 a la editorial demo y 0.01 a la tesorería, desde la caja. Evento `club_paid` con los tres miembros |
+| `leave_club` | [`c25c6345…`](https://stellar.expert/explorer/testnet/tx/c25c6345ef643aed6e346a46ee0c4ed133d37b358b5d52a43e122866cdf4c1c6): Caro sale con un tercio de lo que queda (0.3333333). Después salen Beto ([`ff865cc8…`](https://stellar.expert/explorer/testnet/tx/ff865cc8af0a78d5c704f43167ac099b199084380c39449385af2bb3ecee6c63)) y Ana ([`dff63031…`](https://stellar.expert/explorer/testnet/tx/dff630317bfab578f6844a54bce4021f2fc83eb856463cf04c0d95eac60811df)), que se lleva el stroop del redondeo |
+
+Antes de enviar, el script simuló lo que no debe pasar: un quórum de 1 (#51), entrar dos veces (#53), un extraño aprobando (#54), aprobar dos veces (#58), proponer más que la caja (#55), aprobar una propuesta ya pagada (#57) y proponer después de salir (#54). Al final, el contrato tiene saldo 0.
 
 | v0.11.0 | Valor |
 | --- | --- |

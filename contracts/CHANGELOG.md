@@ -6,6 +6,7 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 
 | Versión | Contrato (testnet) | Funciones nuevas | Pruebas | ¿La usa el sitio? |
 | --- | --- | --- | --- | --- |
+| [0.12.0](#0120-27-nov-2026) | `CCFNCZ…HIY6` | `join_club`, `approve_read`, `leave_club` (más `create_club` y `propose_read`, de soporte) | 184 | No |
 | [0.11.0](#0110-27-nov-2026) | `CCMUYU…TJDZ` | `buy_global_pass`, `settle_pass`, `cancel_pass` (más `use_pass`, de soporte) | 167 | No |
 | [0.10.0](#0100-27-nov-2026) | `CCGPAG…C4WH` | `open_tab`, `settle_tab`, `collect_tab`, `close_tab` (más `charge_tab`, de soporte) | 152 | No |
 | [0.9.0](#090-27-nov-2026) | `CCGNE2…MYGB` | `buy_vouchers`, `redeem_voucher`, `reclaim_vouchers` | 135 | No |
@@ -17,6 +18,27 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 | [0.3.0](#030-25-nov-2026) | `CCQRUT…HEQD` | `gift_batch`, `tip`, `refund` | 32 | No |
 | [0.2.0](#020-23-nov-2026) | `CAIMQY…HOR5` | `pay_batch`, `gift` | 21 | Del 23 al 25 de noviembre. Sigue como contrato anterior: sus regalos y lecturas valen |
 | [0.1.0](#010-23-nov-2026) | `CDOUF6…BPOZ` | `pay`, `split`, `config` | 11 | No (reemplazada) |
+
+## 0.12.0 (27 nov 2026)
+
+Journal club: un grupo (un laboratorio, un seminario) junta una caja común y paga las lecturas que aprueba. Es la **séptima custodia** y la primera función donde el dinero se mueve por el acuerdo de varias cuentas.
+
+- **`create_club(founder, dues, quorum)`** (soporte): define la cuota por miembro y cuántas aprobaciones hacen falta para pagar (de 2 a 10). No mueve fondos; nadie es miembro hasta que paga su cuota. Emite `club_created`.
+- **`join_club(member, club_id)`:** el miembro paga su cuota a la caja del club, en el contrato. Hasta 10 miembros. Emite `club_joined`.
+- **`propose_read(member, club_id, publisher, paper_id, amount)`** (soporte): un miembro propone pagar un artículo con la caja, si alcanza. Su aprobación queda contada. No mueve fondos. Emite `read_proposed`.
+- **`approve_read(member, club_id, proposal_id)`:** otro miembro aprueba. La aprobación que completa el quórum paga en esa misma llamada: 98% a la editorial y 2% a la tesorería, desde la caja. Cada miembro aprueba una vez, una propuesta se paga una vez y solo cuentan las aprobaciones de quienes siguen en el club. Emite `read_approved` y, si pagó, `club_paid` con los miembros para los que queda pagado el artículo.
+- **`leave_club(member, club_id)`:** quien sale se lleva una parte igual de lo que queda en la caja (la caja entre los miembros actuales). Emite `club_left`.
+- De lectura: `club` y `proposal`.
+- Errores nuevos: `NoClub` (50), `InvalidQuorum` (51), `ClubFull` (52), `AlreadyMember` (53), `NotMember` (54), `ClubTooLow` (55), `NoProposal` (56), `ProposalClosed` (57) y `AlreadyApproved` (58).
+- Sin admin: quien crea el club no tiene ningún poder sobre la caja. El dinero solo sale por una lectura que aprobó el quórum o con cada miembro que se va.
+- Por qué el quórum mínimo es 2: con 1, quien propone pagaría solo y no habría club.
+- Código: `eee61ff`, más una prueba que faltaba (`924f66e`). Versión en `2b9fb29`.
+- En la red (primero en una red Stellar local, después en testnet):
+  - contrato [`CCFNCZVQFRYDFRUE6CD25QVT7RRRFKMFHAU6TB7U6HWFPECLUQECHIY6`](https://stellar.expert/explorer/testnet/contract/CCFNCZVQFRYDFRUE6CD25QVT7RRRFKMFHAU6TB7U6HWFPECLUQECHIY6), WASM `87930abd…`;
+  - [`join_club` `55f701c0…`](https://stellar.expert/explorer/testnet/tx/55f701c0dbd2fc38fb27af99d8a85b44373ec499a53cd9042fd3f5bb51291c6e) (la primera de tres cuotas de 0.50);
+  - [`approve_read` `987b89f2…`](https://stellar.expert/explorer/testnet/tx/987b89f299eeb27a39e262745b3f487f122aa537936c8be3d0470ee91b1f4633) (la segunda aprobación completa el quórum y paga 0.50 desde la caja);
+  - [`leave_club` `c25c6345…`](https://stellar.expert/explorer/testnet/tx/c25c6345ef643aed6e346a46ee0c4ed133d37b358b5d52a43e122866cdf4c1c6) (se lleva un tercio de lo que queda).
+- Pruebas: 17 nuevas, 184 en total, en `src/test/club.rs`. Se rompió el código de 45 formas a propósito; dos sobrevivieron en la primera corrida y, con la prueba que faltaba, alguna prueba detecta cada una.
 
 ## 0.11.0 (27 nov 2026)
 
