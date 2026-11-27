@@ -4,10 +4,10 @@
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "productionContractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
   "splitter": {
-    "version": "0.9.0",
-    "contractId": "CCGNE2XUYN2FNRE3EBE3HSNS7Q3EW4CTISUR6RYBUWQ7ACWZGI4GMYGB",
-    "wasmSha256": "9351005ee73683c99b2344df052e0dabe72e891e303a1ddbd42f52f13c6e1ab4",
-    "source": "contracts/splitter @ 6f3a384, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+    "version": "0.10.0",
+    "contractId": "CCGPAGLTT7WMVSIESZXPB2AF72I2DYZHMI42VJEPOIL726JM3HKRC4WH",
+    "wasmSha256": "c15dcce77127f2cb25e3f27830aaea1597cdb68a9837b44b5145434821638887",
+    "source": "contracts/splitter @ 07d28e5, soroban-sdk 29.0.1, stellar-cli 30.0.1",
     "constructor": {
       "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
@@ -15,29 +15,39 @@
       "pass_day_price": 10000000,
       "open_day_price": 50000000
     },
-    "uploadTx": "a863767d63b5d1acd90142fcaabf4e8377d9ca4ceb9054ac6d0e8a2d2bca12e5",
-    "deployTx": "52cd84ef2cb9a6bd58ec088cdd44ed2a4de119a3731a710a9bc85e55a2d7c371",
-    "deployedAt": "2026-11-27T06:31:49Z",
+    "uploadTx": "116c89aac8c658ad82087f53a65b7365ba2129c3347bf4e1caa64452b2c2c040",
+    "deployTx": "370ccb5a1809d1eb1b3f07cc9d2405d63068e9734afcbab07cc33ef249b158fe",
+    "deployedAt": "2026-11-27T06:52:49Z",
     "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
-    "custody": "además de campañas, pendientes, fondos y recompensas, guarda el valor de los vales sin usar; cada vale sale solo por un canje firmado con su llave (redeem_voucher, a la editorial del vale) o, vencido, de vuelta a quien lo compró (reclaim_vouchers); sin admin",
+    "custody": "además de campañas, pendientes, fondos, recompensas y vales, guarda la garantía de cada cuenta abierta; sale solo hacia las editoriales a las que se les debe (collect_tab, vencido el plazo) o de vuelta a quien lee (close_tab, sin deuda); sin admin",
     "usage": {
-      "buy_vouchers": {
-        "tx": "92e5cbebf39baaaaaa72711ba629912bc262c849fc048ddf4178c7a8d6068e1b",
-        "what": "GBLYYSWRSB3PNPIC6SNDNWEAPHHNBLAQWW4OT3NAYWE6WYSGZOPMCR4S compra 2 vales de 5000000 para la editorial demo, vigentes 150 s; llaves 939bc603dd822f8ed4e138e237becf7c22654f82ea10e7606168b08b2748fbfd y f4630681b236aba473d596a657a20a98b9a0eaa04420b837ecefed50aa8fbf57",
-        "result": "10000000 de quien compra al contrato; evento vouchers_bought"
+      "open_tab": {
+        "tx": "f718340c316cdf6307844b276cdf6f140ed7670c5cfc881b67653f868c7f6b97",
+        "what": "GDVD4QRUCPRVIYBZK4NLDODAXGKUJ7LJ3SILIHSNYOPXCFA4RHLHDPM7 deja 10000000 de garantía con 3600 s para pagar; operador GC4MKTMH4ZCSD5XRB4GTADEX4AFLFROBKQFOSQHXMJIW2GJMQX5NPXQT",
+        "result": "10000000 de quien lee al contrato; evento tab_opened"
       },
-      "redeem_voucher": {
-        "tx": "6f469d80a927a441185960043b60954c6c65a9940ba461224734accc1bc6851d",
-        "what": "otra cuenta envía el canje del vale 939bc603… para GBTG7FHCR3V4THGO5DJXJ6JULL3CMBEDIO25QTSLTKMJL7WGWQZST72Z (una llave que no existe en la red) y crispr-nanomedicine-biotech; la firma es de la llave del vale (openssl) sobre el XDR de (contrato, reader, paper_id)",
-        "result": "4900000 a la editorial demo y 100000 a la tesorería, desde el contrato; eventos paid (payer = quien compró) y voucher_redeemed"
+      "charge_tab": {
+        "tx": "319c8e3db2487db3eac13febf778947c4672d0eefed4d47d08027568442c7638",
+        "what": "soporte: el operador anota 5000000 con la editorial demo; después, ab76abd6d766e7244e90615ff98278c22fca1858ad57aa12a2772149dc9f975d: 3000000 con GCP25SEEX2ZKKLRUDVBD2BHYWLVXKVDM3OQ2RPKBAGBOVYNIKZQ67XUX",
+        "result": "no mueve fondos; evento charged; deuda 8000000"
       },
-      "reclaim_vouchers": {
-        "tx": "f9ce75a6f3f8cea6732958b3798600b0f93290a2a4efac22ea4e914baa50f9d5",
-        "what": "vencido el vale f4630681… sin usarse, quien lo compró lo recupera",
-        "result": "5000000 de vuelta, sin comisión; evento vouchers_reclaimed"
+      "settle_tab": {
+        "tx": "44490c5d758ab2e241e1538dd72a96742757de673f01677742d609ac90d11977",
+        "what": "quien lee paga toda su deuda (8000000) con una firma",
+        "result": "4900000 a la editorial demo, 2940000 a la segunda y 160000 a la tesorería; la garantía sigue en 10000000; evento tab_settled"
+      },
+      "close_tab": {
+        "tx": "2d1edf5ebcf6a6fd1e99edc0033bc63cdaf8bf4f75ffbf79fc607953427e825c",
+        "what": "sin deuda, quien lee cierra la cuenta",
+        "result": "10000000 de vuelta; evento tab_closed"
+      },
+      "collect_tab": {
+        "tx": "8a816cc19e1fa8edb790ff03f310d40a0178b94dee9b9cdf640b292b85eaade0",
+        "what": "GAQYWGLKXFYMWGXH5HKCYE7S63FABAEJOSZW4ITDIUPCDRV4LQI6OSIF abrió con 60 s para pagar (2d4eb23e476d2c1b90ad3b4ad030c5bce32216bedbfdce676e8ff92d0ea8fc49), se le anotó 5000000 (782c726f57fe735a070ca75bf508dadf5ae3f05aa2c6f51c11f9fb71e2f10fd0) y no pagó; vencido el plazo, otra cuenta envía collect_tab",
+        "result": "4900000 a la editorial demo y 100000 a la tesorería, desde la garantía; quedan 5000000, que recupera con close_tab (0ef7027a70ec22ffc137f6d09ffa0bcab6445e8364d9bf6b68ae15cd5f8b5fce); evento tab_collected"
       }
     },
-    "checks": "simulados antes de enviar: la misma llave en otra compra (#37); la firma usada para otro lector, otro artículo y otro vale (falla la verificación ed25519 del host); canjear dos veces (#34); devolver antes de vencer (#36); canjear un vale vencido (#35). Al final: saldo del contrato 0"
+    "checks": "simulados antes de enviar: segunda cuenta (#39), quien lee anotándose lecturas (#26), deuda mayor que la garantía (#40), cobrar antes del plazo (#42), cerrar con deuda (#43), pagar sin deuda (#41). Al final: saldo del contrato 0"
   },
   "boveda": {
     "version": "0.1.0",
@@ -71,6 +81,42 @@
     "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."
   },
   "previous": [
+    {
+      "version": "0.9.0",
+      "contractId": "CCGNE2XUYN2FNRE3EBE3HSNS7Q3EW4CTISUR6RYBUWQ7ACWZGI4GMYGB",
+      "wasmSha256": "9351005ee73683c99b2344df052e0dabe72e891e303a1ddbd42f52f13c6e1ab4",
+      "source": "contracts/splitter @ 6f3a384, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200,
+        "pass_day_price": 10000000,
+        "open_day_price": 50000000
+      },
+      "uploadTx": "a863767d63b5d1acd90142fcaabf4e8377d9ca4ceb9054ac6d0e8a2d2bca12e5",
+      "deployTx": "52cd84ef2cb9a6bd58ec088cdd44ed2a4de119a3731a710a9bc85e55a2d7c371",
+      "deployedAt": "2026-11-27T06:31:49Z",
+      "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
+      "custody": "además de campañas, pendientes, fondos y recompensas, guarda el valor de los vales sin usar; cada vale sale solo por un canje firmado con su llave (redeem_voucher, a la editorial del vale) o, vencido, de vuelta a quien lo compró (reclaim_vouchers); sin admin",
+      "usage": {
+        "buy_vouchers": {
+          "tx": "92e5cbebf39baaaaaa72711ba629912bc262c849fc048ddf4178c7a8d6068e1b",
+          "what": "GBLYYSWRSB3PNPIC6SNDNWEAPHHNBLAQWW4OT3NAYWE6WYSGZOPMCR4S compra 2 vales de 5000000 para la editorial demo, vigentes 150 s; llaves 939bc603dd822f8ed4e138e237becf7c22654f82ea10e7606168b08b2748fbfd y f4630681b236aba473d596a657a20a98b9a0eaa04420b837ecefed50aa8fbf57",
+          "result": "10000000 de quien compra al contrato; evento vouchers_bought"
+        },
+        "redeem_voucher": {
+          "tx": "6f469d80a927a441185960043b60954c6c65a9940ba461224734accc1bc6851d",
+          "what": "otra cuenta envía el canje del vale 939bc603… para GBTG7FHCR3V4THGO5DJXJ6JULL3CMBEDIO25QTSLTKMJL7WGWQZST72Z (una llave que no existe en la red) y crispr-nanomedicine-biotech; la firma es de la llave del vale (openssl) sobre el XDR de (contrato, reader, paper_id)",
+          "result": "4900000 a la editorial demo y 100000 a la tesorería, desde el contrato; eventos paid (payer = quien compró) y voucher_redeemed"
+        },
+        "reclaim_vouchers": {
+          "tx": "f9ce75a6f3f8cea6732958b3798600b0f93290a2a4efac22ea4e914baa50f9d5",
+          "what": "vencido el vale f4630681… sin usarse, quien lo compró lo recupera",
+          "result": "5000000 de vuelta, sin comisión; evento vouchers_reclaimed"
+        }
+      },
+      "checks": "simulados antes de enviar: la misma llave en otra compra (#37); la firma usada para otro lector, otro artículo y otro vale (falla la verificación ed25519 del host); canjear dos veces (#34); devolver antes de vencer (#36); canjear un vale vencido (#35). Al final: saldo del contrato 0"
+    },
     {
       "version": "0.8.0",
       "contractId": "CDUFLVEYPPGHJZTUVPW45YAAB7JAEKDKVZCYAQPKQBVMWETKFB2VPNIF",
