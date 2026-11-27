@@ -6,6 +6,7 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 
 | Versión | Contrato (testnet) | Funciones nuevas | Pruebas | ¿La usa el sitio? |
 | --- | --- | --- | --- | --- |
+| [0.11.0](#0110-27-nov-2026) | `CCMUYU…TJDZ` | `buy_global_pass`, `settle_pass`, `cancel_pass` (más `use_pass`, de soporte) | 167 | No |
 | [0.10.0](#0100-27-nov-2026) | `CCGPAG…C4WH` | `open_tab`, `settle_tab`, `collect_tab`, `close_tab` (más `charge_tab`, de soporte) | 152 | No |
 | [0.9.0](#090-27-nov-2026) | `CCGNE2…MYGB` | `buy_vouchers`, `redeem_voucher`, `reclaim_vouchers` | 135 | No |
 | [0.8.0](#080-27-nov-2026) | `CDUFLV…PNIF` | `post_bounty`, `award_bounty`, `cancel_bounty` | 119 | No |
@@ -16,6 +17,26 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 | [0.3.0](#030-25-nov-2026) | `CCQRUT…HEQD` | `gift_batch`, `tip`, `refund` | 32 | No |
 | [0.2.0](#020-23-nov-2026) | `CAIMQY…HOR5` | `pay_batch`, `gift` | 21 | Del 23 al 25 de noviembre. Sigue como contrato anterior: sus regalos y lecturas valen |
 | [0.1.0](#010-23-nov-2026) | `CDOUF6…BPOZ` | `pay`, `split`, `config` | 11 | No (reemplazada) |
+
+## 0.11.0 (27 nov 2026)
+
+Pase PaperPay: un pase para todo el catálogo, que se reparte entre las editoriales según lo que esa persona leyó. Es la **sexta custodia** y la primera función que reparte por uso.
+
+- **`buy_global_pass(reader, operator, amount, period)`:** quien lee paga el pase y nombra al operador (el sitio) que le anota lecturas. El dinero queda en el contrato hasta que vence (`period` segundos, hasta 31 días). Un pase a la vez. Emite `global_pass`.
+- **`use_pass(operator, reader, publisher, paper_id)`** (soporte): el operador anota una lectura hecha con el pase. No mueve fondos. Solo mientras está vigente y hasta 10 editoriales distintas. Emite `pass_read`.
+- **`settle_pass(reader)`:** vencido el pase, cualquiera lo liquida, sin firmas: 2% a la tesorería y el resto entre las editoriales en proporción a las lecturas de cada una. Lo que sobra por redondeo va a una sola. Si no leyó nada, todo vuelve a quien pagó, sin comisión. Emite un `pass_share` por editorial y `pass_settled`.
+- **`cancel_pass(reader)`:** mientras no tenga lecturas, quien lo compró lo cancela y recupera todo. Emite `pass_cancelled`.
+- De lectura: `global_pass`.
+- Errores nuevos: `NoGlobalPass` (44), `PassExists` (45), `PassExpired` (46), `PassFull` (47), `PassActive` (48) y `PassUsed` (49). El operador ajeno reusa `NotOperator` (26) y la duración inválida, `InvalidDays` (11).
+- En qué se distingue de `buy_pass` (v0.5.0): aquel es de una sola editorial y le paga al momento, sin custodia. Este cubre todo el catálogo y nadie cobra hasta saber qué se leyó: el dinero de cada persona va solo a las editoriales que esa persona leyó.
+- Quién valida qué: el contrato no fija el precio del pase; lo decide el operador, igual que decide el precio de cada artículo en `pay`. El contrato garantiza el reparto.
+- Código: `8797a3f`. Versión en `ed3cf62`.
+- En la red (primero en una red Stellar local, después en testnet):
+  - contrato [`CCMUYU5MMWGSQY7XF4W3ND2CIGXZZSDTRSDN23J4756CS6IRSR5MTJDZ`](https://stellar.expert/explorer/testnet/contract/CCMUYU5MMWGSQY7XF4W3ND2CIGXZZSDTRSDN23J4756CS6IRSR5MTJDZ), WASM `13d7433d…`;
+  - [`buy_global_pass` `79f0b944…`](https://stellar.expert/explorer/testnet/tx/79f0b9447ea1580e17eab14088cdf1a0be7e8adccb69407930af7c0cb3f87ab1) (2.00 USDC por 120 s);
+  - [`settle_pass` `268e4d4f…`](https://stellar.expert/explorer/testnet/tx/268e4d4f9f5cef7a0b9921c93bb67716b7a21053b8b816e082d92f8b3c565fa2) (4 lecturas: tres cuartos a una editorial y un cuarto a otra);
+  - [`cancel_pass` `e1284a02…`](https://stellar.expert/explorer/testnet/tx/e1284a02885e3a8a8b02745cdae567a3d0b04a073c704f89568b8a70b5f9b6ca) (otro lector, sin lecturas: recupera todo).
+- Pruebas: 15 nuevas, 167 en total, en `src/test/gpass.rs`. Se rompió el código de 34 formas a propósito y alguna prueba detectó cada una.
 
 ## 0.10.0 (27 nov 2026)
 

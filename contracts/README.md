@@ -4,7 +4,7 @@ Dos contratos: [`splitter`](#splitter-reparto-98-editorial--2-paperpay) (los pag
 
 ## `splitter`: reparto 98% editorial / 2% PaperPay
 
-Cobra lecturas y las reparte en la misma transacción. El USDC va directo de la cuenta que paga a la editorial (monto − comisión) y a la tesorería de PaperPay (comisión): los pagos no pasan por el contrato. Las excepciones guardan dinero en garantía: las campañas de acceso abierto (desde la v0.6.0), los fondos de patrocinio (v0.7.0), las recompensas (v0.8.0), los vales de lectura (v0.9.0) y la garantía de las cuentas abiertas (v0.10.0), abajo.
+Cobra lecturas y las reparte en la misma transacción. El USDC va directo de la cuenta que paga a la editorial (monto − comisión) y a la tesorería de PaperPay (comisión): los pagos no pasan por el contrato. Las excepciones guardan dinero en garantía: las campañas de acceso abierto (desde la v0.6.0), los fondos de patrocinio (v0.7.0), las recompensas (v0.8.0), los vales de lectura (v0.9.0), la garantía de las cuentas abiertas (v0.10.0) y los Pases PaperPay sin liquidar (v0.11.0), abajo.
 
 Desde la v0.3.0 también regala listas de lectura (`gift_batch`), cobra propinas (`tip`) y registra devoluciones (`refund`). Las propinas y las devoluciones emiten su propio evento, nunca `paid`, así que no dan acceso a ningún artículo.
 
@@ -64,6 +64,15 @@ La v0.10.0 suma la **cuenta abierta**, la quinta custodia: leer ahora y pagar to
 
 El operador solo anota deuda: no puede mover la garantía ni cerrar la cuenta. Lo que se debe siempre está cubierto, porque la deuda no pasa de la garantía.
 
+La v0.11.0 suma el **Pase PaperPay**, la sexta custodia: un pase para todo el catálogo, que se reparte entre las editoriales según lo que esa persona leyó.
+
+- `buy_global_pass`: quien lee paga el pase; el dinero queda en el contrato hasta que vence;
+- `use_pass` (de soporte, no mueve fondos): el operador anota cada lectura hecha con el pase;
+- `settle_pass`: vencido el pase, cualquiera lo liquida: 2% a la tesorería y el resto entre las editoriales, en proporción a las lecturas. Si no leyó nada, vuelve todo;
+- `cancel_pass`: mientras no haya leído nada, quien lo compró lo cancela y recupera todo.
+
+A diferencia de `buy_pass`, que es de una sola editorial y le paga al momento, aquí nadie cobra hasta saber qué se leyó.
+
 | Función | Qué hace |
 | --- | --- |
 | `__constructor(token, treasury, fee_bps, pass_day_price, open_day_price)` | Fija el token (SAC de USDC), la tesorería, la comisión en puntos base (`200` = 2%, máximo `1000`) y, desde la v0.5.0, el precio de un día de pase y de un día de artículo abierto (mayores que 0). No cambia después: no hay admin. |
@@ -107,6 +116,11 @@ El operador solo anota deuda: no puede mover la garantía ni cerrar la cuenta. L
 | `collect_tab(reader) -> Split` | Cobra de la garantía la deuda vencida de `reader`, con el mismo reparto. Solo después del plazo de pago (`TabNotDue` antes). **Sin firmas:** la envía cualquiera. Emite `tab_collected`. **Desde la v0.10.0.** |
 | `close_tab(reader) -> i128` | `reader` cierra su cuenta y recupera la garantía que queda. Solo sin deuda (`TabOwes`). Solo firma `reader`. Emite `tab_closed`. **Desde la v0.10.0.** |
 | `tab(reader) -> Option<Tab>` | La cuenta abierta (`operator`, `deposit`, `period`, `owed`, `due`, `debts`), sin mover fondos. **Desde la v0.10.0.** |
+| `buy_global_pass(reader, operator, amount, period) -> u64` | `reader` paga `amount` por leer todo el catálogo durante `period` segundos (hasta 31 días). El dinero pasa al contrato hasta que el pase vence. `operator` es la única cuenta que puede anotarle lecturas y quien decide si el monto alcanza. Un pase a la vez (`PassExists`). Solo firma `reader`. Emite `global_pass` y devuelve cuándo vence. **Desde la v0.11.0.** |
+| `use_pass(operator, reader, publisher, paper_id) -> u32` | De soporte, **no mueve fondos**: el operador anota una lectura de `publisher` hecha con el pase de `reader`. Solo mientras está vigente (`PassExpired`) y hasta 10 editoriales (`PassFull`). Solo firma `operator`. Emite `pass_read` y devuelve el total de lecturas. **Desde la v0.11.0.** |
+| `settle_pass(reader) -> Split` | Liquida el pase vencido de `reader`: 2% a la tesorería y el resto entre las editoriales en proporción a sus lecturas. Sin lecturas, todo vuelve a `reader`. Solo después de vencer (`PassActive`). **Sin firmas:** la envía cualquiera. Emite un `pass_share` por editorial y `pass_settled`. **Desde la v0.11.0.** |
+| `cancel_pass(reader) -> i128` | `reader` cancela su pase y recupera todo, mientras no tenga lecturas (`PassUsed`). Solo firma `reader`. Emite `pass_cancelled`. **Desde la v0.11.0.** |
+| `global_pass(reader) -> Option<GlobalPass>` | El pase sin liquidar (`operator`, `amount`, `until`, `reads`, `by_publisher`), sin mover fondos. **Desde la v0.11.0.** |
 | `split(amount) -> Split` | El reparto que aplicaría `pay`, sin mover fondos. |
 | `config() -> Config` | La configuración fijada al desplegar. |
 
@@ -139,14 +153,14 @@ El operador solo anota deuda: no puede mover la garantía ni cerrar la cuenta. L
 - **`pay_authors` en la red:** el `paid` lleva solo al primer autor; lo que recibió cada coautor se ve en las transferencias del token de esa transacción.
 - **Acceso:** la API solo da acceso por eventos `paid` (`paidReceipts` en `apps/api/src/services/splitter.service.ts`). Una propina o una devolución nunca abren un artículo. Lo que llegó desde la v0.5.0 (pases, artículos abiertos, campañas, fondos y lo que sigue) existe en testnet, pero la API todavía no lo usa.
 - **Quién valida qué:** el contrato garantiza el reparto. La API sigue decidiendo el precio y la editorial de cada artículo, y valida que el evento coincida antes de dar acceso.
-- **Errores:** `FeeTooHigh` (1), `InvalidAmount` (2), `InvalidPaperId` (3; vacío o de más de 64 bytes), `AmountOverflow` (4), `EmptyBatch` (5), `BatchTooLarge` (6), `DuplicatePaper` (7), `InvalidShares` (8; partes vacías, en 0, de más del 100%, que no suman 100% o con un autor repetido), `TooManyAuthors` (9; más de 10 coautores), `SelfReferral` (10; `referrer` igual a `payer`), `InvalidDays` (11; 0 o más de 31 días), `WrongPrice` (12; `amount` distinto de días × precio por día), `TooLong` (13; un acceso que vencería a más de 90 días o una suscripción de más de 150), `InvalidRenewals` (14; 0 o más de 12), `NoSubscription` (15), `RenewTooEarly` (16; al pase le falta más de un día), `InvalidDeadline` (17; plazo pasado o a más de 90 días), `NoCampaign` (18), `CampaignClosed` (19; la campaña ya no recibe aportes o ya se liberó), `OverGoal` (20; el aporte pasa de lo que falta), `GoalNotReached` (21), `NothingToClaim` (22), `CampaignNotFailed` (23; todavía no vence, llegó a la meta o se liberó), `NothingToRefund` (24), `NoPool` (25), `NotOperator` (26; quien firma no es el operador del fondo), `AboveMaxPerRead` (27), `PoolTooLow` (28; al fondo no le alcanza para la lectura o el retiro), `AlreadySponsored` (29; el fondo ya pagó ese artículo para ese lector en las últimas 24 h), `NoBounty` (30; no hay recompensa con ese id de esa cuenta), `BountyClosed` (31; ya se pagó o se canceló), `BountyActive` (32; no se cancela antes del plazo), `NoVoucher` (33; no hay vale con esa llave, o no es de esa cuenta), `VoucherSpent` (34; ya se canjeó o se devolvió), `VoucherExpired` (35), `VoucherActive` (36; no se devuelve antes de vencer), `VoucherExists` (37; esa llave ya se usó para un vale), `NoTab` (38), `TabExists` (39; una cuenta abierta por lector), `TabFull` (40; la deuda pasaría de la garantía o de 10 editoriales), `NothingOwed` (41), `TabNotDue` (42; todavía no vence el plazo de pago) y `TabOwes` (43; no se cierra con deuda).
+- **Errores:** `FeeTooHigh` (1), `InvalidAmount` (2), `InvalidPaperId` (3; vacío o de más de 64 bytes), `AmountOverflow` (4), `EmptyBatch` (5), `BatchTooLarge` (6), `DuplicatePaper` (7), `InvalidShares` (8; partes vacías, en 0, de más del 100%, que no suman 100% o con un autor repetido), `TooManyAuthors` (9; más de 10 coautores), `SelfReferral` (10; `referrer` igual a `payer`), `InvalidDays` (11; 0 o más de 31 días), `WrongPrice` (12; `amount` distinto de días × precio por día), `TooLong` (13; un acceso que vencería a más de 90 días o una suscripción de más de 150), `InvalidRenewals` (14; 0 o más de 12), `NoSubscription` (15), `RenewTooEarly` (16; al pase le falta más de un día), `InvalidDeadline` (17; plazo pasado o a más de 90 días), `NoCampaign` (18), `CampaignClosed` (19; la campaña ya no recibe aportes o ya se liberó), `OverGoal` (20; el aporte pasa de lo que falta), `GoalNotReached` (21), `NothingToClaim` (22), `CampaignNotFailed` (23; todavía no vence, llegó a la meta o se liberó), `NothingToRefund` (24), `NoPool` (25), `NotOperator` (26; quien firma no es el operador del fondo), `AboveMaxPerRead` (27), `PoolTooLow` (28; al fondo no le alcanza para la lectura o el retiro), `AlreadySponsored` (29; el fondo ya pagó ese artículo para ese lector en las últimas 24 h), `NoBounty` (30; no hay recompensa con ese id de esa cuenta), `BountyClosed` (31; ya se pagó o se canceló), `BountyActive` (32; no se cancela antes del plazo), `NoVoucher` (33; no hay vale con esa llave, o no es de esa cuenta), `VoucherSpent` (34; ya se canjeó o se devolvió), `VoucherExpired` (35), `VoucherActive` (36; no se devuelve antes de vencer), `VoucherExists` (37; esa llave ya se usó para un vale), `NoTab` (38), `TabExists` (39; una cuenta abierta por lector), `TabFull` (40; la deuda pasaría de la garantía o de 10 editoriales), `NothingOwed` (41), `TabNotDue` (42; todavía no vence el plazo de pago), `TabOwes` (43; no se cierra con deuda), `NoGlobalPass` (44), `PassExists` (45; un Pase PaperPay a la vez), `PassExpired` (46; ya no se le anotan lecturas), `PassFull` (47; lecturas de más de 10 editoriales), `PassActive` (48; no se liquida antes de vencer) y `PassUsed` (49; con lecturas ya no se cancela).
 
 ### Probar
 
 Requiere Rust estable y el target `wasm32v1-none` (`rustup target add wasm32v1-none`).
 
 ```bash
-pnpm test:contracts            # cargo test: 152 pruebas con un SAC de USDC simulado
+pnpm test:contracts            # cargo test: 167 pruebas con un SAC de USDC simulado
 ```
 
 ### Compilar el WASM
@@ -228,6 +242,18 @@ inv --source lector --send no -- campaign --campaign_id 0
 Datos completos en [`deployments/testnet.json`](deployments/testnet.json).
 
 > **Qué versión usa el sitio.** El sitio y la API usan la **v0.4.0** (`productionContractId`) desde el 25 de noviembre de 2026 (CDMX; 00:18 UTC del 26), con `pay`, `pay_ref` (referidos) y `gift`. La v0.4.0 tiene todo lo de la v0.3.0 (`gift_batch`, `tip` y `refund`) más `pay_authors` y `pay_ref`. La v0.2.0, que usó el sitio del 23 al 25 de noviembre, quedó en `SPLITTER_LEGACY_CONTRACT_IDS`: sus regalos se pueden reclamar y sus lecturas siguen en el contador. Los pagos nuevos van solo a la v0.4.0. La **v0.5.0** (pases, suscripción y artículos abiertos) está desplegada y probada en testnet desde el 25 de noviembre de 2026 (CDMX; 05:04 UTC del 26), pero el sitio y la API todavía no la usan. La **v0.6.0** (campañas de acceso abierto y `claim`) está desplegada y probada en testnet desde el 26 de noviembre de 2026 (00:18 CDMX); el sitio y la API tampoco la usan.
+
+| v0.11.0 | Valor |
+| --- | --- |
+| Contrato | [`CCMUYU5MMWGSQY7XF4W3ND2CIGXZZSDTRSDN23J4756CS6IRSR5MTJDZ`](https://stellar.expert/explorer/testnet/contract/CCMUYU5MMWGSQY7XF4W3ND2CIGXZZSDTRSDN23J4756CS6IRSR5MTJDZ) |
+| WASM (sha256) | `13d7433d0ae1f3ff25a28fa9021848c42dd8332e8e81585111acbdd31c7a78f1` (76,228 bytes), igual al que se baja de la red |
+| Constructor | El mismo de v0.5.0 |
+| `buy_global_pass` | [`79f0b944…`](https://stellar.expert/explorer/testnet/tx/79f0b9447ea1580e17eab14088cdf1a0be7e8adccb69407930af7c0cb3f87ab1): un lector paga 2.00 USDC por un pase de 120 s. El USDC pasa al contrato |
+| `use_pass` (soporte) | [`b2fb49ea…`](https://stellar.expert/explorer/testnet/tx/b2fb49ea75328ae4bb468cf327015e44777adcbb640122a085606a5b9cd1576c) y tres más: el operador anota 3 lecturas de la editorial demo y 1 de una segunda editorial ([`261651e3…`](https://stellar.expert/explorer/testnet/tx/261651e3270794ff369e9cf58cf2fa8b2fe01cd845ea4886c125bdcf41a6858b)). No se mueve nada |
+| `cancel_pass` | Otro lector compra un pase de 1.00 ([`815ddaf9…`](https://stellar.expert/explorer/testnet/tx/815ddaf9daf4b2b2d5718d312574e8ffd7b71b55d02a9be8f812228a70d7e508)) y, sin leer nada, lo cancela: [`e1284a02…`](https://stellar.expert/explorer/testnet/tx/e1284a02885e3a8a8b02745cdae567a3d0b04a073c704f89568b8a70b5f9b6ca), recupera 1.00 |
+| `settle_pass` | [`268e4d4f…`](https://stellar.expert/explorer/testnet/tx/268e4d4f9f5cef7a0b9921c93bb67716b7a21053b8b816e082d92f8b3c565fa2): vencido el pase, **otra cuenta** lo liquida, sin firma de quien lee. 0.04 a la tesorería; de los 1.96 restantes, 1.47 a la editorial demo (3 lecturas) y 0.49 a la segunda (1 lectura) |
+
+Antes de enviar, el script simuló lo que no debe pasar: un segundo pase (#45), quien lee anotándose lecturas (#26), liquidar antes de vencer (#48), cancelar con lecturas (#49), anotar en un pase vencido (#46) y liquidar dos veces (#44). Al final, el contrato tiene saldo 0.
 
 | v0.10.0 | Valor |
 | --- | --- |
