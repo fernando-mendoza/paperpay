@@ -93,6 +93,13 @@
 //! - `submit_review`: si entrega antes del plazo (el hash de su informe), recupera la garantía.
 //! - `forfeit_stake`: si no entregó, desde el plazo su garantía pasa a quien publicó la recompensa.
 //!
+//! Traducción por encargo, la décima custodia: un trabajo largo que se paga por partes.
+//! - `fund_grant`: alguien encarga la traducción de un artículo (o su resumen de divulgación) a
+//!   una persona y deja en el contrato el pago completo, dividido en hitos, con un plazo.
+//! - `release_milestone`: quien paga libera el siguiente hito: 98% a quien traduce y 2% a la
+//!   tesorería.
+//! - `cancel_grant`: pasado el plazo, quien paga recupera los hitos que no liberó.
+//!
 //! Si una cuenta no puede recibir lo que le paga el contrato (por ejemplo, una editorial nueva sin
 //! trustline de USDC), su parte no se pierde ni bloquea a nadie: queda pendiente a su nombre, y
 //! `claim` la cobra con una firma que además le abre la trustline (`trust` del SAC, CAP-73).
@@ -147,6 +154,10 @@ pub const MAX_CLUB_MEMBERS: u32 = 10;
 pub const MAX_LOCK_DAYS: u32 = 7;
 /// Garantía mínima para tomar una recompensa, en puntos base de la recompensa (1 000 = 10%).
 pub const MIN_STAKE_BPS: i128 = 1_000;
+/// Hitos por encargo: acota el costo de una transacción y el tamaño de la entrada.
+pub const MAX_MILESTONES: u32 = 10;
+/// Plazo máximo de un encargo, en días.
+pub const MAX_GRANT_DAYS: u32 = 90;
 /// Máximo de editoriales con deuda en una cuenta abierta.
 pub const MAX_TAB_PUBLISHERS: u32 = 10;
 /// Después del plazo, las entradas de una campaña siguen en la red al menos estos días, para que
@@ -308,6 +319,14 @@ pub enum Error {
     AlreadyAccepted = 66,
     /// Esa cuenta no tiene garantía en esa recompensa: no la tomó, ya entregó o ya la perdió.
     NoStake = 67,
+    /// Los hitos de un encargo: de 1 a `MAX_MILESTONES`, cada uno mayor que cero.
+    InvalidMilestones = 68,
+    /// No hay encargo con ese id (o no es de esa cuenta).
+    NoGrant = 69,
+    /// El encargo ya se pagó completo o se canceló.
+    GrantClosed = 70,
+    /// El plazo del encargo sigue corriendo: todavía no se puede cancelar.
+    GrantActive = 71,
 }
 
 #[contracttype]
@@ -491,6 +510,22 @@ pub struct Lock {
     pub open: bool,
 }
 
+/// Un encargo de traducción de `paper_id`: `funder` dejó en el contrato la suma de `milestones`
+/// para `translator`. Los hitos se liberan en orden y `released` es cuántos se pagaron. Hasta
+/// `deadline` (segundos Unix) el dinero solo puede salir hacia `translator`; después, lo no
+/// liberado puede volver a `funder`. `open` es falso cuando se pagaron todos o se canceló.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Grant {
+    pub funder: Address,
+    pub translator: Address,
+    pub paper_id: String,
+    pub milestones: Vec<i128>,
+    pub released: u32,
+    pub deadline: u64,
+    pub open: bool,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -536,6 +571,10 @@ enum DataKey {
     Lock(u32),
     /// La garantía que dejó un revisor al tomar la recompensa `u32`.
     Stake(u32, Address),
+    /// Id del próximo encargo (instance): los ids son secuenciales desde 0.
+    NextGrant,
+    /// Un encargo de traducción, por id.
+    Grant(u32),
 }
 
 /// Comprobante de un artículo pagado. Topics: `["paid", publisher, reader]`.
@@ -1135,6 +1174,49 @@ pub struct StakeForfeited {
     #[topic]
     pub funder: Address,
     pub bounty_id: u32,
+    pub amount: i128,
+}
+
+/// Un encargo nuevo. Topics: `["grant_funded", funder, translator]`. `total` (la suma de los
+/// hitos) ya está en el contrato y `milestones` es cuántos hitos son.
+#[contractevent(topics = ["grant_funded"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GrantFunded {
+    #[topic]
+    pub funder: Address,
+    #[topic]
+    pub translator: Address,
+    pub grant_id: u32,
+    pub paper_id: String,
+    pub total: i128,
+    pub milestones: u32,
+    pub deadline: u64,
+}
+
+/// Un hito pagado. Topics: `["milestone_released", translator, funder]`. `milestone` es su
+/// posición (desde 0), `amount` el hito completo, `fee` la comisión y `remaining`, cuántos faltan.
+#[contractevent(topics = ["milestone_released"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneReleased {
+    #[topic]
+    pub translator: Address,
+    #[topic]
+    pub funder: Address,
+    pub grant_id: u32,
+    pub milestone: u32,
+    pub amount: i128,
+    pub fee: i128,
+    pub remaining: u32,
+}
+
+/// Un encargo cancelado después de su plazo. Topics: `["grant_cancelled", funder]`. `amount` es
+/// la suma de los hitos no liberados, que volvió a `funder`.
+#[contractevent(topics = ["grant_cancelled"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GrantCancelled {
+    #[topic]
+    pub funder: Address,
+    pub grant_id: u32,
     pub amount: i128,
 }
 
@@ -3286,6 +3368,162 @@ impl Splitter {
             .unwrap_or(0)
     }
 
+    /// `funder` encarga a `translator` la traducción de `paper_id` (o su resumen de divulgación)
+    /// y deja el pago completo en el contrato, dividido en `milestones` (de 1 a
+    /// `MAX_MILESTONES` montos, por ejemplo borrador, revisión y versión final). Hasta
+    /// `deadline` (segundos Unix, a no más de `MAX_GRANT_DAYS`) ese dinero solo puede salir
+    /// hacia `translator`, hito por hito (`release_milestone`); después, lo no liberado puede
+    /// volver a `funder` (`cancel_grant`). Solo firma `funder`. Emite `grant_funded` y devuelve el
+    /// id del encargo.
+    pub fn fund_grant(
+        env: Env,
+        funder: Address,
+        translator: Address,
+        paper_id: String,
+        milestones: Vec<i128>,
+        deadline: u64,
+    ) -> u32 {
+        funder.require_auth();
+        validate_paper_id(&env, &paper_id);
+        if milestones.is_empty() || milestones.len() > MAX_MILESTONES {
+            panic_with_error!(&env, Error::InvalidMilestones);
+        }
+        let mut total: i128 = 0;
+        for milestone in milestones.iter() {
+            if milestone <= 0 {
+                panic_with_error!(&env, Error::InvalidMilestones);
+            }
+            total = add(&env, total, milestone);
+        }
+        let now = env.ledger().timestamp();
+        if deadline <= now || deadline - now > MAX_GRANT_DAYS as u64 * DAY_SECONDS {
+            panic_with_error!(&env, Error::InvalidDeadline);
+        }
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &funder,
+            env.current_contract_address(),
+            &total,
+        );
+        let id: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::NextGrant)
+            .unwrap_or(0);
+        env.storage().instance().set(&DataKey::NextGrant, &(id + 1));
+        let entry = DataKey::Grant(id);
+        let count = milestones.len();
+        env.storage().persistent().set(
+            &entry,
+            &Grant {
+                funder: funder.clone(),
+                translator: translator.clone(),
+                paper_id: paper_id.clone(),
+                milestones,
+                released: 0,
+                deadline,
+                open: true,
+            },
+        );
+        keep_campaign(&env, &entry, deadline);
+        extend_instance_ttl(&env);
+
+        GrantFunded {
+            funder,
+            translator,
+            grant_id: id,
+            paper_id,
+            total,
+            milestones: count,
+            deadline,
+        }
+        .publish(&env);
+
+        id
+    }
+
+    /// `funder` libera el siguiente hito de su encargo `grant_id`: quien traduce recibe el hito
+    /// menos la comisión y la tesorería, la comisión. Los hitos salen en orden, uno por llamada;
+    /// el último cierra el encargo. Se puede liberar antes o después del plazo, mientras no se
+    /// haya cancelado. Si quien traduce no puede recibir (sin trustline), su parte queda
+    /// pendiente a su nombre para `claim`. Solo firma `funder`. Emite `milestone_released` y
+    /// devuelve el reparto del hito.
+    pub fn release_milestone(env: Env, funder: Address, grant_id: u32) -> Split {
+        funder.require_auth();
+        let entry = DataKey::Grant(grant_id);
+        let mut grant = read_grant(&env, &entry, &funder);
+        let index = grant.released;
+        let amount = grant.milestones.get_unchecked(index);
+        grant.released = index + 1;
+        let remaining = grant.milestones.len() - grant.released;
+        if remaining == 0 {
+            grant.open = false;
+        }
+        env.storage().persistent().set(&entry, &grant);
+
+        let config = read_config(&env);
+        let split = compute_split(&env, amount, config.fee_bps);
+        payout(&env, &config, &grant.translator, split.publisher);
+        payout(&env, &config, &config.treasury, split.fee);
+        extend_instance_ttl(&env);
+
+        MilestoneReleased {
+            translator: grant.translator,
+            funder,
+            grant_id,
+            milestone: index,
+            amount,
+            fee: split.fee,
+            remaining,
+        }
+        .publish(&env);
+
+        split
+    }
+
+    /// `funder` cancela su encargo `grant_id` y recupera los hitos que no liberó, sin comisión.
+    /// Solo desde el plazo (`GrantActive` antes): mientras tanto, quien traduce sabe que el
+    /// dinero está ahí. Lo ya pagado no vuelve. Solo firma `funder`. Emite `grant_cancelled` y
+    /// devuelve lo recuperado.
+    pub fn cancel_grant(env: Env, funder: Address, grant_id: u32) -> i128 {
+        funder.require_auth();
+        let entry = DataKey::Grant(grant_id);
+        let mut grant = read_grant(&env, &entry, &funder);
+        if env.ledger().timestamp() < grant.deadline {
+            panic_with_error!(&env, Error::GrantActive);
+        }
+        let mut unreleased: i128 = 0;
+        for index in grant.released..grant.milestones.len() {
+            // La suma completa ya pasó por `add` al encargar: una parte no se desborda.
+            unreleased += grant.milestones.get_unchecked(index);
+        }
+        grant.open = false;
+        env.storage().persistent().set(&entry, &grant);
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &env.current_contract_address(),
+            &funder,
+            &unreleased,
+        );
+        extend_instance_ttl(&env);
+
+        GrantCancelled {
+            funder,
+            grant_id,
+            amount: unreleased,
+        }
+        .publish(&env);
+
+        unreleased
+    }
+
+    /// El encargo `grant_id`, si existe.
+    pub fn grant(env: Env, grant_id: u32) -> Option<Grant> {
+        env.storage().persistent().get(&DataKey::Grant(grant_id))
+    }
+
     /// Lo que el contrato le debe a `account` (pagos que no pudo recibir).
     pub fn owed(env: Env, account: Address) -> i128 {
         env.storage()
@@ -3567,6 +3805,21 @@ fn check_keys(env: &Env, keys: &Vec<BytesN<32>>) {
     if keys.len() > MAX_BATCH_ITEMS {
         panic_with_error!(env, Error::BatchTooLarge);
     }
+}
+
+/// El encargo de `entry`, si existe, es de `funder` y sigue abierto.
+fn read_grant(env: &Env, entry: &DataKey, funder: &Address) -> Grant {
+    let grant: Grant = match env.storage().persistent().get(entry) {
+        Some(grant) => grant,
+        None => panic_with_error!(env, Error::NoGrant),
+    };
+    if grant.funder != *funder {
+        panic_with_error!(env, Error::NoGrant);
+    }
+    if !grant.open {
+        panic_with_error!(env, Error::GrantClosed);
+    }
+    grant
 }
 
 /// La recompensa `bounty_id`, si existe (abierta o no, de quien sea).
