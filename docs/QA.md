@@ -1,5 +1,18 @@
 # Estado de QA
 
+## Revisión del 27 de noviembre de 2026: contrato v0.12.0 (journal club)
+
+- `pnpm test:contracts`: 184 pruebas (17 nuevas, en `contracts/splitter/src/test/club.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
+  - **Quórum:** con quórum de 2, la segunda aprobación paga; con quórum de 3, la segunda solo se anota y la tercera paga. Quien propone no puede completar el quórum aprobando dos veces.
+  - **La firma de quien aprueba no autoriza una transferencia suya:** el árbol de autorización de `approve_read` no tiene sub-invocaciones, aunque esa llamada pague desde la caja.
+  - **Quien salió ya no cuenta:** si quien propuso sale del club, su aprobación deja de contar y hacen falta otras dos.
+  - **Caja insuficiente o editorial sin trustline:** la aprobación falla completa y no queda anotada; la caja queda intacta.
+  - **Salida:** con 1.00 en caja y tres miembros, salen 0.3333333, 0.3333333 y 0.3333334; el contrato queda en 0.
+  - **Invariante de custodia:** el saldo del contrato es siempre la suma de las cajas de los clubes.
+- Mutaciones (45), con `tools/mutaciones-v0120.py` del run `2026-11-27-paperpay-contrato-v070` del hub. La primera corrida dejó vivas dos (quitar la renovación del TTL al crear el club y al entrar un miembro): la prueba del TTL solo miraba un club con sus miembros ya adentro. Se agregó el caso (`924f66e`) y quedaron las 45 detectadas. Entre ellas: quórum de 1, pagar con una aprobación menos o pedir una de más, contar aprobaciones de quien ya salió, aprobar dos veces, pagar dos veces la misma propuesta, pagar sin bajar la caja, y salir llevándose toda la caja o la cuota en vez de la parte.
+- Red Stellar local y testnet (`tools/usar-v0120.sh`, 27-nov 01:17 CDMX): las cinco funciones usadas con tres miembros y siete errores simulados antes de enviar. Saldo final del contrato: 0.
+- **No probado:** la API y el sitio no usan todavía los clubes. Un miembro que entra tarde paga la misma cuota y, si sale, se lleva una parte igual de lo que haya: el contrato no lleva cuenta de cuánto aportó cada quien.
+
 ## Revisión del 27 de noviembre de 2026: contrato v0.11.0 (Pase PaperPay)
 
 - `pnpm test:contracts`: 167 pruebas (15 nuevas, en `contracts/splitter/src/test/gpass.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
