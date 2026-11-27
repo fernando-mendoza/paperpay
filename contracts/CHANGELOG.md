@@ -6,6 +6,7 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 
 | Versión | Contrato (testnet) | Funciones nuevas | Pruebas | ¿La usa el sitio? |
 | --- | --- | --- | --- | --- |
+| [0.16.0](#0160-27-nov-2026) | `CCMUFZ…WBYZ` | `pay_as_agent` (más `authorize_agent` y `revoke_agent`, de soporte) | 245 | No |
 | [0.15.0](#0150-27-nov-2026) | `CBFYNO…HXAV` | `fund_grant`, `release_milestone`, `cancel_grant` | 231 | No |
 | [0.14.0](#0140-27-nov-2026) | `CBGHC7…ESYP` | `accept_bounty`, `submit_review`, `forfeit_stake` | 215 | No |
 | [0.13.0](#0130-27-nov-2026) | `CDHBL4…3HSJ` | `lock_payment`, `unlock_payment`, `reclaim_payment` | 199 | No |
@@ -21,6 +22,25 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 | [0.3.0](#030-25-nov-2026) | `CCQRUT…HEQD` | `gift_batch`, `tip`, `refund` | 32 | No |
 | [0.2.0](#020-23-nov-2026) | `CAIMQY…HOR5` | `pay_batch`, `gift` | 21 | Del 23 al 25 de noviembre. Sigue como contrato anterior: sus regalos y lecturas valen |
 | [0.1.0](#010-23-nov-2026) | `CDOUF6…BPOZ` | `pay`, `split`, `config` | 11 | No (reemplazada) |
+
+## 0.16.0 (27 nov 2026)
+
+Agente con tope: un agente de IA que investiga por alguien paga las lecturas que necesita, con el USDC de su dueño y dentro de los límites que el dueño fijó. **Sin custodia**: el contrato no guarda nada.
+
+- **`authorize_agent(owner, agent, max_per_read, budget, days)`** (soporte, no mueve fondos): el dueño nombra a su agente, con un tope por lectura, un presupuesto total y un vencimiento (de 1 a 30 días). El presupuesto es una autorización del token al contrato (allowance): el dinero sigue en la wallet del dueño. Emite `agent_authorized`.
+- **`pay_as_agent(agent, owner, publisher, paper_id, amount)`:** el agente paga una lectura **solo con su firma**: 98% a la editorial y 2% a la tesorería, directo desde la wallet del dueño. El contrato exige que sea el agente de ese dueño, que el permiso no haya vencido, y que el monto no pase del tope por lectura ni de lo que queda del presupuesto. El acceso queda a nombre del dueño. Emite `paid` y `agent_paid`.
+- **`revoke_agent(owner)`** (soporte): el dueño retira el permiso y deja la autorización en cero. Emite `agent_revoked`.
+- De lectura: `agent`.
+- Errores nuevos: `NoAgent` (72), `AgentExpired` (73), `BudgetExhausted` (74) y `AllowanceInUse` (75). Reusa `AboveMaxPerRead` (27) e `InvalidDays` (11).
+- Un agente por dueño, y no junto con una suscripción: el token guarda una sola autorización por cuenta hacia el contrato, que usan las dos cosas. Con una suscripción activa no se autoriza un agente, y si el dueño se suscribe después, el agente deja de poder pagar (`AllowanceInUse`) y la autorización de la suscripción queda intacta.
+- Lo peor que puede hacer un agente comprometido: gastar el presupuesto en lecturas, al tope por lectura, hasta el vencimiento. No puede mandarse el dinero: solo sale hacia una editorial y la tesorería, con comprobante `paid` a nombre del dueño.
+- Código: `6a624e0`, más una prueba (`b176ae8`). Versión en `40aa14f`.
+- En la red (primero en una red Stellar local, después en testnet):
+  - contrato [`CCMUFZQR543HAJYYWMVIMA2A47VL2YVEJBRQMJA2F3UELAXAIPWEWBYZ`](https://stellar.expert/explorer/testnet/contract/CCMUFZQR543HAJYYWMVIMA2A47VL2YVEJBRQMJA2F3UELAXAIPWEWBYZ), WASM `10b35983…`;
+  - [`authorize_agent` `ab4ee2e0…`](https://stellar.expert/explorer/testnet/tx/ab4ee2e08050219d68410b0bc5fd27545d90606e65da60ab00c316e46c269796) (soporte: hasta 0.50 por lectura, 1.20 en total, 1 día);
+  - [`pay_as_agent` `8a1b1576…`](https://stellar.expert/explorer/testnet/tx/8a1b1576b0806ae35cf0e23cfb2ddbce2025d27f18b967a304506a286f942658) (el agente, sin USDC, paga 0.50 con el dinero de la dueña: 0.49 a la editorial demo y 0.01 a la tesorería);
+  - [`revoke_agent` `03a47c0f…`](https://stellar.expert/explorer/testnet/tx/03a47c0f0ab975b06353f53dc9c81079457a7c60ea33ebd362760eccedceadc6) (soporte: el permiso se retira y la autorización queda en 0).
+- Pruebas: 14 nuevas, 245 en total, en `src/test/agent.rs`. Se rompió el código de 35 formas a propósito y alguna prueba detectó cada una.
 
 ## 0.15.0 (27 nov 2026)
 
