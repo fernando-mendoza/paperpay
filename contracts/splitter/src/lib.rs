@@ -72,6 +72,14 @@
 //!   editoriales, en proporción a las lecturas. Si no leyó nada, vuelve todo.
 //! - `cancel_pass`: mientras no haya leído nada, quien lo compró lo cancela y recupera todo.
 //!
+//! Journal club, la séptima custodia: un grupo junta una caja común y paga lo que aprueba.
+//! - `create_club` (de soporte): alguien define la cuota y cuántas aprobaciones hacen falta.
+//! - `join_club`: cada miembro paga su cuota a la caja del club.
+//! - `propose_read` (de soporte): un miembro propone pagar un artículo con la caja.
+//! - `approve_read`: otro miembro aprueba; la aprobación que completa el quórum paga a la
+//!   editorial (98%) y a la tesorería (2%) desde la caja.
+//! - `leave_club`: quien sale se lleva una parte igual de lo que queda en la caja.
+//!
 //! Si una cuenta no puede recibir lo que le paga el contrato (por ejemplo, una editorial nueva sin
 //! trustline de USDC), su parte no se pierde ni bloquea a nadie: queda pendiente a su nombre, y
 //! `claim` la cobra con una firma que además le abre la trustline (`trust` del SAC, CAP-73).
@@ -120,6 +128,8 @@ pub const MAX_CAMPAIGN_DAYS: u32 = 90;
 pub const MAX_BOUNTY_DAYS: u32 = 90;
 /// Vigencia máxima de un vale, en días.
 pub const MAX_VOUCHER_DAYS: u32 = 90;
+/// Máximo de miembros de un journal club.
+pub const MAX_CLUB_MEMBERS: u32 = 10;
 /// Máximo de editoriales con deuda en una cuenta abierta.
 pub const MAX_TAB_PUBLISHERS: u32 = 10;
 /// Después del plazo, las entradas de una campaña siguen en la red al menos estos días, para que
@@ -245,6 +255,24 @@ pub enum Error {
     PassActive = 48,
     /// El Pase PaperPay ya tiene lecturas: no se cancela, se liquida al vencer.
     PassUsed = 49,
+    /// No hay journal club con ese id.
+    NoClub = 50,
+    /// Quórum fuera de rango: menos de 2 o más de `MAX_CLUB_MEMBERS`.
+    InvalidQuorum = 51,
+    /// El club ya tiene `MAX_CLUB_MEMBERS` miembros.
+    ClubFull = 52,
+    /// Esa cuenta ya es miembro del club.
+    AlreadyMember = 53,
+    /// Esa cuenta no es miembro del club.
+    NotMember = 54,
+    /// A la caja del club no le alcanza para esa lectura.
+    ClubTooLow = 55,
+    /// No hay propuesta con ese id en el club.
+    NoProposal = 56,
+    /// La propuesta ya se pagó.
+    ProposalClosed = 57,
+    /// Ese miembro ya aprobó la propuesta.
+    AlreadyApproved = 58,
 }
 
 #[contracttype]
@@ -389,6 +417,30 @@ pub struct GlobalPass {
     pub by_publisher: Map<Address, u32>,
 }
 
+/// Un journal club: cada miembro pagó `dues` a la caja (`balance`). Una lectura se paga cuando la
+/// aprueban `quorum` miembros. `proposals` es cuántas propuestas se han hecho (los ids van de 0).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Club {
+    pub dues: i128,
+    pub quorum: u32,
+    pub members: Vec<Address>,
+    pub balance: i128,
+    pub proposals: u32,
+}
+
+/// Una propuesta de lectura de un club: pagar `amount` a `publisher` por `paper_id`. `approvals`
+/// son los miembros que la aprobaron (quien la propuso es el primero) y `paid`, si ya se pagó.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Proposal {
+    pub publisher: Address,
+    pub paper_id: String,
+    pub amount: i128,
+    pub approvals: Vec<Address>,
+    pub paid: bool,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -422,6 +474,12 @@ enum DataKey {
     Tab(Address),
     /// El Pase PaperPay de un lector (uno a la vez).
     GlobalPass(Address),
+    /// Id del próximo journal club (instance): los ids son secuenciales desde 0.
+    NextClub,
+    /// Un journal club, por id.
+    Club(u32),
+    /// La propuesta `.1` del club `.0`.
+    Proposal(u32, u32),
 }
 
 /// Comprobante de un artículo pagado. Topics: `["paid", publisher, reader]`.
@@ -868,6 +926,83 @@ pub struct PassCancelled {
     #[topic]
     pub reader: Address,
     pub amount: i128,
+}
+
+/// Un journal club nuevo. Topics: `["club_created", founder]`. No movió fondos.
+#[contractevent(topics = ["club_created"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClubCreated {
+    #[topic]
+    pub founder: Address,
+    pub club_id: u32,
+    pub dues: i128,
+    pub quorum: u32,
+}
+
+/// Un miembro nuevo. Topics: `["club_joined", member]`. Su cuota ya está en la caja: `balance` es
+/// la caja después y `members`, cuántos miembros hay.
+#[contractevent(topics = ["club_joined"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClubJoined {
+    #[topic]
+    pub member: Address,
+    pub club_id: u32,
+    pub dues: i128,
+    pub balance: i128,
+    pub members: u32,
+}
+
+/// Una propuesta de lectura. Topics: `["read_proposed", member]`. No movió fondos.
+#[contractevent(topics = ["read_proposed"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReadProposed {
+    #[topic]
+    pub member: Address,
+    pub club_id: u32,
+    pub proposal_id: u32,
+    pub publisher: Address,
+    pub paper_id: String,
+    pub amount: i128,
+}
+
+/// Una aprobación. Topics: `["read_approved", member]`. `approvals` cuenta las de miembros
+/// actuales y `paid` dice si esta aprobación completó el quórum y pagó.
+#[contractevent(topics = ["read_approved"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReadApproved {
+    #[topic]
+    pub member: Address,
+    pub club_id: u32,
+    pub proposal_id: u32,
+    pub approvals: u32,
+    pub paid: bool,
+}
+
+/// Una lectura pagada por un club. Topics: `["club_paid", publisher]`. `amount` salió de la caja
+/// (`fee` es la comisión) y el artículo es para todos los `members` del club en ese momento.
+#[contractevent(topics = ["club_paid"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClubPaid {
+    #[topic]
+    pub publisher: Address,
+    pub club_id: u32,
+    pub proposal_id: u32,
+    pub paper_id: String,
+    pub amount: i128,
+    pub fee: i128,
+    pub members: Vec<Address>,
+}
+
+/// Un miembro que sale. Topics: `["club_left", member]`. `amount` es lo que se llevó y `balance`,
+/// lo que queda en la caja.
+#[contractevent(topics = ["club_left"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClubLeft {
+    #[topic]
+    pub member: Address,
+    pub club_id: u32,
+    pub amount: i128,
+    pub balance: i128,
 }
 
 #[contract]
@@ -2483,6 +2618,262 @@ impl Splitter {
         env.storage().persistent().get(&DataKey::GlobalPass(reader))
     }
 
+    /// De soporte (no mueve fondos): `founder` crea un journal club con una cuota de `dues` por
+    /// miembro y un quórum de `quorum` aprobaciones para pagar una lectura (de 2 a
+    /// `MAX_CLUB_MEMBERS`). Nadie es miembro hasta que paga su cuota con `join_club`, tampoco
+    /// quien lo crea. Solo firma `founder`. Emite `club_created` y devuelve el id del club.
+    pub fn create_club(env: Env, founder: Address, dues: i128, quorum: u32) -> u32 {
+        founder.require_auth();
+        if dues <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        if !(2..=MAX_CLUB_MEMBERS).contains(&quorum) {
+            panic_with_error!(&env, Error::InvalidQuorum);
+        }
+        let id: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::NextClub)
+            .unwrap_or(0);
+        env.storage().instance().set(&DataKey::NextClub, &(id + 1));
+        let key = DataKey::Club(id);
+        env.storage().persistent().set(
+            &key,
+            &Club {
+                dues,
+                quorum,
+                members: Vec::new(&env),
+                balance: 0,
+                proposals: 0,
+            },
+        );
+        keep_max(&env, &key);
+        extend_instance_ttl(&env);
+
+        ClubCreated {
+            founder,
+            club_id: id,
+            dues,
+            quorum,
+        }
+        .publish(&env);
+
+        id
+    }
+
+    /// `member` entra al club `club_id` y paga su cuota: pasa de su wallet a la caja del club, en
+    /// el contrato. Hasta `MAX_CLUB_MEMBERS` miembros. Solo firma `member`. Emite `club_joined` y
+    /// devuelve la caja del club.
+    pub fn join_club(env: Env, member: Address, club_id: u32) -> i128 {
+        member.require_auth();
+        let key = DataKey::Club(club_id);
+        let mut club = read_club(&env, &key);
+        if club.members.contains(&member) {
+            panic_with_error!(&env, Error::AlreadyMember);
+        }
+        if club.members.len() >= MAX_CLUB_MEMBERS {
+            panic_with_error!(&env, Error::ClubFull);
+        }
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &member,
+            env.current_contract_address(),
+            &club.dues,
+        );
+        club.members.push_back(member.clone());
+        club.balance = add(&env, club.balance, club.dues);
+        env.storage().persistent().set(&key, &club);
+        keep_max(&env, &key);
+        extend_instance_ttl(&env);
+
+        ClubJoined {
+            member,
+            club_id,
+            dues: club.dues,
+            balance: club.balance,
+            members: club.members.len(),
+        }
+        .publish(&env);
+
+        club.balance
+    }
+
+    /// De soporte (no mueve fondos): `member` propone que su club pague `amount` a `publisher` por
+    /// `paper_id`. Tiene que alcanzar la caja (`ClubTooLow`). Su propia aprobación queda contada.
+    /// Solo firma `member`. Emite `read_proposed` y devuelve el id de la propuesta.
+    pub fn propose_read(
+        env: Env,
+        member: Address,
+        club_id: u32,
+        publisher: Address,
+        paper_id: String,
+        amount: i128,
+    ) -> u32 {
+        member.require_auth();
+        validate_paper_id(&env, &paper_id);
+        if amount <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let key = DataKey::Club(club_id);
+        let mut club = read_member_club(&env, &key, &member);
+        if amount > club.balance {
+            panic_with_error!(&env, Error::ClubTooLow);
+        }
+        let id = club.proposals;
+        club.proposals += 1;
+        env.storage().persistent().set(&key, &club);
+        keep_max(&env, &key);
+        let proposal_key = DataKey::Proposal(club_id, id);
+        let mut approvals = Vec::new(&env);
+        approvals.push_back(member.clone());
+        env.storage().persistent().set(
+            &proposal_key,
+            &Proposal {
+                publisher: publisher.clone(),
+                paper_id: paper_id.clone(),
+                amount,
+                approvals,
+                paid: false,
+            },
+        );
+        keep_max(&env, &proposal_key);
+        extend_instance_ttl(&env);
+
+        ReadProposed {
+            member,
+            club_id,
+            proposal_id: id,
+            publisher,
+            paper_id,
+            amount,
+        }
+        .publish(&env);
+
+        id
+    }
+
+    /// `member` aprueba la propuesta `proposal_id` de su club. Cuando las aprobaciones de miembros
+    /// actuales llegan al quórum, esta misma llamada paga: `amount` sale de la caja, 98% a la
+    /// editorial y 2% a la tesorería, y el artículo queda pagado para todos los miembros
+    /// (`club_paid`). Cada miembro aprueba una vez; una propuesta se paga una vez. Si a la caja ya
+    /// no le alcanza o la editorial no puede recibir, falla y la aprobación no queda anotada. Solo
+    /// firma `member`. Emite `read_approved` (y `club_paid` si pagó); devuelve si pagó.
+    pub fn approve_read(env: Env, member: Address, club_id: u32, proposal_id: u32) -> bool {
+        member.require_auth();
+        let key = DataKey::Club(club_id);
+        let mut club = read_member_club(&env, &key, &member);
+        let proposal_key = DataKey::Proposal(club_id, proposal_id);
+        let mut proposal: Proposal = match env.storage().persistent().get(&proposal_key) {
+            Some(proposal) => proposal,
+            None => panic_with_error!(&env, Error::NoProposal),
+        };
+        if proposal.paid {
+            panic_with_error!(&env, Error::ProposalClosed);
+        }
+        if proposal.approvals.contains(&member) {
+            panic_with_error!(&env, Error::AlreadyApproved);
+        }
+        proposal.approvals.push_back(member.clone());
+        // Solo cuentan las aprobaciones de quienes siguen en el club.
+        let mut approvals: u32 = 0;
+        for account in proposal.approvals.iter() {
+            if club.members.contains(&account) {
+                approvals += 1;
+            }
+        }
+        let paid = approvals >= club.quorum;
+        if paid {
+            if proposal.amount > club.balance {
+                panic_with_error!(&env, Error::ClubTooLow);
+            }
+            club.balance -= proposal.amount;
+            proposal.paid = true;
+            env.storage().persistent().set(&key, &club);
+            let config = read_config(&env);
+            let split = compute_split(&env, proposal.amount, config.fee_bps);
+            transfer_split(
+                &env,
+                &config,
+                &env.current_contract_address(),
+                &proposal.publisher,
+                &split,
+            );
+            ClubPaid {
+                publisher: proposal.publisher.clone(),
+                club_id,
+                proposal_id,
+                paper_id: proposal.paper_id.clone(),
+                amount: proposal.amount,
+                fee: split.fee,
+                members: club.members.clone(),
+            }
+            .publish(&env);
+        }
+        env.storage().persistent().set(&proposal_key, &proposal);
+        keep_max(&env, &proposal_key);
+        keep_max(&env, &key);
+        extend_instance_ttl(&env);
+
+        ReadApproved {
+            member,
+            club_id,
+            proposal_id,
+            approvals,
+            paid,
+        }
+        .publish(&env);
+
+        paid
+    }
+
+    /// `member` sale del club `club_id` y se lleva una parte igual de lo que queda en la caja: la
+    /// caja entre los miembros actuales, redondeada hacia abajo. Sus aprobaciones dejan de contar.
+    /// El último en salir se lleva todo lo que queda. Solo firma `member`. Emite `club_left` y
+    /// devuelve lo que se llevó.
+    pub fn leave_club(env: Env, member: Address, club_id: u32) -> i128 {
+        member.require_auth();
+        let key = DataKey::Club(club_id);
+        let mut club = read_member_club(&env, &key, &member);
+        let share = club.balance / club.members.len() as i128;
+        let index = club.members.first_index_of(&member).unwrap();
+        club.members.remove(index);
+        club.balance -= share;
+        env.storage().persistent().set(&key, &club);
+        keep_max(&env, &key);
+
+        if share > 0 {
+            let config = read_config(&env);
+            token::Client::new(&env, &config.token).transfer(
+                &env.current_contract_address(),
+                &member,
+                &share,
+            );
+        }
+        extend_instance_ttl(&env);
+
+        ClubLeft {
+            member,
+            club_id,
+            amount: share,
+            balance: club.balance,
+        }
+        .publish(&env);
+
+        share
+    }
+
+    /// El journal club `club_id`, si existe.
+    pub fn club(env: Env, club_id: u32) -> Option<Club> {
+        env.storage().persistent().get(&DataKey::Club(club_id))
+    }
+
+    /// La propuesta `proposal_id` del club `club_id`, si existe.
+    pub fn proposal(env: Env, club_id: u32, proposal_id: u32) -> Option<Proposal> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Proposal(club_id, proposal_id))
+    }
+
     /// Lo que el contrato le debe a `account` (pagos que no pudo recibir).
     pub fn owed(env: Env, account: Address) -> i128 {
         env.storage()
@@ -2677,6 +3068,22 @@ fn credit(env: &Env, to: &Address, amount: i128) {
         amount,
     }
     .publish(env);
+}
+
+fn read_club(env: &Env, key: &DataKey) -> Club {
+    match env.storage().persistent().get(key) {
+        Some(club) => club,
+        None => panic_with_error!(env, Error::NoClub),
+    }
+}
+
+/// El club de `key`, si existe y `member` es miembro.
+fn read_member_club(env: &Env, key: &DataKey, member: &Address) -> Club {
+    let club = read_club(env, key);
+    if !club.members.contains(member) {
+        panic_with_error!(env, Error::NotMember);
+    }
+    club
 }
 
 fn read_global_pass(env: &Env, key: &DataKey) -> GlobalPass {
