@@ -4,10 +4,26 @@
 
 Paywall para artículos científicos: el lector paga un micropago en USDC sobre Stellar y desbloquea el artículo, sin crear cuenta ni usar tarjeta. Proyecto del track Stellar de Goya Hack 2026, construido con Next.js, Express y Stellar **Testnet**.
 
-- **Sitio:** [paperpay.press](https://paperpay.press/) · réplica en Cloudflare Pages: [paperpay.blockchains.tf](https://paperpay.blockchains.tf/)
-- **Versión:** 2.0.0 (v1: Freighter · v2: Pollar con login social)
+- **Demo:** [paperpay.blockchains.tf](https://paperpay.blockchains.tf/), en Stellar testnet y con el contrato de reparto. El sitio original del proyecto sigue en [paperpay.press](https://paperpay.press/) (Vercel), con transferencias directas a la tesorería.
+- **Versión:** 3.0.0 (v1: Freighter · v2: Pollar con login social · v3: pagos por contrato Soroban, hecha en Ship It: Builder Challenge del 23 al 27 de noviembre de 2026). Notas en el [release v3.0.0](https://github.com/fernando-mendoza/paperpay/releases/tag/v3.0.0).
 
 El catálogo contiene **52 artículos ficticios de demostración** en 10 disciplinas; sus autores, DOI, resultados y cifras no son publicaciones reales. El precio de 0.50 USDC y el reparto 98% editorial / 2% PaperPay son propuestas iniciales.
+
+## Cómo se usa
+
+Todo corre en **Stellar testnet**: el USDC es de prueba y no hay nada en mainnet.
+
+1. Abre [paperpay.blockchains.tf](https://paperpay.blockchains.tf/) y elige un artículo. El resumen y la vista previa se leen sin pagar.
+2. Prepara una wallet [Freighter](https://www.freighter.app/) en **Testnet**: XLM de Friendbot, la trustline de USDC y USDC de prueba de [faucet.circle.com](https://faucet.circle.com/).
+3. Pulsa **Leer por $0.50 USDC**, conecta Freighter y aprueba la transacción. El contrato reparte 98% a la editorial y 2% a PaperPay en esa misma transacción.
+4. El artículo se abre completo durante 24 horas en ese navegador.
+
+Desde un artículo también puedes:
+
+- **Regálalo:** pagas tú y compartes un enlace; quien lo abre lee sin wallet.
+- **Recomiéndalo y gana:** con tu enlace `?ref=`, recibes la mitad de la comisión cuando alguien paga.
+
+Otras pantallas: [`/editorial`](https://paperpay.blockchains.tf/editorial) muestra los pagos recibidos con su reparto, y [`/boveda`](https://paperpay.blockchains.tf/boveda) es una tarjeta de regalo con código. Para correrlo en tu máquina, ve a [Requisitos y arranque local](#requisitos-y-arranque-local).
 
 ## Estado actual
 
@@ -66,13 +82,13 @@ curl -i http://localhost:4000/api/papers/autonomous-ai-micropayments
 ## Verificación
 
 ```bash
-pnpm test                               # 123 pruebas de la API y 41 de la web
+pnpm test                               # 136 pruebas de la API y 68 de la web
 pnpm build:shared && pnpm build:api
 pnpm --filter @paperpay/web typecheck
 pnpm build
 ```
 
-Las pruebas cubren el catálogo, el 402, JWT, el modo demo y la verificación por hash con respuestas de Horizon simuladas. No ejecutan un pago real. `pnpm --filter @paperpay/api test:testnet` comprueba Friendbot, Horizon y el 402 contra una API local, también sin pagar.
+Las pruebas cubren el catálogo, el 402, JWT, el modo demo y la verificación por hash con respuestas de Horizon simuladas. No ejecutan un pago real. Otras 4 pruebas de la web, de punta a punta contra testnet, se saltan si no tienen su configuración. Los contratos tienen sus propias pruebas (`cargo test` en `contracts/`): 184 del reparto y 10 de la bóveda. `pnpm --filter @paperpay/api test:testnet` comprueba Friendbot, Horizon y el 402 contra una API local, también sin pagar.
 
 ## Seguridad y configuración de producción
 
