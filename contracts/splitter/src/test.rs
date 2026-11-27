@@ -20,6 +20,7 @@ use soroban_sdk::{
 mod bounty;
 mod club;
 mod gpass;
+mod lock;
 mod pool;
 mod tab;
 mod voucher;

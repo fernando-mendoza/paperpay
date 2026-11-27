@@ -80,6 +80,13 @@
 //!   editorial (98%) y a la tesorería (2%) desde la caja.
 //! - `leave_club`: quien sale se lleva una parte igual de lo que queda en la caja.
 //!
+//! Pago contra entrega, la octava custodia: la editorial solo cobra si entrega la llave.
+//! - `lock_payment`: quien lee deja el pago en el contrato, atado al sha256 de la llave que abre
+//!   el artículo, con un plazo.
+//! - `unlock_payment`: quien presenta la llave antes del plazo libera el pago: la editorial cobra
+//!   el 98% y la tesorería el 2%, y la llave queda publicada en el evento.
+//! - `reclaim_payment`: si la llave no llegó antes del plazo, quien pagó recupera todo.
+//!
 //! Si una cuenta no puede recibir lo que le paga el contrato (por ejemplo, una editorial nueva sin
 //! trustline de USDC), su parte no se pierde ni bloquea a nadie: queda pendiente a su nombre, y
 //! `claim` la cobra con una firma que además le abre la trustline (`trust` del SAC, CAP-73).
@@ -130,6 +137,8 @@ pub const MAX_BOUNTY_DAYS: u32 = 90;
 pub const MAX_VOUCHER_DAYS: u32 = 90;
 /// Máximo de miembros de un journal club.
 pub const MAX_CLUB_MEMBERS: u32 = 10;
+/// Plazo máximo de un pago contra entrega, en días: la llave se entrega al momento, no en meses.
+pub const MAX_LOCK_DAYS: u32 = 7;
 /// Máximo de editoriales con deuda en una cuenta abierta.
 pub const MAX_TAB_PUBLISHERS: u32 = 10;
 /// Después del plazo, las entradas de una campaña siguen en la red al menos estos días, para que
@@ -273,6 +282,16 @@ pub enum Error {
     ProposalClosed = 57,
     /// Ese miembro ya aprobó la propuesta.
     AlreadyApproved = 58,
+    /// No hay pago contra entrega con ese id (o no es de esa cuenta).
+    NoLock = 59,
+    /// El pago contra entrega ya se cobró o se devolvió.
+    LockClosed = 60,
+    /// El sha256 de esa llave no es el que se pactó al bloquear el pago.
+    WrongKey = 61,
+    /// El plazo de entrega ya venció: el pago solo puede volver a quien lo hizo.
+    LockExpired = 62,
+    /// El plazo de entrega sigue corriendo: todavía no se puede recuperar el pago.
+    LockActive = 63,
 }
 
 #[contracttype]
@@ -441,6 +460,21 @@ pub struct Proposal {
     pub paid: bool,
 }
 
+/// Un pago contra entrega: `reader` dejó `amount` en el contrato por `paper_id` de `publisher`.
+/// `key_hash` es el sha256 de la llave que abre el artículo: quien la presente antes de `deadline`
+/// (segundos Unix) libera el pago a la editorial. `open` es falso cuando ya se cobró o se devolvió.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Lock {
+    pub reader: Address,
+    pub publisher: Address,
+    pub paper_id: String,
+    pub amount: i128,
+    pub key_hash: BytesN<32>,
+    pub deadline: u64,
+    pub open: bool,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -480,6 +514,10 @@ enum DataKey {
     Club(u32),
     /// La propuesta `.1` del club `.0`.
     Proposal(u32, u32),
+    /// Id del próximo pago contra entrega (instance): los ids son secuenciales desde 0.
+    NextLock,
+    /// Un pago contra entrega, por id.
+    Lock(u32),
 }
 
 /// Comprobante de un artículo pagado. Topics: `["paid", publisher, reader]`.
@@ -1003,6 +1041,46 @@ pub struct ClubLeft {
     pub club_id: u32,
     pub amount: i128,
     pub balance: i128,
+}
+
+/// Un pago bloqueado hasta la entrega. Topics: `["payment_locked", reader, publisher]`. `amount`
+/// ya está en el contrato.
+#[contractevent(topics = ["payment_locked"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaymentLocked {
+    #[topic]
+    pub reader: Address,
+    #[topic]
+    pub publisher: Address,
+    pub lock_id: u32,
+    pub paper_id: String,
+    pub amount: i128,
+    pub key_hash: BytesN<32>,
+    pub deadline: u64,
+}
+
+/// Un pago liberado con la llave. Topics: `["payment_unlocked", reader, publisher]`. `key` es la
+/// llave que abre el artículo: queda publicada aquí, y así la recibe quien pagó. Acompaña al
+/// `paid` de la lectura.
+#[contractevent(topics = ["payment_unlocked"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaymentUnlocked {
+    #[topic]
+    pub reader: Address,
+    #[topic]
+    pub publisher: Address,
+    pub lock_id: u32,
+    pub key: BytesN<32>,
+}
+
+/// Un pago devuelto porque la llave no llegó a tiempo. Topics: `["payment_reclaimed", reader]`.
+#[contractevent(topics = ["payment_reclaimed"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaymentReclaimed {
+    #[topic]
+    pub reader: Address,
+    pub lock_id: u32,
+    pub amount: i128,
 }
 
 #[contract]
@@ -2874,6 +2952,157 @@ impl Splitter {
             .get(&DataKey::Proposal(club_id, proposal_id))
     }
 
+    /// `reader` paga `amount` por `paper_id` de `publisher`, pero contra entrega: el dinero pasa de
+    /// su wallet al contrato y queda atado a `key_hash`, el sha256 de la llave que abre el
+    /// artículo (la editorial le da ese hash junto con el artículo cifrado). Hasta `deadline`
+    /// (segundos Unix, a no más de `MAX_LOCK_DAYS`) solo puede salir hacia la editorial, y solo
+    /// si alguien presenta la llave (`unlock_payment`); desde `deadline`, solo puede volver a
+    /// `reader` (`reclaim_payment`). Solo firma `reader`. Emite `payment_locked` y devuelve el id.
+    pub fn lock_payment(
+        env: Env,
+        reader: Address,
+        publisher: Address,
+        paper_id: String,
+        amount: i128,
+        key_hash: BytesN<32>,
+        deadline: u64,
+    ) -> u32 {
+        reader.require_auth();
+        validate_paper_id(&env, &paper_id);
+        if amount <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let now = env.ledger().timestamp();
+        if deadline <= now || deadline - now > MAX_LOCK_DAYS as u64 * DAY_SECONDS {
+            panic_with_error!(&env, Error::InvalidDeadline);
+        }
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &reader,
+            env.current_contract_address(),
+            &amount,
+        );
+        let id: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::NextLock)
+            .unwrap_or(0);
+        env.storage().instance().set(&DataKey::NextLock, &(id + 1));
+        let entry = DataKey::Lock(id);
+        env.storage().persistent().set(
+            &entry,
+            &Lock {
+                reader: reader.clone(),
+                publisher: publisher.clone(),
+                paper_id: paper_id.clone(),
+                amount,
+                key_hash: key_hash.clone(),
+                deadline,
+                open: true,
+            },
+        );
+        keep_campaign(&env, &entry, deadline);
+        extend_instance_ttl(&env);
+
+        PaymentLocked {
+            reader,
+            publisher,
+            lock_id: id,
+            paper_id,
+            amount,
+            key_hash,
+            deadline,
+        }
+        .publish(&env);
+
+        id
+    }
+
+    /// Libera el pago contra entrega `lock_id` con `key`, la llave que abre el artículo: si su
+    /// sha256 es el pactado y el plazo no venció, la editorial recibe el monto menos la comisión y
+    /// la tesorería, la comisión. No pide firma: la llave es la prueba de la entrega, y el dinero
+    /// solo puede ir a la editorial del pago, la envíe quien la envíe. La llave queda publicada en
+    /// `payment_unlocked`: así la recibe quien pagó, en la misma transacción en que la editorial
+    /// cobra. Si la editorial no puede recibir (sin trustline), su parte queda pendiente a su
+    /// nombre para `claim`. Emite `paid` y `payment_unlocked`; devuelve el reparto.
+    pub fn unlock_payment(env: Env, lock_id: u32, key: BytesN<32>) -> Split {
+        let entry = DataKey::Lock(lock_id);
+        let mut lock = read_lock(&env, &entry);
+        if env.ledger().timestamp() >= lock.deadline {
+            panic_with_error!(&env, Error::LockExpired);
+        }
+        if env.crypto().sha256(&key.clone().into()).to_bytes() != lock.key_hash {
+            panic_with_error!(&env, Error::WrongKey);
+        }
+        lock.open = false;
+        env.storage().persistent().set(&entry, &lock);
+
+        let config = read_config(&env);
+        let split = compute_split(&env, lock.amount, config.fee_bps);
+        payout(&env, &config, &lock.publisher, split.publisher);
+        payout(&env, &config, &config.treasury, split.fee);
+        extend_instance_ttl(&env);
+
+        Paid {
+            publisher: lock.publisher.clone(),
+            reader: lock.reader.clone(),
+            paper_id: lock.paper_id,
+            payer: lock.reader.clone(),
+            amount: lock.amount,
+            fee: split.fee,
+        }
+        .publish(&env);
+        PaymentUnlocked {
+            reader: lock.reader,
+            publisher: lock.publisher,
+            lock_id,
+            key,
+        }
+        .publish(&env);
+
+        split
+    }
+
+    /// `reader` recupera su pago contra entrega `lock_id` completo, sin comisión, porque la llave
+    /// no llegó: solo desde el plazo (`LockActive` antes) y si no se cobró. Solo firma `reader`.
+    /// Emite `payment_reclaimed` y devuelve lo recuperado.
+    pub fn reclaim_payment(env: Env, reader: Address, lock_id: u32) -> i128 {
+        reader.require_auth();
+        let entry = DataKey::Lock(lock_id);
+        let mut lock = read_lock(&env, &entry);
+        if lock.reader != reader {
+            panic_with_error!(&env, Error::NoLock);
+        }
+        if env.ledger().timestamp() < lock.deadline {
+            panic_with_error!(&env, Error::LockActive);
+        }
+        lock.open = false;
+        env.storage().persistent().set(&entry, &lock);
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &env.current_contract_address(),
+            &reader,
+            &lock.amount,
+        );
+        extend_instance_ttl(&env);
+
+        PaymentReclaimed {
+            reader,
+            lock_id,
+            amount: lock.amount,
+        }
+        .publish(&env);
+
+        lock.amount
+    }
+
+    /// El pago contra entrega `lock_id`, si existe.
+    pub fn lock(env: Env, lock_id: u32) -> Option<Lock> {
+        env.storage().persistent().get(&DataKey::Lock(lock_id))
+    }
+
     /// Lo que el contrato le debe a `account` (pagos que no pudo recibir).
     pub fn owed(env: Env, account: Address) -> i128 {
         env.storage()
@@ -3068,6 +3297,18 @@ fn credit(env: &Env, to: &Address, amount: i128) {
         amount,
     }
     .publish(env);
+}
+
+/// El pago contra entrega de `entry`, si existe y sigue sin cobrarse ni devolverse.
+fn read_lock(env: &Env, entry: &DataKey) -> Lock {
+    let lock: Lock = match env.storage().persistent().get(entry) {
+        Some(lock) => lock,
+        None => panic_with_error!(env, Error::NoLock),
+    };
+    if !lock.open {
+        panic_with_error!(env, Error::LockClosed);
+    }
+    lock
 }
 
 fn read_club(env: &Env, key: &DataKey) -> Club {
