@@ -4,10 +4,10 @@
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "productionContractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
   "splitter": {
-    "version": "0.7.0",
-    "contractId": "CDOI4FARQOJN6AXPWZQPZN5EBO47JY275L6VRIE3DP2NC35JIAGRDK3N",
-    "wasmSha256": "1cbe78d2826c6ae544b04444eb20e7a8e8b1abae4562b36fb8cc37b320e6ecb1",
-    "source": "contracts/splitter @ c4afe8a, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+    "version": "0.8.0",
+    "contractId": "CDUFLVEYPPGHJZTUVPW45YAAB7JAEKDKVZCYAQPKQBVMWETKFB2VPNIF",
+    "wasmSha256": "d90b7c60644a85fbd593109aaa5b10c71aa85d1b3f0e37b4c55682135798faa5",
+    "source": "contracts/splitter @ 6c28419, soroban-sdk 29.0.1, stellar-cli 30.0.1",
     "constructor": {
       "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
@@ -15,29 +15,29 @@
       "pass_day_price": 10000000,
       "open_day_price": 50000000
     },
-    "uploadTx": "641b6dfc5d423f64b04b1ef46fdabcfa9eb820e35dfa403bf9e14a483d8e1f69",
-    "deployTx": "04844d1deb5454de84dadfcc3366470ffaf074d3a4ba4b2837923aa90732ecd2",
-    "deployedAt": "2026-11-27T06:05:59Z",
+    "uploadTx": "0365e333df32b7e3f881bc7ab821d7d12b0fd399db3a7a9f792858ba76981cf8",
+    "deployTx": "3b7a1e0377ff55483479aca5cff446e56c886400bb9cd05a40c700655cf3037e",
+    "deployedAt": "2026-11-27T06:17:19Z",
     "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
-    "custody": "además de las campañas y lo pendiente (v0.6.0), guarda los fondos de patrocinio; cada fondo sale solo por una lectura de su editorial (pay_sponsored, firmada por su operador) o de vuelta a su patrocinador (withdraw_pool); sin admin",
+    "custody": "además de campañas, pendientes y fondos, guarda las recompensas abiertas; cada una sale solo hacia sus ganadores (award_bounty) o, después del plazo, de vuelta a quien la publicó (cancel_bounty); sin admin",
     "usage": {
-      "fund_pool": {
-        "tx": "57cecee989c7932615b90ed8c474e523cea9607ce084ac607145977a5660ba4a",
-        "what": "GDABIRUK2QPUERGS3MROYHBGE43C5QOFBSUGXOKDF6Y5YOJ6DJPFPMNE deposita 15000000 para lecturas de la editorial demo, con tope 5000000 y operador GBFGDKALEDEREFGAD75CZAYWMXY3K2LNBNXSMDKC5VP54RGJIMSF6Y5D",
-        "result": "15000000 del patrocinador al contrato; evento pool_funded con balance 15000000"
+      "post_bounty": {
+        "tx": "2940ac9f0a5c8ea4b1bd83513d7f5bc3afbc61e729ea471287d96827d505f1bd",
+        "what": "GDSKJDGE333YDO43UNFLXSDE4Q3JGRSJAXLQCSRCZCAHX54L222SKHUI publica 10000000 por reproducir crispr-nanomedicine-biotech, plazo de 1 h",
+        "result": "recompensa 0; 10000000 al contrato; evento bounty_posted. Segunda recompensa (1), eb576dc38398f887231c9c02f7f2152097291e48c5b9e8c48972ee24409634db: 3000000 con plazo de 90 s"
       },
-      "pay_sponsored": {
-        "tx": "de1651fe1aa671f909a5f85dd1db85fd821618408f5258dfa66b28e0c603ad6e",
-        "what": "el operador paga crispr-nanomedicine-biotech (5000000) para GCQY6D2TTI5GGNEAABY2SNDYTDINEN2ODGGULI5NWJHMAPNYADOOW4W2, una llave que no existe en la red",
-        "result": "4900000 a la editorial demo y 100000 a la tesorería, desde el contrato; eventos paid (payer = patrocinador) y sponsored; quedan 10000000 en el fondo"
+      "award_bounty": {
+        "tx": "4d804f948709a332b3c3f5a66300573d541e2aea41b2a977ca72843a663e6f72",
+        "what": "quien la publicó reparte la recompensa 0 en 6000/4000 puntos base; el segundo ganador no tiene trustline",
+        "result": "5880000 al primer ganador, 3920000 pendientes del segundo (credited; los cobra con claim, b592f3fe20b9d1fdeb46eb164d11255c3c8e9a2b99a03b343823feb067178e56) y 200000 a la tesorería; eventos rewarded × 2 y bounty_awarded"
       },
-      "withdraw_pool": {
-        "tx": "ea22d0b94ac3ba5cd95e3a4fa01f4d3a8fe0db510a04f4488ad13ec3a6c6e3c4",
-        "what": "el patrocinador retira 10000000",
-        "result": "10000000 del contrato al patrocinador; evento pool_withdrawn con balance 0"
+      "cancel_bounty": {
+        "tx": "2552af234b4969c5fe093cca23ace48fe9e99765a382eb7c63d0ed2c18862184",
+        "what": "vencido el plazo de la recompensa 1, quien la publicó la cancela",
+        "result": "3000000 de vuelta, sin comisión; evento bounty_cancelled"
       }
     },
-    "checks": "simulados antes de enviar: otra cuenta como operador (#26), más que el tope (#27), la misma lectura otra vez (#29), el operador retirando (#25), retiro mayor que el saldo (#28). Al final: saldo del contrato 0"
+    "checks": "simulados antes de enviar: cancelar antes del plazo (#32), otra cuenta repartiendo (#30), repartir dos veces (#31). Al final: saldo del contrato 0, tesorería +200000"
   },
   "boveda": {
     "version": "0.1.0",
@@ -71,6 +71,42 @@
     "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."
   },
   "previous": [
+    {
+      "version": "0.7.0",
+      "contractId": "CDOI4FARQOJN6AXPWZQPZN5EBO47JY275L6VRIE3DP2NC35JIAGRDK3N",
+      "wasmSha256": "1cbe78d2826c6ae544b04444eb20e7a8e8b1abae4562b36fb8cc37b320e6ecb1",
+      "source": "contracts/splitter @ c4afe8a, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200,
+        "pass_day_price": 10000000,
+        "open_day_price": 50000000
+      },
+      "uploadTx": "641b6dfc5d423f64b04b1ef46fdabcfa9eb820e35dfa403bf9e14a483d8e1f69",
+      "deployTx": "04844d1deb5454de84dadfcc3366470ffaf074d3a4ba4b2837923aa90732ecd2",
+      "deployedAt": "2026-11-27T06:05:59Z",
+      "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
+      "custody": "además de las campañas y lo pendiente (v0.6.0), guarda los fondos de patrocinio; cada fondo sale solo por una lectura de su editorial (pay_sponsored, firmada por su operador) o de vuelta a su patrocinador (withdraw_pool); sin admin",
+      "usage": {
+        "fund_pool": {
+          "tx": "57cecee989c7932615b90ed8c474e523cea9607ce084ac607145977a5660ba4a",
+          "what": "GDABIRUK2QPUERGS3MROYHBGE43C5QOFBSUGXOKDF6Y5YOJ6DJPFPMNE deposita 15000000 para lecturas de la editorial demo, con tope 5000000 y operador GBFGDKALEDEREFGAD75CZAYWMXY3K2LNBNXSMDKC5VP54RGJIMSF6Y5D",
+          "result": "15000000 del patrocinador al contrato; evento pool_funded con balance 15000000"
+        },
+        "pay_sponsored": {
+          "tx": "de1651fe1aa671f909a5f85dd1db85fd821618408f5258dfa66b28e0c603ad6e",
+          "what": "el operador paga crispr-nanomedicine-biotech (5000000) para GCQY6D2TTI5GGNEAABY2SNDYTDINEN2ODGGULI5NWJHMAPNYADOOW4W2, una llave que no existe en la red",
+          "result": "4900000 a la editorial demo y 100000 a la tesorería, desde el contrato; eventos paid (payer = patrocinador) y sponsored; quedan 10000000 en el fondo"
+        },
+        "withdraw_pool": {
+          "tx": "ea22d0b94ac3ba5cd95e3a4fa01f4d3a8fe0db510a04f4488ad13ec3a6c6e3c4",
+          "what": "el patrocinador retira 10000000",
+          "result": "10000000 del contrato al patrocinador; evento pool_withdrawn con balance 0"
+        }
+      },
+      "checks": "simulados antes de enviar: otra cuenta como operador (#26), más que el tope (#27), la misma lectura otra vez (#29), el operador retirando (#25), retiro mayor que el saldo (#28). Al final: saldo del contrato 0"
+    },
     {
       "version": "0.6.0",
       "contractId": "CANRPEZT2DUNB3IP6ZDFDMAOH2H5R4AFPYRLYEMLTN4EE6O4QYSS6QM7",
