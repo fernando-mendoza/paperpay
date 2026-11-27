@@ -56,6 +56,14 @@
 //!   lector. Con esa firma cualquiera envía el canje: el contrato paga la lectura con el vale.
 //! - `reclaim_vouchers`: quien compró recupera los vales que vencieron sin usarse.
 //!
+//! Cuenta abierta, la quinta custodia: leer ahora y pagar todo junto con una firma.
+//! - `open_tab`: quien lee deja una garantía y nombra a un operador (el sitio).
+//! - `charge_tab` (de soporte, no mueve fondos): el operador anota cada lectura como deuda con su
+//!   editorial. La deuda nunca pasa de la garantía.
+//! - `settle_tab`: quien lee paga toda la deuda con una firma; cada editorial cobra su 98%.
+//! - `collect_tab`: si no pagó a tiempo, cualquiera cobra la deuda de la garantía.
+//! - `close_tab`: sin deuda, quien lee recupera su garantía.
+//!
 //! Si una cuenta no puede recibir lo que le paga el contrato (por ejemplo, una editorial nueva sin
 //! trustline de USDC), su parte no se pierde ni bloquea a nadie: queda pendiente a su nombre, y
 //! `claim` la cobra con una firma que además le abre la trustline (`trust` del SAC, CAP-73).
@@ -104,6 +112,8 @@ pub const MAX_CAMPAIGN_DAYS: u32 = 90;
 pub const MAX_BOUNTY_DAYS: u32 = 90;
 /// Vigencia máxima de un vale, en días.
 pub const MAX_VOUCHER_DAYS: u32 = 90;
+/// Máximo de editoriales con deuda en una cuenta abierta.
+pub const MAX_TAB_PUBLISHERS: u32 = 10;
 /// Después del plazo, las entradas de una campaña siguen en la red al menos estos días, para que
 /// cada aporte de una campaña fallida se pueda devolver.
 pub const REFUND_GRACE_DAYS: u32 = 30;
@@ -143,7 +153,8 @@ pub enum Error {
     TooManyAuthors = 9,
     /// `pay_ref` con `referrer` igual a `payer`: sería un descuento, no una recomendación.
     SelfReferral = 10,
-    /// Días fuera de rango: 0 o más de `MAX_PASS_DAYS`.
+    /// Días fuera de rango: 0 o más de `MAX_PASS_DAYS` (un pase, un artículo abierto o el plazo
+    /// de pago de una cuenta abierta).
     InvalidDays = 11,
     /// `amount` distinto de días × precio por día de la configuración.
     WrongPrice = 12,
@@ -176,7 +187,7 @@ pub enum Error {
     NothingToRefund = 24,
     /// Ese patrocinador no tiene fondo para esa editorial.
     NoPool = 25,
-    /// Quien firma no es el operador del fondo.
+    /// Quien firma no es el operador del fondo o de la cuenta abierta.
     NotOperator = 26,
     /// La lectura cuesta más que el tope por lectura del fondo.
     AboveMaxPerRead = 27,
@@ -201,6 +212,19 @@ pub enum Error {
     /// Esa llave ya se usó para un vale (también si está repetida en la misma compra). Una llave
     /// no se reutiliza nunca: así una firma vieja no sirve para un vale nuevo.
     VoucherExists = 37,
+    /// Esa cuenta no tiene cuenta abierta.
+    NoTab = 38,
+    /// Esa cuenta ya tiene una cuenta abierta: se cierra antes de abrir otra.
+    TabExists = 39,
+    /// La lectura no cabe: la deuda pasaría de la garantía, o ya hay `MAX_TAB_PUBLISHERS`
+    /// editoriales con deuda.
+    TabFull = 40,
+    /// La cuenta abierta no tiene deuda: no hay nada que pagar ni que cobrar.
+    NothingOwed = 41,
+    /// Todavía no vence el plazo de pago: la garantía no se toca.
+    TabNotDue = 42,
+    /// La cuenta abierta tiene deuda: no se cierra hasta pagarla.
+    TabOwes = 43,
 }
 
 #[contracttype]
@@ -317,6 +341,21 @@ pub struct Voucher {
     pub open: bool,
 }
 
+/// Una cuenta abierta: quien lee dejó `deposit` en el contrato como garantía y `operator` anota sus
+/// lecturas en `debts` (lo que se le debe a cada editorial). `owed` es la suma, que nunca pasa de
+/// `deposit`. Desde la primera lectura sin pagar hay `days` días para pagar: `due` (segundos Unix)
+/// es cuándo vence ese plazo, o 0 si no hay deuda.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Tab {
+    pub operator: Address,
+    pub deposit: i128,
+    pub days: u32,
+    pub owed: i128,
+    pub due: u64,
+    pub debts: Map<Address, i128>,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -346,6 +385,8 @@ enum DataKey {
     Bounty(u32),
     /// Un vale, por su llave pública ed25519.
     Voucher(BytesN<32>),
+    /// La cuenta abierta de un lector (una por lector).
+    Tab(Address),
 }
 
 /// Comprobante de un artículo pagado. Topics: `["paid", publisher, reader]`.
@@ -672,6 +713,66 @@ pub struct VouchersReclaimed {
     pub buyer: Address,
     pub keys: Vec<BytesN<32>>,
     pub total: i128,
+}
+
+/// Una cuenta abierta nueva. Topics: `["tab_opened", reader]`. `deposit` ya está en el contrato.
+#[contractevent(topics = ["tab_opened"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TabOpened {
+    #[topic]
+    pub reader: Address,
+    pub operator: Address,
+    pub deposit: i128,
+    pub days: u32,
+}
+
+/// Una lectura anotada en una cuenta abierta. Topics: `["charged", reader, publisher]`. No movió
+/// fondos: `owed` es la deuda total después de anotarla y `due`, cuándo vence el plazo de pago.
+#[contractevent(topics = ["charged"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Charged {
+    #[topic]
+    pub reader: Address,
+    #[topic]
+    pub publisher: Address,
+    pub paper_id: String,
+    pub amount: i128,
+    pub owed: i128,
+    pub due: u64,
+}
+
+/// Una cuenta abierta pagada por quien lee. Topics: `["tab_settled", reader]`. `total` es toda la
+/// deuda, `fee` la comisión y `publishers` cuántas editoriales cobraron.
+#[contractevent(topics = ["tab_settled"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TabSettled {
+    #[topic]
+    pub reader: Address,
+    pub total: i128,
+    pub fee: i128,
+    pub publishers: u32,
+}
+
+/// Una deuda vencida cobrada de la garantía. Topics: `["tab_collected", reader]`. `deposit` es la
+/// garantía que queda.
+#[contractevent(topics = ["tab_collected"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TabCollected {
+    #[topic]
+    pub reader: Address,
+    pub total: i128,
+    pub fee: i128,
+    pub publishers: u32,
+    pub deposit: i128,
+}
+
+/// Una cuenta abierta cerrada. Topics: `["tab_closed", reader]`. `amount` es la garantía devuelta.
+#[contractevent(topics = ["tab_closed"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TabClosed {
+    #[topic]
+    pub reader: Address,
+    pub amount: i128,
 }
 
 #[contract]
@@ -1889,6 +1990,209 @@ impl Splitter {
         env.storage().persistent().get(&DataKey::Voucher(key))
     }
 
+    /// `reader` abre una cuenta para leer ahora y pagar después: deja `deposit` en el contrato como
+    /// garantía y nombra a `operator` (el sitio), la única cuenta que puede anotarle lecturas. La
+    /// deuda nunca pasa de la garantía. Desde la primera lectura sin pagar tiene `days` días (de 1
+    /// a `MAX_PASS_DAYS`) para pagar con `settle_tab`; si no, cualquiera cobra de la garantía con
+    /// `collect_tab`. Una cuenta por lector. Solo firma `reader`. Emite `tab_opened`.
+    pub fn open_tab(env: Env, reader: Address, operator: Address, deposit: i128, days: u32) {
+        reader.require_auth();
+        if deposit <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        if days == 0 || days > MAX_PASS_DAYS {
+            panic_with_error!(&env, Error::InvalidDays);
+        }
+        let key = DataKey::Tab(reader.clone());
+        if env.storage().persistent().has(&key) {
+            panic_with_error!(&env, Error::TabExists);
+        }
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &reader,
+            env.current_contract_address(),
+            &deposit,
+        );
+        env.storage().persistent().set(
+            &key,
+            &Tab {
+                operator: operator.clone(),
+                deposit,
+                days,
+                owed: 0,
+                due: 0,
+                debts: Map::new(&env),
+            },
+        );
+        keep_max(&env, &key);
+        extend_instance_ttl(&env);
+
+        TabOpened {
+            reader,
+            operator,
+            deposit,
+            days,
+        }
+        .publish(&env);
+    }
+
+    /// De soporte (no mueve fondos): el operador anota en la cuenta de `reader` una lectura de
+    /// `paper_id` por `amount`, como deuda con `publisher`. Falla si la deuda pasaría de la
+    /// garantía o si ya hay `MAX_TAB_PUBLISHERS` editoriales con deuda (`TabFull`). La primera
+    /// lectura sin pagar arranca el plazo de pago. Solo firma `operator`. Emite `charged` y
+    /// devuelve la deuda total.
+    pub fn charge_tab(
+        env: Env,
+        operator: Address,
+        reader: Address,
+        publisher: Address,
+        paper_id: String,
+        amount: i128,
+    ) -> i128 {
+        operator.require_auth();
+        validate_paper_id(&env, &paper_id);
+        if amount <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let key = DataKey::Tab(reader.clone());
+        let mut tab = read_tab(&env, &key);
+        if tab.operator != operator {
+            panic_with_error!(&env, Error::NotOperator);
+        }
+        let owed = add(&env, tab.owed, amount);
+        let debt = tab.debts.get(publisher.clone()).unwrap_or(0);
+        if owed > tab.deposit || (debt == 0 && tab.debts.len() >= MAX_TAB_PUBLISHERS) {
+            panic_with_error!(&env, Error::TabFull);
+        }
+        if tab.owed == 0 {
+            tab.due = env.ledger().timestamp() + tab.days as u64 * DAY_SECONDS;
+        }
+        tab.owed = owed;
+        // La deuda con una editorial es parte de `owed`, que ya se sumó sin desbordarse.
+        tab.debts.set(publisher.clone(), debt + amount);
+        env.storage().persistent().set(&key, &tab);
+        keep_max(&env, &key);
+        extend_instance_ttl(&env);
+
+        Charged {
+            reader,
+            publisher,
+            paper_id,
+            amount,
+            owed,
+            due: tab.due,
+        }
+        .publish(&env);
+
+        owed
+    }
+
+    /// `reader` paga toda la deuda de su cuenta abierta con una firma: el total sale de su wallet
+    /// y cada editorial recibe el 98% de lo suyo; la tesorería, el 2%. La garantía no se toca y
+    /// la cuenta sigue abierta, sin deuda. Si una editorial no puede recibir, su parte queda
+    /// pendiente a su nombre para `claim`. Solo firma `reader`. Emite `tab_settled` y devuelve el
+    /// reparto.
+    pub fn settle_tab(env: Env, reader: Address) -> Split {
+        reader.require_auth();
+        let key = DataKey::Tab(reader.clone());
+        let mut tab = read_tab(&env, &key);
+        if tab.owed <= 0 {
+            panic_with_error!(&env, Error::NothingOwed);
+        }
+        let total = tab.owed;
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &reader,
+            env.current_contract_address(),
+            &total,
+        );
+        let (split, publishers) = pay_debts(&env, &config, &mut tab);
+        env.storage().persistent().set(&key, &tab);
+        keep_max(&env, &key);
+        extend_instance_ttl(&env);
+
+        TabSettled {
+            reader,
+            total,
+            fee: split.fee,
+            publishers,
+        }
+        .publish(&env);
+
+        split
+    }
+
+    /// Cobra de la garantía la deuda vencida de la cuenta abierta de `reader`: cada editorial
+    /// recibe el 98% de lo suyo y la tesorería el 2%, y la garantía baja en ese total. Solo
+    /// después del plazo de pago (`TabNotDue` antes). No pide firmas: la puede enviar cualquiera
+    /// (el sitio o una editorial), porque el dinero solo va a quienes se les debe. Emite
+    /// `tab_collected` y devuelve el reparto.
+    pub fn collect_tab(env: Env, reader: Address) -> Split {
+        let key = DataKey::Tab(reader.clone());
+        let mut tab = read_tab(&env, &key);
+        if tab.owed <= 0 {
+            panic_with_error!(&env, Error::NothingOwed);
+        }
+        if env.ledger().timestamp() < tab.due {
+            panic_with_error!(&env, Error::TabNotDue);
+        }
+        let total = tab.owed;
+        // La deuda nunca pasa de la garantía (`charge_tab`).
+        tab.deposit -= total;
+        let config = read_config(&env);
+        let (split, publishers) = pay_debts(&env, &config, &mut tab);
+        env.storage().persistent().set(&key, &tab);
+        keep_max(&env, &key);
+        extend_instance_ttl(&env);
+
+        TabCollected {
+            reader,
+            total,
+            fee: split.fee,
+            publishers,
+            deposit: tab.deposit,
+        }
+        .publish(&env);
+
+        split
+    }
+
+    /// `reader` cierra su cuenta abierta y recupera la garantía que queda. Solo sin deuda
+    /// (`TabOwes` si debe algo). Solo firma `reader`. Emite `tab_closed` y devuelve lo devuelto.
+    pub fn close_tab(env: Env, reader: Address) -> i128 {
+        reader.require_auth();
+        let key = DataKey::Tab(reader.clone());
+        let tab = read_tab(&env, &key);
+        if tab.owed > 0 {
+            panic_with_error!(&env, Error::TabOwes);
+        }
+        env.storage().persistent().remove(&key);
+
+        if tab.deposit > 0 {
+            let config = read_config(&env);
+            token::Client::new(&env, &config.token).transfer(
+                &env.current_contract_address(),
+                &reader,
+                &tab.deposit,
+            );
+        }
+        extend_instance_ttl(&env);
+
+        TabClosed {
+            reader,
+            amount: tab.deposit,
+        }
+        .publish(&env);
+
+        tab.deposit
+    }
+
+    /// La cuenta abierta de `reader`, si existe.
+    pub fn tab(env: Env, reader: Address) -> Option<Tab> {
+        env.storage().persistent().get(&DataKey::Tab(reader))
+    }
+
     /// Lo que el contrato le debe a `account` (pagos que no pudo recibir).
     pub fn owed(env: Env, account: Address) -> i128 {
         env.storage()
@@ -2083,6 +2387,36 @@ fn credit(env: &Env, to: &Address, amount: i128) {
         amount,
     }
     .publish(env);
+}
+
+fn read_tab(env: &Env, key: &DataKey) -> Tab {
+    match env.storage().persistent().get(key) {
+        Some(tab) => tab,
+        None => panic_with_error!(env, Error::NoTab),
+    }
+}
+
+/// Paga desde el contrato todas las deudas de una cuenta abierta (el dinero ya está en el
+/// contrato: lo acaba de mandar quien lee o es su garantía) y la deja sin deuda. Cada editorial
+/// recibe lo suyo menos la comisión; la tesorería, la suma de las comisiones. Devuelve el reparto
+/// total y cuántas editoriales cobraron.
+fn pay_debts(env: &Env, config: &Config, tab: &mut Tab) -> (Split, u32) {
+    let mut fee: i128 = 0;
+    let publishers = tab.debts.len();
+    for (publisher, debt) in tab.debts.iter() {
+        let split = compute_split(env, debt, config.fee_bps);
+        payout(env, config, &publisher, split.publisher);
+        fee += split.fee;
+    }
+    payout(env, config, &config.treasury, fee);
+    let split = Split {
+        publisher: tab.owed - fee,
+        fee,
+    };
+    tab.owed = 0;
+    tab.due = 0;
+    tab.debts = Map::new(env);
+    (split, publishers)
 }
 
 /// El vale de `entry`, si existe y sigue sin usar.
