@@ -6,6 +6,7 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 
 | Versión | Contrato (testnet) | Funciones nuevas | Pruebas | ¿La usa el sitio? |
 | --- | --- | --- | --- | --- |
+| [0.8.0](#080-27-nov-2026) | `CDUFLV…PNIF` | `post_bounty`, `award_bounty`, `cancel_bounty` | 119 | No |
 | [0.7.0](#070-27-nov-2026) | `CDOI4F…DK3N` | `fund_pool`, `pay_sponsored`, `withdraw_pool` | 105 | No |
 | [0.6.0](#060-26-nov-2026) | `CANRPE…QM7` | `pledge`, `release_pledges`, `refund_pledge`, `claim` (más `open_campaign`, de soporte) | 89 | No |
 | [0.5.0](#050-26-nov-2026) | `CA2QHB…4RT2` | `buy_pass`, `subscribe`, `renew_subscription`, `sponsor_open` | 68 | No |
@@ -13,6 +14,25 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 | [0.3.0](#030-25-nov-2026) | `CCQRUT…HEQD` | `gift_batch`, `tip`, `refund` | 32 | No |
 | [0.2.0](#020-23-nov-2026) | `CAIMQY…HOR5` | `pay_batch`, `gift` | 21 | Del 23 al 25 de noviembre. Sigue como contrato anterior: sus regalos y lecturas valen |
 | [0.1.0](#010-23-nov-2026) | `CDOUF6…BPOZ` | `pay`, `split`, `config` | 11 | No (reemplazada) |
+
+## 0.8.0 (27 nov 2026)
+
+Recompensas por revisar o reproducir un artículo: la **tercera custodia**. El dinero queda en el contrato con un plazo; antes del plazo solo puede salir hacia quienes ganen.
+
+- **`post_bounty(funder, paper_id, amount, deadline)`:** deja la recompensa en garantía hasta el plazo (máximo 90 días). Emite `bounty_posted`.
+- **`award_bounty(funder, bounty_id, winners)`:** quien la publicó la reparte entre 1 a 10 ganadores, con partes en puntos base; el 2% va a la tesorería. Un ganador sin trustline no bloquea a los demás: su parte queda pendiente y la cobra con `claim`. Quien publicó no puede ser ganador. Emite un `rewarded` por ganador y `bounty_awarded`.
+- **`cancel_bounty(funder, bounty_id)`:** si no se repartió, quien la publicó la recupera completa, sin comisión, pero solo después del plazo (`BountyActive` antes). Emite `bounty_cancelled`.
+- De lectura: `bounty`.
+- Errores nuevos: `NoBounty` (30), `BountyClosed` (31) y `BountyActive` (32). Las partes inválidas reusan `InvalidShares` (8) y `TooManyAuthors` (9) de `pay_authors`, y el plazo inválido, `InvalidDeadline` (17).
+- Lo que el contrato garantiza y lo que no: quién gana lo decide quien publicó la recompensa. El contrato garantiza que el dinero existe, que no se retira antes del plazo y que sale completo, una sola vez.
+- El reparto por partes de `pay_authors` pasó a una función interna (`share_parts`) que usan las dos.
+- Código: `a29133e`. Versión en `6c28419`.
+- En la red (primero en una red Stellar local, después en testnet):
+  - contrato [`CDUFLVEYPPGHJZTUVPW45YAAB7JAEKDKVZCYAQPKQBVMWETKFB2VPNIF`](https://stellar.expert/explorer/testnet/contract/CDUFLVEYPPGHJZTUVPW45YAAB7JAEKDKVZCYAQPKQBVMWETKFB2VPNIF), WASM `d90b7c60…`;
+  - [`post_bounty` `2940ac9f…`](https://stellar.expert/explorer/testnet/tx/2940ac9f0a5c8ea4b1bd83513d7f5bc3afbc61e729ea471287d96827d505f1bd) (1.00 USDC en garantía, plazo de 1 h);
+  - [`award_bounty` `4d804f94…`](https://stellar.expert/explorer/testnet/tx/4d804f948709a332b3c3f5a66300573d541e2aea41b2a977ca72843a663e6f72) (60/40 entre dos ganadores; el segundo no tenía trustline y cobró con [`claim` `b592f3fe…`](https://stellar.expert/explorer/testnet/tx/b592f3fe20b9d1fdeb46eb164d11255c3c8e9a2b99a03b343823feb067178e56));
+  - [`cancel_bounty` `2552af23…`](https://stellar.expert/explorer/testnet/tx/2552af234b4969c5fe093cca23ace48fe9e99765a382eb7c63d0ed2c18862184) (otra recompensa de 0.30, vencida a los 90 s: vuelve completa).
+- Pruebas: 14 nuevas, 119 en total, en `src/test/bounty.rs`. Se rompió el código de 25 formas a propósito y alguna prueba detectó cada una.
 
 ## 0.7.0 (27 nov 2026)
 

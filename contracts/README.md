@@ -4,7 +4,7 @@ Dos contratos: [`splitter`](#splitter-reparto-98-editorial--2-paperpay) (los pag
 
 ## `splitter`: reparto 98% editorial / 2% PaperPay
 
-Cobra lecturas y las reparte en la misma transacción. El USDC va directo de la cuenta que paga a la editorial (monto − comisión) y a la tesorería de PaperPay (comisión): los pagos no pasan por el contrato. Las excepciones guardan dinero en garantía: las campañas de acceso abierto (desde la v0.6.0) y los fondos de patrocinio (desde la v0.7.0), abajo.
+Cobra lecturas y las reparte en la misma transacción. El USDC va directo de la cuenta que paga a la editorial (monto − comisión) y a la tesorería de PaperPay (comisión): los pagos no pasan por el contrato. Las excepciones guardan dinero en garantía: las campañas de acceso abierto (desde la v0.6.0), los fondos de patrocinio (v0.7.0) y las recompensas (v0.8.0), abajo.
 
 Desde la v0.3.0 también regala listas de lectura (`gift_batch`), cobra propinas (`tip`) y registra devoluciones (`refund`). Las propinas y las devoluciones emiten su propio evento, nunca `paid`, así que no dan acceso a ningún artículo.
 
@@ -38,6 +38,14 @@ La v0.7.0 suma **fondos de patrocinio**, la segunda custodia: alguien deja diner
 
 El operador solo puede pagarle a la editorial del fondo, hasta el tope, y una vez por artículo y lector cada 24 h. No puede retirar. El dinero de un fondo tiene dos salidas: una lectura de esa editorial o de vuelta a su patrocinador.
 
+La v0.8.0 suma **recompensas por revisar o reproducir** un artículo, la tercera custodia:
+
+- `post_bounty`: alguien deja una recompensa en el contrato, con un plazo;
+- `award_bounty`: quien la publicó la reparte entre quienes hicieron el trabajo (98%) y la tesorería (2%);
+- `cancel_bounty`: si nadie la ganó, quien la publicó la recupera, pero solo después del plazo.
+
+Quién gana lo decide quien publicó la recompensa. El contrato garantiza que el dinero existe, que no se retira antes del plazo y que sale completo, una sola vez.
+
 | Función | Qué hace |
 | --- | --- |
 | `__constructor(token, treasury, fee_bps, pass_day_price, open_day_price)` | Fija el token (SAC de USDC), la tesorería, la comisión en puntos base (`200` = 2%, máximo `1000`) y, desde la v0.5.0, el precio de un día de pase y de un día de artículo abierto (mayores que 0). No cambia después: no hay admin. |
@@ -67,6 +75,10 @@ El operador solo puede pagarle a la editorial del fondo, hasta el tope, y una ve
 | `pay_sponsored(operator, sponsor, reader, paper_id, publisher, amount) -> Split` | El operador paga una lectura con el fondo de `sponsor` para `publisher`: 98/2 directo desde el contrato. Solo firma `operator`. Falla si no es el operador (`NotOperator`), si pasa del tope (`AboveMaxPerRead`) o del saldo (`PoolTooLow`), o si ese fondo ya pagó ese artículo para ese lector en las últimas 24 h (`AlreadySponsored`). Si la editorial no puede recibir, falla y el fondo queda intacto. Emite `paid` (con `payer = sponsor`) y `sponsored`. **Desde la v0.7.0.** |
 | `withdraw_pool(sponsor, publisher, amount) -> i128` | `sponsor` retira `amount` de su fondo, del contrato a su wallet. Solo firma `sponsor`. Emite `pool_withdrawn` y devuelve lo que queda. **Desde la v0.7.0.** |
 | `pool(sponsor, publisher) -> Option<Pool>` | El fondo (`operator`, `max_per_read`, `balance`), sin mover fondos. **Desde la v0.7.0.** |
+| `post_bounty(funder, paper_id, amount, deadline) -> u32` | `funder` deja `amount` en el contrato como recompensa por revisar o reproducir `paper_id`, hasta `deadline` (segundos Unix, a no más de 90 días). Solo firma `funder`. Emite `bounty_posted` y devuelve el id. **Desde la v0.8.0.** |
+| `award_bounty(funder, bounty_id, winners) -> Split` | `funder` reparte su recompensa entre `winners` (`Share { account, bps }`, de 1 a 10 cuentas que suman 100%); el 2% va a la tesorería. Quien no puede recibir queda con su parte pendiente para `claim`. `funder` no puede ser ganador. Antes o después del plazo, una sola vez. Emite un `rewarded` por ganador y `bounty_awarded`. **Desde la v0.8.0.** |
+| `cancel_bounty(funder, bounty_id) -> i128` | `funder` recupera su recompensa completa, sin comisión. Solo después del plazo (`BountyActive` antes) y si no se repartió. Emite `bounty_cancelled`. **Desde la v0.8.0.** |
+| `bounty(bounty_id) -> Option<Bounty>` | La recompensa (`funder`, `paper_id`, `amount`, `deadline`, `open`), sin mover fondos. **Desde la v0.8.0.** |
 | `split(amount) -> Split` | El reparto que aplicaría `pay`, sin mover fondos. |
 | `config() -> Config` | La configuración fijada al desplegar. |
 
@@ -99,14 +111,14 @@ El operador solo puede pagarle a la editorial del fondo, hasta el tope, y una ve
 - **`pay_authors` en la red:** el `paid` lleva solo al primer autor; lo que recibió cada coautor se ve en las transferencias del token de esa transacción.
 - **Acceso:** la API solo da acceso por eventos `paid` (`paidReceipts` en `apps/api/src/services/splitter.service.ts`). Una propina o una devolución nunca abren un artículo. Lo que llegó desde la v0.5.0 (pases, artículos abiertos, campañas, fondos y lo que sigue) existe en testnet, pero la API todavía no lo usa.
 - **Quién valida qué:** el contrato garantiza el reparto. La API sigue decidiendo el precio y la editorial de cada artículo, y valida que el evento coincida antes de dar acceso.
-- **Errores:** `FeeTooHigh` (1), `InvalidAmount` (2), `InvalidPaperId` (3; vacío o de más de 64 bytes), `AmountOverflow` (4), `EmptyBatch` (5), `BatchTooLarge` (6), `DuplicatePaper` (7), `InvalidShares` (8; partes vacías, en 0, de más del 100%, que no suman 100% o con un autor repetido), `TooManyAuthors` (9; más de 10 coautores), `SelfReferral` (10; `referrer` igual a `payer`), `InvalidDays` (11; 0 o más de 31 días), `WrongPrice` (12; `amount` distinto de días × precio por día), `TooLong` (13; un acceso que vencería a más de 90 días o una suscripción de más de 150), `InvalidRenewals` (14; 0 o más de 12), `NoSubscription` (15), `RenewTooEarly` (16; al pase le falta más de un día), `InvalidDeadline` (17; plazo pasado o a más de 90 días), `NoCampaign` (18), `CampaignClosed` (19; la campaña ya no recibe aportes o ya se liberó), `OverGoal` (20; el aporte pasa de lo que falta), `GoalNotReached` (21), `NothingToClaim` (22), `CampaignNotFailed` (23; todavía no vence, llegó a la meta o se liberó), `NothingToRefund` (24), `NoPool` (25), `NotOperator` (26; quien firma no es el operador del fondo), `AboveMaxPerRead` (27), `PoolTooLow` (28; al fondo no le alcanza para la lectura o el retiro) y `AlreadySponsored` (29; el fondo ya pagó ese artículo para ese lector en las últimas 24 h).
+- **Errores:** `FeeTooHigh` (1), `InvalidAmount` (2), `InvalidPaperId` (3; vacío o de más de 64 bytes), `AmountOverflow` (4), `EmptyBatch` (5), `BatchTooLarge` (6), `DuplicatePaper` (7), `InvalidShares` (8; partes vacías, en 0, de más del 100%, que no suman 100% o con un autor repetido), `TooManyAuthors` (9; más de 10 coautores), `SelfReferral` (10; `referrer` igual a `payer`), `InvalidDays` (11; 0 o más de 31 días), `WrongPrice` (12; `amount` distinto de días × precio por día), `TooLong` (13; un acceso que vencería a más de 90 días o una suscripción de más de 150), `InvalidRenewals` (14; 0 o más de 12), `NoSubscription` (15), `RenewTooEarly` (16; al pase le falta más de un día), `InvalidDeadline` (17; plazo pasado o a más de 90 días), `NoCampaign` (18), `CampaignClosed` (19; la campaña ya no recibe aportes o ya se liberó), `OverGoal` (20; el aporte pasa de lo que falta), `GoalNotReached` (21), `NothingToClaim` (22), `CampaignNotFailed` (23; todavía no vence, llegó a la meta o se liberó), `NothingToRefund` (24), `NoPool` (25), `NotOperator` (26; quien firma no es el operador del fondo), `AboveMaxPerRead` (27), `PoolTooLow` (28; al fondo no le alcanza para la lectura o el retiro), `AlreadySponsored` (29; el fondo ya pagó ese artículo para ese lector en las últimas 24 h), `NoBounty` (30; no hay recompensa con ese id de esa cuenta), `BountyClosed` (31; ya se pagó o se canceló) y `BountyActive` (32; no se cancela antes del plazo).
 
 ### Probar
 
 Requiere Rust estable y el target `wasm32v1-none` (`rustup target add wasm32v1-none`).
 
 ```bash
-pnpm test:contracts            # cargo test: 105 pruebas con un SAC de USDC simulado
+pnpm test:contracts            # cargo test: 119 pruebas con un SAC de USDC simulado
 ```
 
 ### Compilar el WASM
@@ -188,6 +200,17 @@ inv --source lector --send no -- campaign --campaign_id 0
 Datos completos en [`deployments/testnet.json`](deployments/testnet.json).
 
 > **Qué versión usa el sitio.** El sitio y la API usan la **v0.4.0** (`productionContractId`) desde el 25 de noviembre de 2026 (CDMX; 00:18 UTC del 26), con `pay`, `pay_ref` (referidos) y `gift`. La v0.4.0 tiene todo lo de la v0.3.0 (`gift_batch`, `tip` y `refund`) más `pay_authors` y `pay_ref`. La v0.2.0, que usó el sitio del 23 al 25 de noviembre, quedó en `SPLITTER_LEGACY_CONTRACT_IDS`: sus regalos se pueden reclamar y sus lecturas siguen en el contador. Los pagos nuevos van solo a la v0.4.0. La **v0.5.0** (pases, suscripción y artículos abiertos) está desplegada y probada en testnet desde el 25 de noviembre de 2026 (CDMX; 05:04 UTC del 26), pero el sitio y la API todavía no la usan. La **v0.6.0** (campañas de acceso abierto y `claim`) está desplegada y probada en testnet desde el 26 de noviembre de 2026 (00:18 CDMX); el sitio y la API tampoco la usan.
+
+| v0.8.0 | Valor |
+| --- | --- |
+| Contrato | [`CDUFLVEYPPGHJZTUVPW45YAAB7JAEKDKVZCYAQPKQBVMWETKFB2VPNIF`](https://stellar.expert/explorer/testnet/contract/CDUFLVEYPPGHJZTUVPW45YAAB7JAEKDKVZCYAQPKQBVMWETKFB2VPNIF) |
+| WASM (sha256) | `d90b7c60644a85fbd593109aaa5b10c71aa85d1b3f0e37b4c55682135798faa5` (51,733 bytes), igual al que se baja de la red |
+| Constructor | El mismo de v0.5.0 |
+| `post_bounty` | [`2940ac9f…`](https://stellar.expert/explorer/testnet/tx/2940ac9f0a5c8ea4b1bd83513d7f5bc3afbc61e729ea471287d96827d505f1bd): 1.00 USDC en garantía por reproducir `crispr-nanomedicine-biotech`, con plazo de 1 h (recompensa 0) |
+| `award_bounty` | [`4d804f94…`](https://stellar.expert/explorer/testnet/tx/4d804f948709a332b3c3f5a66300573d541e2aea41b2a977ca72843a663e6f72): 60/40 entre dos ganadores. El primero recibe 0.588; el segundo **no tiene trustline**, así que sus 0.392 quedan pendientes y los cobra con [`claim` `b592f3fe…`](https://stellar.expert/explorer/testnet/tx/b592f3fe20b9d1fdeb46eb164d11255c3c8e9a2b99a03b343823feb067178e56). 0.02 a la tesorería |
+| `cancel_bounty` | Recompensa 1 de 0.30 con plazo de 90 s ([`eb576dc3…`](https://stellar.expert/explorer/testnet/tx/eb576dc38398f887231c9c02f7f2152097291e48c5b9e8c48972ee24409634db)). Vencida sin ganadores, [`2552af23…`](https://stellar.expert/explorer/testnet/tx/2552af234b4969c5fe093cca23ace48fe9e99765a382eb7c63d0ed2c18862184): vuelve completa a quien la publicó |
+
+Antes de enviar, el script simuló lo que no debe pasar: cancelar antes del plazo (#32), otra cuenta repartiendo (#30) y repartir dos veces (#31). Al final, el contrato tiene saldo 0.
 
 | v0.7.0 | Valor |
 | --- | --- |
