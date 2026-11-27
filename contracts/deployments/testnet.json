@@ -4,10 +4,10 @@
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "productionContractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
   "splitter": {
-    "version": "0.13.0",
-    "contractId": "CDHBL4S7H5QEXL7HEP47NUOGJ4JBJDVG6WHBG6GNTUMG7TIF3LT73HSJ",
-    "wasmSha256": "359985bc647adb3c3bea22c29604c8d8f833bd15ffcf76244dc80ec711cb9c6c",
-    "source": "contracts/splitter @ 694aaa2, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
+    "version": "0.14.0",
+    "contractId": "CBGHC7PRFEOKYP6NQQB4ZIXLFHBZUDB7OJIBOJ6L73HFCZ2IR6YSESYP",
+    "wasmSha256": "349fbbdc3e44b32bb91db25946be1375d8643d9871feb1adb52624e9cf576910",
+    "source": "contracts/splitter @ cdd4da4, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
     "constructor": {
       "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
@@ -15,29 +15,29 @@
       "pass_day_price": 10000000,
       "open_day_price": 50000000
     },
-    "uploadTx": "3a9e96d1e563062d0186f097b7fddf4c83a3a90344e56f5afc3cfad6733088ca",
-    "deployTx": "8662e5a432ac8446b416c5c475a02ee05ca4feac63d578de5426959eb3dafd6f",
-    "deployedAt": "2026-11-27T21:54:29Z",
+    "uploadTx": "1e1e6514815dde389dc57e39ab254b11159253a886930e1e89259fa529729bee",
+    "deployTx": "76d57d9401032eb489487167cb2f13d53812631df649413a5c286a83bf594eba",
+    "deployedAt": "2026-11-27T22:04:14Z",
     "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
-    "custody": "además de lo anterior, guarda los pagos contra entrega sin cobrar; cada uno sale solo hacia su editorial y la tesorería (unlock_payment, con la llave y antes del plazo) o, desde el plazo, de vuelta a quien pagó (reclaim_payment); sin admin",
+    "custody": "además de lo anterior, guarda la garantía de cada revisor que tomó una recompensa; sale solo de vuelta a quien la dejó (submit_review, antes del plazo) o, desde el plazo, hacia quien publicó la recompensa (forfeit_stake); sin admin",
     "usage": {
-      "lock_payment": {
-        "tx": "85f946b15692159ba7d1830a1a722a08e5e260c9f09737be5081e1783853c24d",
-        "what": "GBECDTST5LB4E2MUAYRBZNYVPWKZXRUMXGSFFM2K3MFE2MQCIWWWBOE5 bloquea 5000000 por crispr-nanomedicine-biotech contra el hash 39aa557aecb15ed2e2047584f2ef8730a304e2feae0f91dd0cfac287110852f8, plazo de 1 h",
-        "result": "pago 0; 5000000 al contrato; evento payment_locked. Segundo pago (1), 0bbf88f74bd27ac2a30331277cfb33257bcd1c6941a364b08f30bae5f760ef3c: 3000000 con plazo de 90 s"
+      "accept_bounty": {
+        "tx": "f3de4f9bd107dcdce313afcd7404f489c8c1a1bbb03300a3db60bd62e11b5242",
+        "what": "GDV2AH4L657YYOOSC2KBL2YJKWWBVFL2EWQCXL4CYAMGHI7R4GFGGCCM toma la recompensa 0 (10000000, publicada en b6e368a6dec7b250d7e10e27827c831d1a028f5ba6dfc23131bbdb025ae85c14) con 1000000 de garantía; después GABQXISVPCD3NOL4K7OR5EURCLLZCGS5WOZOWXZDJDRNZRQSHUNUYM2E (36cac926aaa8ac84d49966211e56fc2b900ab4e48da3e54902f811b5472067eb)",
+        "result": "1000000 de cada cuenta al contrato; eventos bounty_accepted"
       },
-      "unlock_payment": {
-        "tx": "670863f5817621ee10a7ebae8a036995f18b01016ebf4a6ca9870fdd1a5556e5",
-        "what": "otra cuenta presenta la llave d75ba187b2ab56aaf6fdb030f0ec8a5e7e71cecb205cb1cc34be2aa67aaef7ee del pago 0",
-        "result": "4900000 a la editorial demo y 100000 a la tesorería; eventos paid y payment_unlocked (con la llave)"
+      "submit_review": {
+        "tx": "b2ab943481cd813417996fe679616b8ca5186b558aa7b5393dc33839465b088f",
+        "what": "Ana entrega antes del plazo el hash 85be1b734eb4fcacbd085e46febc202e6a25516288d1812bedd56a657350ad10",
+        "result": "1000000 de vuelta a Ana; evento review_submitted con el hash"
       },
-      "reclaim_payment": {
-        "tx": "a8943076a34bc1e0a1e0a7c921ca9e957bf1b6db5a9ec8f55ebadb08aa14617b",
-        "what": "vencido el plazo del pago 1 sin llave, quien pagó lo recupera",
-        "result": "3000000 de vuelta, sin comisión; evento payment_reclaimed"
+      "forfeit_stake": {
+        "tx": "fb5256d12cee842d4728eaf6aa48800a32e4d13da97653f2b8d42aa294f985ae",
+        "what": "pasado el plazo, una cuenta cualquiera ejecuta la garantía de Beto, que no entregó",
+        "result": "1000000 a quien publicó la recompensa; evento stake_forfeited. Después, award_bounty (88d3f1bb5155cc4b3b16503eeb7bdf65341d09d6039d122c1500fb084bcdde69): 9800000 a Ana y 200000 a la tesorería"
       }
     },
-    "checks": "simulados antes de enviar: liberar con otra llave (#61), presentar el hash como llave (#61), recuperar antes del plazo (#63), otra cuenta recuperando (#59), liberar dos veces (#60), la llave después del plazo (#62), recuperar dos veces (#60). Al final: saldo del contrato 0, tesorería +100000"
+    "checks": "simulados antes de enviar: garantía menor al 10% (#65), tomarla dos veces (#66), ejecutar la garantía antes del plazo (#32), entregar sin garantía (#67), entregar después del plazo (#64), ejecutar la garantía dos veces (#67). Al final: saldo del contrato 0, tesorería +200000"
   },
   "boveda": {
     "version": "0.1.0",
@@ -71,6 +71,42 @@
     "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."
   },
   "previous": [
+    {
+      "version": "0.13.0",
+      "contractId": "CDHBL4S7H5QEXL7HEP47NUOGJ4JBJDVG6WHBG6GNTUMG7TIF3LT73HSJ",
+      "wasmSha256": "359985bc647adb3c3bea22c29604c8d8f833bd15ffcf76244dc80ec711cb9c6c",
+      "source": "contracts/splitter @ 694aaa2, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200,
+        "pass_day_price": 10000000,
+        "open_day_price": 50000000
+      },
+      "uploadTx": "3a9e96d1e563062d0186f097b7fddf4c83a3a90344e56f5afc3cfad6733088ca",
+      "deployTx": "8662e5a432ac8446b416c5c475a02ee05ca4feac63d578de5426959eb3dafd6f",
+      "deployedAt": "2026-11-27T21:54:29Z",
+      "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
+      "custody": "además de lo anterior, guarda los pagos contra entrega sin cobrar; cada uno sale solo hacia su editorial y la tesorería (unlock_payment, con la llave y antes del plazo) o, desde el plazo, de vuelta a quien pagó (reclaim_payment); sin admin",
+      "usage": {
+        "lock_payment": {
+          "tx": "85f946b15692159ba7d1830a1a722a08e5e260c9f09737be5081e1783853c24d",
+          "what": "GBECDTST5LB4E2MUAYRBZNYVPWKZXRUMXGSFFM2K3MFE2MQCIWWWBOE5 bloquea 5000000 por crispr-nanomedicine-biotech contra el hash 39aa557aecb15ed2e2047584f2ef8730a304e2feae0f91dd0cfac287110852f8, plazo de 1 h",
+          "result": "pago 0; 5000000 al contrato; evento payment_locked. Segundo pago (1), 0bbf88f74bd27ac2a30331277cfb33257bcd1c6941a364b08f30bae5f760ef3c: 3000000 con plazo de 90 s"
+        },
+        "unlock_payment": {
+          "tx": "670863f5817621ee10a7ebae8a036995f18b01016ebf4a6ca9870fdd1a5556e5",
+          "what": "otra cuenta presenta la llave d75ba187b2ab56aaf6fdb030f0ec8a5e7e71cecb205cb1cc34be2aa67aaef7ee del pago 0",
+          "result": "4900000 a la editorial demo y 100000 a la tesorería; eventos paid y payment_unlocked (con la llave)"
+        },
+        "reclaim_payment": {
+          "tx": "a8943076a34bc1e0a1e0a7c921ca9e957bf1b6db5a9ec8f55ebadb08aa14617b",
+          "what": "vencido el plazo del pago 1 sin llave, quien pagó lo recupera",
+          "result": "3000000 de vuelta, sin comisión; evento payment_reclaimed"
+        }
+      },
+      "checks": "simulados antes de enviar: liberar con otra llave (#61), presentar el hash como llave (#61), recuperar antes del plazo (#63), otra cuenta recuperando (#59), liberar dos veces (#60), la llave después del plazo (#62), recuperar dos veces (#60). Al final: saldo del contrato 0, tesorería +100000"
+    },
     {
       "version": "0.12.0",
       "contractId": "CCFNCZVQFRYDFRUE6CD25QVT7RRRFKMFHAU6TB7U6HWFPECLUQECHIY6",
