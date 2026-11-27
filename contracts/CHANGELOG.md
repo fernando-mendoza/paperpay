@@ -6,6 +6,7 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 
 | Versión | Contrato (testnet) | Funciones nuevas | Pruebas | ¿La usa el sitio? |
 | --- | --- | --- | --- | --- |
+| [0.15.0](#0150-27-nov-2026) | `CBFYNO…HXAV` | `fund_grant`, `release_milestone`, `cancel_grant` | 231 | No |
 | [0.14.0](#0140-27-nov-2026) | `CBGHC7…ESYP` | `accept_bounty`, `submit_review`, `forfeit_stake` | 215 | No |
 | [0.13.0](#0130-27-nov-2026) | `CDHBL4…3HSJ` | `lock_payment`, `unlock_payment`, `reclaim_payment` | 199 | No |
 | [0.12.0](#0120-27-nov-2026) | `CCFNCZ…HIY6` | `join_club`, `approve_read`, `leave_club` (más `create_club` y `propose_read`, de soporte) | 184 | No |
@@ -20,6 +21,24 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 | [0.3.0](#030-25-nov-2026) | `CCQRUT…HEQD` | `gift_batch`, `tip`, `refund` | 32 | No |
 | [0.2.0](#020-23-nov-2026) | `CAIMQY…HOR5` | `pay_batch`, `gift` | 21 | Del 23 al 25 de noviembre. Sigue como contrato anterior: sus regalos y lecturas valen |
 | [0.1.0](#010-23-nov-2026) | `CDOUF6…BPOZ` | `pay`, `split`, `config` | 11 | No (reemplazada) |
+
+## 0.15.0 (27 nov 2026)
+
+Traducción por encargo, pagada por hitos: alguien paga para que un artículo exista en otro idioma (o como resumen de divulgación) y el dinero sale por partes, conforme avanza el trabajo. Es la **décima custodia** y la primera que se libera en varios pagos.
+
+- **`fund_grant(funder, translator, paper_id, milestones, deadline)`:** deja en el contrato la suma de los hitos (de 1 a 10 montos, por ejemplo borrador, revisión y versión final), con un plazo de hasta 90 días. Emite `grant_funded`.
+- **`release_milestone(funder, grant_id)`:** quien paga libera el siguiente hito: 98% a quien traduce y 2% a la tesorería. Los hitos salen en orden y el último cierra el encargo. Quien traduce sin trustline no pierde su hito: queda pendiente y lo cobra con `claim`. Emite `milestone_released`.
+- **`cancel_grant(funder, grant_id)`:** desde el plazo, quien paga recupera los hitos que no liberó, sin comisión (`GrantActive` antes). Lo ya pagado no vuelve. Emite `grant_cancelled`.
+- De lectura: `grant`.
+- Errores nuevos: `InvalidMilestones` (68), `NoGrant` (69), `GrantClosed` (70) y `GrantActive` (71). El plazo inválido reusa `InvalidDeadline` (17).
+- Lo que el contrato garantiza y lo que no: garantiza a quien traduce que el dinero existe y que no se retira antes del plazo, y a quien paga, que solo sale cuando libera cada hito. Si un hito está bien hecho lo decide quien paga; quien traduce no puede liberarse un hito.
+- Código: `5f0fd0f`. Versión en `3ddde33`.
+- En la red (primero en una red Stellar local, después en testnet):
+  - contrato [`CBFYNOBCVMLQF3DACYYU24FLWDHJLR4ZSZZT2OJ4RKXEFYBZKF5EHXAV`](https://stellar.expert/explorer/testnet/contract/CBFYNOBCVMLQF3DACYYU24FLWDHJLR4ZSZZT2OJ4RKXEFYBZKF5EHXAV), WASM `9a5e9bdb…`;
+  - [`fund_grant` `f5e843b4…`](https://stellar.expert/explorer/testnet/tx/f5e843b4ba026f570b7794dc502dd35e439227eea3a9c901738def0a932ad1d3) (2.00 USDC en tres hitos, plazo de 1 h);
+  - [`release_milestone` `00f59471…`](https://stellar.expert/explorer/testnet/tx/00f594717bca572baace5dd756a564dbd6c642548cf4600954a7501e92025dde) (primer hito: la traductora no tenía trustline y lo cobró con [`claim` `2c5c01c0…`](https://stellar.expert/explorer/testnet/tx/2c5c01c00e0432c194e25e0701eef3071007ed2b87484ce8d56ff74eadf19d60));
+  - [`cancel_grant` `ce133f19…`](https://stellar.expert/explorer/testnet/tx/ce133f19589d788efcaa895dff5d4dd3d3b980a0f63366c59212edafdeda5133) (otro encargo de 0.30 en dos hitos, plazo de 90 s: vuelve el hito que no se liberó).
+- Pruebas: 16 nuevas, 231 en total, en `src/test/grant.rs`. Se rompió el código de 33 formas a propósito y alguna prueba detectó cada una.
 
 ## 0.14.0 (27 nov 2026)
 
