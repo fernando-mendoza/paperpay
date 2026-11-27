@@ -1,5 +1,19 @@
 # Estado de QA
 
+## Revisión del 27 de noviembre de 2026: contrato v0.10.0 (cuenta abierta)
+
+- `pnpm test:contracts`: 152 pruebas (17 nuevas, en `contracts/splitter/src/test/tab.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
+  - **La deuda nunca pasa de la garantía:** justo hasta la garantía se anota; un stroop más, no. Con 10 editoriales, la undécima no cabe, pero más deuda con una de las diez sí.
+  - **Plazo de pago:** corre desde la primera lectura sin pagar y no se reinicia con las siguientes; después de pagar, una lectura nueva arranca un plazo nuevo. La garantía no se toca un segundo antes del plazo y sí en el segundo exacto.
+  - **Sin firmas en `collect_tab`:** se prueba con las autorizaciones vacías.
+  - **Editorial sin trustline:** su parte queda pendiente y las demás cobran.
+  - **Redondeo:** la comisión se redondea por editorial y el contrato queda exactamente con la garantía.
+  - **Invariante de custodia:** el saldo del contrato es siempre garantías + pendientes.
+- Mutaciones (42), con `tools/mutaciones-v0100.py` del run `2026-11-27-paperpay-contrato-v070` del hub: todas detectadas, antes y después del cambio del plazo a segundos. Entre ellas: funciones sin firma, cualquiera anotando lecturas, deuda mayor que la garantía, el plazo reiniciado con cada lectura, cobrar de la garantía antes del plazo o sin bajarla, pagar sin cobrarle a quien lee y cerrar con deuda.
+- Encontrado antes de desplegar: el plazo de pago iba en días, con mínimo de uno, así que `collect_tab` no se podía usar en testnet sin esperar un día. Pasó a segundos (`241e3fe`).
+- Red Stellar local y testnet (`tools/usar-v0100.sh`, 27-nov 00:52 CDMX): las cinco funciones usadas con dos lectores (uno paga a tiempo, otro no) y dos editoriales, y seis errores simulados antes de enviar. Saldo final del contrato: 0.
+- **No probado:** la API y el sitio no usan todavía la cuenta abierta. El operador puede anotar la misma lectura dos veces: el contrato acota el daño a la garantía, pero no lo impide.
+
 ## Revisión del 27 de noviembre de 2026: contrato v0.9.0 (vales de lectura)
 
 - `pnpm test:contracts`: 135 pruebas (16 nuevas, en `contracts/splitter/src/test/voucher.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios. Las pruebas firman con `ed25519-dalek`, que entra solo como dependencia de pruebas.
