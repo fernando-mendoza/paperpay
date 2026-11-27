@@ -4,10 +4,10 @@
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "productionContractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
   "splitter": {
-    "version": "0.11.0",
-    "contractId": "CCMUYU5MMWGSQY7XF4W3ND2CIGXZZSDTRSDN23J4756CS6IRSR5MTJDZ",
-    "wasmSha256": "13d7433d0ae1f3ff25a28fa9021848c42dd8332e8e81585111acbdd31c7a78f1",
-    "source": "contracts/splitter @ ed3cf62, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+    "version": "0.12.0",
+    "contractId": "CCFNCZVQFRYDFRUE6CD25QVT7RRRFKMFHAU6TB7U6HWFPECLUQECHIY6",
+    "wasmSha256": "87930abdbd1ec366a55e72dd97ce3eecfcb38b20483f44f444a63f71d3b9f4b6",
+    "source": "contracts/splitter @ 2b9fb29, soroban-sdk 29.0.1, stellar-cli 30.0.1",
     "constructor": {
       "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
@@ -15,34 +15,39 @@
       "pass_day_price": 10000000,
       "open_day_price": 50000000
     },
-    "uploadTx": "154609bd89385999e02ef80ee1cd02474b6b2b86e779474a051fb58f72077139",
-    "deployTx": "c2b7465c6ab180537b0c622e79899fe37f8ecd11934068689516eabc6f1e726a",
-    "deployedAt": "2026-11-27T07:06:14Z",
+    "uploadTx": "6956073494ab0d8ab617e1b4ceec321d986047d9e1dcf4c0242e8c183182c13f",
+    "deployTx": "eb1f39454091efa50297cd3cc8c9e6781fc02f882300dfa7ee21a85aab169bb1",
+    "deployedAt": "2026-11-27T07:17:59Z",
     "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
-    "custody": "además de lo anterior, guarda lo pagado por cada Pase PaperPay hasta que vence; sale solo hacia las editoriales leídas y la tesorería (settle_pass) o de vuelta a quien pagó (settle_pass sin lecturas, o cancel_pass); sin admin",
+    "custody": "además de lo anterior, guarda la caja de cada journal club; sale solo por una lectura aprobada por el quórum (approve_read, a la editorial y la tesorería) o con cada miembro que sale (leave_club, su parte igual); sin admin, y quien crea el club no tiene poder sobre la caja",
     "usage": {
-      "buy_global_pass": {
-        "tx": "79f0b9447ea1580e17eab14088cdf1a0be7e8adccb69407930af7c0cb3f87ab1",
-        "what": "GBP26V2LXKEUZICLOIXRIQZXJHIPSB7ERLNDC52GI7BEAPFGZ4SFDM5Y paga 20000000 por un pase de 120 s; operador GC2QTWDRKPG53FAFQCBIW4ARCHJT5ZAN4N7ROTHIGU6XM4IAFRILHVUO",
-        "result": "20000000 de quien lee al contrato; evento global_pass"
+      "create_club": {
+        "tx": "b12604ec7e63f3982b17fa3fc625098a7db84b33f34ce051fa026c6ae1da93f5",
+        "what": "soporte: GDMAONCHGCVTJP5VC72H7E4I3HHXBTDLF33CO33LY4IHXHKR7PJRARMB crea un club con cuota 5000000 y quórum 2",
+        "result": "club 0; no mueve fondos; evento club_created"
       },
-      "use_pass": {
-        "tx": "b2fb49ea75328ae4bb468cf327015e44777adcbb640122a085606a5b9cd1576c",
-        "what": "soporte: el operador anota 4 lecturas, 3 de la editorial demo y 1 de GAILRCQJUVH72SSUQT4CXSWZIAR2JS2YX6VEH3JE6ERRMTMFBE5B3AAU (261651e3270794ff369e9cf58cf2fa8b2fe01cd845ea4886c125bdcf41a6858b)",
-        "result": "no mueve fondos; eventos pass_read"
+      "join_club": {
+        "tx": "55f701c0dbd2fc38fb27af99d8a85b44373ec499a53cd9042fd3f5bb51291c6e",
+        "what": "Ana paga su cuota; después Beto (6861f99e9e50a43dffa57426619395ad1d723dcc02226c3b64aaf58e137d08ca) y Caro (dc94e6a4cea73211c42798fb17a911e00444f93ce743e2ad1cc8a1d1ff59421f)",
+        "result": "5000000 de cada miembro al contrato; caja 15000000; eventos club_joined"
       },
-      "cancel_pass": {
-        "tx": "e1284a02885e3a8a8b02745cdae567a3d0b04a073c704f89568b8a70b5f9b6ca",
-        "what": "GBUT5SPE5INRC7HY2HROYOAHAWTZOFNTNOLWY7N73AWHNE4LG4ZUR43O compró un pase de 10000000 (815ddaf9daf4b2b2d5718d312574e8ffd7b71b55d02a9be8f812228a70d7e508) y lo cancela sin lecturas",
-        "result": "10000000 de vuelta; evento pass_cancelled"
+      "propose_read": {
+        "tx": "93e67d0fc0b32ef48f071e52eda329eba545f312c0fa67a14a83ff778f6767e7",
+        "what": "soporte: Ana propone pagar 5000000 a la editorial demo por crispr-nanomedicine-biotech",
+        "result": "propuesta 0, con la aprobación de Ana; no mueve fondos; evento read_proposed"
       },
-      "settle_pass": {
-        "tx": "268e4d4f9f5cef7a0b9921c93bb67716b7a21053b8b816e082d92f8b3c565fa2",
-        "what": "vencido el pase de 20000000, otra cuenta lo liquida sin firma de quien lee",
-        "result": "400000 a la tesorería, 14700000 a la editorial demo (3 lecturas) y 4900000 a la segunda (1 lectura); eventos pass_share × 2 y pass_settled"
+      "approve_read": {
+        "tx": "987b89f299eeb27a39e262745b3f487f122aa537936c8be3d0470ee91b1f4633",
+        "what": "Beto aprueba la propuesta 0: segunda aprobación, quórum completo",
+        "result": "4900000 a la editorial demo y 100000 a la tesorería, desde la caja; caja 10000000; eventos club_paid (con los tres miembros) y read_approved"
+      },
+      "leave_club": {
+        "tx": "c25c6345ef643aed6e346a46ee0c4ed133d37b358b5d52a43e122866cdf4c1c6",
+        "what": "Caro sale; después Beto (ff865cc8af0a78d5c704f43167ac099b199084380c39449385af2bb3ecee6c63) y Ana (dff630317bfab578f6844a54bce4021f2fc83eb856463cf04c0d95eac60811df)",
+        "result": "3333333 a Caro, 3333333 a Beto y 3333334 a Ana; caja 0; eventos club_left"
       }
     },
-    "checks": "simulados antes de enviar: segundo pase (#45), quien lee anotándose lecturas (#26), liquidar antes de vencer (#48), cancelar con lecturas (#49), anotar en un pase vencido (#46), liquidar dos veces (#44). Al final: saldo del contrato 0"
+    "checks": "simulados antes de enviar: quórum de 1 (#51), entrar dos veces (#53), un extraño aprobando (#54), aprobar dos veces (#58), proponer más que la caja (#55), aprobar una propuesta pagada (#57), proponer después de salir (#54). Al final: saldo del contrato 0"
   },
   "boveda": {
     "version": "0.1.0",
@@ -76,6 +81,47 @@
     "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."
   },
   "previous": [
+    {
+      "version": "0.11.0",
+      "contractId": "CCMUYU5MMWGSQY7XF4W3ND2CIGXZZSDTRSDN23J4756CS6IRSR5MTJDZ",
+      "wasmSha256": "13d7433d0ae1f3ff25a28fa9021848c42dd8332e8e81585111acbdd31c7a78f1",
+      "source": "contracts/splitter @ ed3cf62, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200,
+        "pass_day_price": 10000000,
+        "open_day_price": 50000000
+      },
+      "uploadTx": "154609bd89385999e02ef80ee1cd02474b6b2b86e779474a051fb58f72077139",
+      "deployTx": "c2b7465c6ab180537b0c622e79899fe37f8ecd11934068689516eabc6f1e726a",
+      "deployedAt": "2026-11-27T07:06:14Z",
+      "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
+      "custody": "además de lo anterior, guarda lo pagado por cada Pase PaperPay hasta que vence; sale solo hacia las editoriales leídas y la tesorería (settle_pass) o de vuelta a quien pagó (settle_pass sin lecturas, o cancel_pass); sin admin",
+      "usage": {
+        "buy_global_pass": {
+          "tx": "79f0b9447ea1580e17eab14088cdf1a0be7e8adccb69407930af7c0cb3f87ab1",
+          "what": "GBP26V2LXKEUZICLOIXRIQZXJHIPSB7ERLNDC52GI7BEAPFGZ4SFDM5Y paga 20000000 por un pase de 120 s; operador GC2QTWDRKPG53FAFQCBIW4ARCHJT5ZAN4N7ROTHIGU6XM4IAFRILHVUO",
+          "result": "20000000 de quien lee al contrato; evento global_pass"
+        },
+        "use_pass": {
+          "tx": "b2fb49ea75328ae4bb468cf327015e44777adcbb640122a085606a5b9cd1576c",
+          "what": "soporte: el operador anota 4 lecturas, 3 de la editorial demo y 1 de GAILRCQJUVH72SSUQT4CXSWZIAR2JS2YX6VEH3JE6ERRMTMFBE5B3AAU (261651e3270794ff369e9cf58cf2fa8b2fe01cd845ea4886c125bdcf41a6858b)",
+          "result": "no mueve fondos; eventos pass_read"
+        },
+        "cancel_pass": {
+          "tx": "e1284a02885e3a8a8b02745cdae567a3d0b04a073c704f89568b8a70b5f9b6ca",
+          "what": "GBUT5SPE5INRC7HY2HROYOAHAWTZOFNTNOLWY7N73AWHNE4LG4ZUR43O compró un pase de 10000000 (815ddaf9daf4b2b2d5718d312574e8ffd7b71b55d02a9be8f812228a70d7e508) y lo cancela sin lecturas",
+          "result": "10000000 de vuelta; evento pass_cancelled"
+        },
+        "settle_pass": {
+          "tx": "268e4d4f9f5cef7a0b9921c93bb67716b7a21053b8b816e082d92f8b3c565fa2",
+          "what": "vencido el pase de 20000000, otra cuenta lo liquida sin firma de quien lee",
+          "result": "400000 a la tesorería, 14700000 a la editorial demo (3 lecturas) y 4900000 a la segunda (1 lectura); eventos pass_share × 2 y pass_settled"
+        }
+      },
+      "checks": "simulados antes de enviar: segundo pase (#45), quien lee anotándose lecturas (#26), liquidar antes de vencer (#48), cancelar con lecturas (#49), anotar en un pase vencido (#46), liquidar dos veces (#44). Al final: saldo del contrato 0"
+    },
     {
       "version": "0.10.0",
       "contractId": "CCGPAGLTT7WMVSIESZXPB2AF72I2DYZHMI42VJEPOIL726JM3HKRC4WH",
