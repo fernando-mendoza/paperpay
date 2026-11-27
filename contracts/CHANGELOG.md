@@ -6,6 +6,7 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 
 | Versión | Contrato (testnet) | Funciones nuevas | Pruebas | ¿La usa el sitio? |
 | --- | --- | --- | --- | --- |
+| [0.14.0](#0140-27-nov-2026) | `CBGHC7…ESYP` | `accept_bounty`, `submit_review`, `forfeit_stake` | 215 | No |
 | [0.13.0](#0130-27-nov-2026) | `CDHBL4…3HSJ` | `lock_payment`, `unlock_payment`, `reclaim_payment` | 199 | No |
 | [0.12.0](#0120-27-nov-2026) | `CCFNCZ…HIY6` | `join_club`, `approve_read`, `leave_club` (más `create_club` y `propose_read`, de soporte) | 184 | No |
 | [0.11.0](#0110-27-nov-2026) | `CCMUYU…TJDZ` | `buy_global_pass`, `settle_pass`, `cancel_pass` (más `use_pass`, de soporte) | 167 | No |
@@ -19,6 +20,25 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 | [0.3.0](#030-25-nov-2026) | `CCQRUT…HEQD` | `gift_batch`, `tip`, `refund` | 32 | No |
 | [0.2.0](#020-23-nov-2026) | `CAIMQY…HOR5` | `pay_batch`, `gift` | 21 | Del 23 al 25 de noviembre. Sigue como contrato anterior: sus regalos y lecturas valen |
 | [0.1.0](#010-23-nov-2026) | `CDOUF6…BPOZ` | `pay`, `split`, `config` | 11 | No (reemplazada) |
+
+## 0.14.0 (27 nov 2026)
+
+Compromiso del revisor, sobre las recompensas de la v0.8.0: quien va a revisar o reproducir un artículo pone algo en juego. Es la **novena custodia** y el primer dinero del contrato que cambia de dueño por no cumplir un plazo.
+
+- **`accept_bounty(reviewer, bounty_id, stake)`:** toma una recompensa abierta y deja una garantía en el contrato, de al menos el 10% de la recompensa. Una vez por cuenta; varias cuentas pueden tomar la misma. Emite `bounty_accepted`.
+- **`submit_review(reviewer, bounty_id, report_hash)`:** entrega antes del plazo: el sha256 del informe queda en la red y la garantía vuelve completa. Vale aunque la recompensa ya se haya repartido. Emite `review_submitted`.
+- **`forfeit_stake(bounty_id, reviewer)`:** desde el plazo, si no hubo entrega, la garantía pasa completa a quien publicó la recompensa. No pide firma: la ejecuta cualquiera y el dinero solo puede ir a esa cuenta (o queda pendiente a su nombre si no puede recibir). Emite `stake_forfeited`.
+- De lectura: `stake`.
+- Errores nuevos: `BountyExpired` (64), `StakeTooLow` (65), `AlreadyAccepted` (66) y `NoStake` (67). Reusa `NoBounty` (30), `BountyClosed` (31) y `BountyActive` (32).
+- No cambia `post_bounty`, `award_bounty` ni `cancel_bounty`: repartir o cancelar no toca las garantías.
+- Lo que el contrato garantiza y lo que no: comprueba que hubo una entrega antes del plazo y deja su hash con fecha. No juzga la calidad del informe: eso lo decide quien publicó la recompensa al repartirla. La regla es una sola: quien tomó la recompensa recupera su garantía entregando a tiempo, gane o no.
+- Código: `aa59e13`. Versión en `cdd4da4`.
+- En la red (primero en una red Stellar local, después en testnet):
+  - contrato [`CBGHC7PRFEOKYP6NQQB4ZIXLFHBZUDB7OJIBOJ6L73HFCZ2IR6YSESYP`](https://stellar.expert/explorer/testnet/contract/CBGHC7PRFEOKYP6NQQB4ZIXLFHBZUDB7OJIBOJ6L73HFCZ2IR6YSESYP), WASM `349fbbdc…`;
+  - [`accept_bounty` `f3de4f9b…`](https://stellar.expert/explorer/testnet/tx/f3de4f9bd107dcdce313afcd7404f489c8c1a1bbb03300a3db60bd62e11b5242) (0.10 USDC de garantía por una recompensa de 1.00);
+  - [`submit_review` `b2ab9434…`](https://stellar.expert/explorer/testnet/tx/b2ab943481cd813417996fe679616b8ca5186b558aa7b5393dc33839465b088f) (entrega a tiempo: la garantía vuelve);
+  - [`forfeit_stake` `fb5256d1…`](https://stellar.expert/explorer/testnet/tx/fb5256d12cee842d4728eaf6aa48800a32e4d13da97653f2b8d42aa294f985ae) (otra cuenta no entregó: su garantía pasa a quien publicó).
+- Pruebas: 16 nuevas, 215 en total, en `src/test/stake.rs`. Se rompió el código de 27 formas a propósito y alguna prueba detectó cada una.
 
 ## 0.13.0 (27 nov 2026)
 
