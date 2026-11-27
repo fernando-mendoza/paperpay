@@ -1,5 +1,19 @@
 # Estado de QA
 
+## Revisión del 27 de noviembre de 2026: contrato v0.15.0 (traducción por encargo)
+
+- `pnpm test:contracts`: 231 pruebas (16 nuevas, en `contracts/splitter/src/test/grant.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
+  - **Hitos:** de 1 a 10, cada uno mayor que cero; una suma que desborda falla (`AmountOverflow`). Salen en orden, uno por llamada, y el último cierra el encargo.
+  - **Comisión por hito:** se redondea hacia abajo en cada hito (un hito de 49 stroops no paga comisión); lo que sobra queda para quien traduce.
+  - **Quién libera:** solo quien paga y con su firma. Quien traduce no puede liberarse un hito (`NoGrant`).
+  - **Plazo:** no se cancela un segundo antes del plazo y sí en el segundo exacto; después del plazo todavía se puede liberar, mientras no se haya cancelado.
+  - **Cancelar:** devuelve exactamente los hitos no liberados; lo ya pagado no vuelve.
+  - **Quien traduce sin trustline:** su hito queda pendiente (`credited`), la tesorería cobra y después lo cobra con `claim`.
+  - **Invariante de custodia:** el saldo del contrato es siempre hitos sin liberar + pendientes.
+- Mutaciones (33), con `tools/mutaciones-v0150.py` del run `2026-11-27-paperpay-contrato-v130` del hub: todas detectadas. Entre ellas: encargar sin firma, sin hitos o con 11, un hito de 0, la suma desbordada sin avisar, liberar sin avanzar de hito, cerrar el encargo un hito antes o no cerrarlo, pagar el hito sin comisión o a quien paga, cancelar antes del plazo, y cancelar devolviendo también lo liberado o quedándose con un hito.
+- Red Stellar local y testnet (`tools/usar-v0150.sh`, 27-nov 16:08 CDMX): las tres funciones usadas en dos encargos (uno pagado completo, otro cancelado a medias) y cuatro errores simulados antes de enviar. Saldo final del contrato: 0.
+- **No probado:** no hay pantalla ni API. El contrato no sabe si la traducción se entregó: liberar cada hito es decisión de quien paga, y quien traduce no tiene forma de reclamar un hito hecho que no le liberan.
+
 ## Revisión del 27 de noviembre de 2026: contrato v0.14.0 (compromiso del revisor)
 
 - `pnpm test:contracts`: 215 pruebas (16 nuevas, en `contracts/splitter/src/test/stake.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
