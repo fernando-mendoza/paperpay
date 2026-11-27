@@ -49,6 +49,13 @@
 //! - `cancel_bounty`: si nadie la ganó, quien la publicó la recupera, pero solo después del
 //!   plazo: mientras tanto, quien trabaja sabe que el dinero está ahí.
 //!
+//! Vales de lectura, la cuarta custodia: lecturas prepagadas que se reparten como enlaces.
+//! - `buy_vouchers`: alguien paga por adelantado varios vales para el catálogo de una editorial.
+//!   Cada vale es una llave ed25519; el contrato solo guarda la parte pública.
+//! - `redeem_voucher`: quien tiene la llave de un vale firma qué artículo quiere y para qué
+//!   lector. Con esa firma cualquiera envía el canje: el contrato paga la lectura con el vale.
+//! - `reclaim_vouchers`: quien compró recupera los vales que vencieron sin usarse.
+//!
 //! Si una cuenta no puede recibir lo que le paga el contrato (por ejemplo, una editorial nueva sin
 //! trustline de USDC), su parte no se pierde ni bloquea a nadie: queda pendiente a su nombre, y
 //! `claim` la cobra con una firma que además le abre la trustline (`trust` del SAC, CAP-73).
@@ -62,7 +69,7 @@
 
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
-    Address, Env, Map, String, Vec,
+    xdr::ToXdr, Address, BytesN, Env, Map, String, Vec,
 };
 
 /// 100% en puntos base.
@@ -95,6 +102,8 @@ pub const RENEW_WINDOW_SECONDS: u64 = DAY_SECONDS;
 pub const MAX_CAMPAIGN_DAYS: u32 = 90;
 /// Plazo máximo de una recompensa, en días.
 pub const MAX_BOUNTY_DAYS: u32 = 90;
+/// Vigencia máxima de un vale, en días.
+pub const MAX_VOUCHER_DAYS: u32 = 90;
 /// Después del plazo, las entradas de una campaña siguen en la red al menos estos días, para que
 /// cada aporte de una campaña fallida se pueda devolver.
 pub const REFUND_GRACE_DAYS: u32 = 30;
@@ -121,9 +130,9 @@ pub enum Error {
     InvalidPaperId = 3,
     /// Un monto (o la suma de un paquete) es tan grande que el cálculo se desborda.
     AmountOverflow = 4,
-    /// `pay_batch` sin artículos.
+    /// Una lista vacía: `pay_batch` sin artículos o una compra o devolución de vales sin llaves.
     EmptyBatch = 5,
-    /// `pay_batch` con más de `MAX_BATCH_ITEMS` artículos.
+    /// Una lista de más de `MAX_BATCH_ITEMS`: artículos en `pay_batch` o llaves de vales.
     BatchTooLarge = 6,
     /// `pay_batch` con el mismo artículo dos veces.
     DuplicatePaper = 7,
@@ -147,8 +156,8 @@ pub enum Error {
     NoSubscription = 15,
     /// Al pase le falta más de `RENEW_WINDOW_SECONDS`: todavía no toca renovar.
     RenewTooEarly = 16,
-    /// Plazo que ya pasó o que queda demasiado lejos: más de `MAX_CAMPAIGN_DAYS` para una campaña
-    /// o de `MAX_BOUNTY_DAYS` para una recompensa.
+    /// Plazo que ya pasó o que queda demasiado lejos: más de `MAX_CAMPAIGN_DAYS` para una campaña,
+    /// de `MAX_BOUNTY_DAYS` para una recompensa o de `MAX_VOUCHER_DAYS` para un vale.
     InvalidDeadline = 17,
     /// No hay campaña con ese id.
     NoCampaign = 18,
@@ -181,6 +190,17 @@ pub enum Error {
     BountyClosed = 31,
     /// La recompensa sigue en pie: no se cancela antes de su plazo.
     BountyActive = 32,
+    /// No hay vale con esa llave (o, al devolver, no es de esa cuenta).
+    NoVoucher = 33,
+    /// El vale ya se canjeó o se devolvió.
+    VoucherSpent = 34,
+    /// El vale venció: ya no se canjea.
+    VoucherExpired = 35,
+    /// El vale sigue vigente: no se devuelve antes de vencer.
+    VoucherActive = 36,
+    /// Esa llave ya se usó para un vale (también si está repetida en la misma compra). Una llave
+    /// no se reutiliza nunca: así una firma vieja no sirve para un vale nuevo.
+    VoucherExists = 37,
 }
 
 #[contracttype]
@@ -285,6 +305,18 @@ pub struct Bounty {
     pub open: bool,
 }
 
+/// Un vale: una lectura de `value` del catálogo de `publisher`, pagada por `buyer` y vigente
+/// hasta `expires_at` (segundos Unix). `open` es falso cuando ya se canjeó o se devolvió.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Voucher {
+    pub buyer: Address,
+    pub publisher: Address,
+    pub value: i128,
+    pub expires_at: u64,
+    pub open: bool,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -312,6 +344,8 @@ enum DataKey {
     NextBounty,
     /// Una recompensa, por id.
     Bounty(u32),
+    /// Un vale, por su llave pública ed25519.
+    Voucher(BytesN<32>),
 }
 
 /// Comprobante de un artículo pagado. Topics: `["paid", publisher, reader]`.
@@ -599,6 +633,45 @@ pub struct BountyCancelled {
     pub funder: Address,
     pub bounty_id: u32,
     pub amount: i128,
+}
+
+/// Una compra de vales. Topics: `["vouchers_bought", buyer, publisher]`. `total` (el valor de cada
+/// vale por la cantidad de llaves) ya está en el contrato.
+#[contractevent(topics = ["vouchers_bought"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VouchersBought {
+    #[topic]
+    pub buyer: Address,
+    #[topic]
+    pub publisher: Address,
+    pub keys: Vec<BytesN<32>>,
+    pub value: i128,
+    pub expires_at: u64,
+    pub total: i128,
+}
+
+/// Un vale canjeado. Topics: `["voucher_redeemed", buyer, reader]`. Acompaña al `paid` de la
+/// lectura.
+#[contractevent(topics = ["voucher_redeemed"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VoucherRedeemed {
+    #[topic]
+    pub buyer: Address,
+    #[topic]
+    pub reader: Address,
+    pub key: BytesN<32>,
+    pub paper_id: String,
+    pub value: i128,
+}
+
+/// Vales vencidos devueltos a quien los compró. Topics: `["vouchers_reclaimed", buyer]`.
+#[contractevent(topics = ["vouchers_reclaimed"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VouchersReclaimed {
+    #[topic]
+    pub buyer: Address,
+    pub keys: Vec<BytesN<32>>,
+    pub total: i128,
 }
 
 #[contract]
@@ -1643,6 +1716,179 @@ impl Splitter {
         env.storage().persistent().get(&DataKey::Bounty(bounty_id))
     }
 
+    /// `buyer` compra un vale por cada llave de `keys` (de 1 a `MAX_BATCH_ITEMS`): cada vale paga
+    /// una lectura de `value` del catálogo de `publisher`, hasta `expires_at` (segundos Unix, a no
+    /// más de `MAX_VOUCHER_DAYS`). El total pasa de su wallet al contrato. Cada llave es la parte
+    /// pública de un par ed25519 que `buyer` genera y reparte (por ejemplo, como enlace): quien
+    /// tenga la parte privada puede canjear el vale. Una llave no se puede usar dos veces. Solo
+    /// firma `buyer`. Emite `vouchers_bought` y devuelve el total pagado.
+    pub fn buy_vouchers(
+        env: Env,
+        buyer: Address,
+        publisher: Address,
+        keys: Vec<BytesN<32>>,
+        value: i128,
+        expires_at: u64,
+    ) -> i128 {
+        buyer.require_auth();
+        check_keys(&env, &keys);
+        if value <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let now = env.ledger().timestamp();
+        if expires_at <= now || expires_at - now > MAX_VOUCHER_DAYS as u64 * DAY_SECONDS {
+            panic_with_error!(&env, Error::InvalidDeadline);
+        }
+        let total = match value.checked_mul(keys.len() as i128) {
+            Some(total) => total,
+            None => panic_with_error!(&env, Error::AmountOverflow),
+        };
+        for key in keys.iter() {
+            let entry = DataKey::Voucher(key);
+            // También detecta una llave repetida en la misma lista: la primera ya quedó guardada.
+            if env.storage().persistent().has(&entry) {
+                panic_with_error!(&env, Error::VoucherExists);
+            }
+            env.storage().persistent().set(
+                &entry,
+                &Voucher {
+                    buyer: buyer.clone(),
+                    publisher: publisher.clone(),
+                    value,
+                    expires_at,
+                    open: true,
+                },
+            );
+            keep_campaign(&env, &entry, expires_at);
+        }
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &buyer,
+            env.current_contract_address(),
+            &total,
+        );
+        extend_instance_ttl(&env);
+
+        VouchersBought {
+            buyer,
+            publisher,
+            keys,
+            value,
+            expires_at,
+            total,
+        }
+        .publish(&env);
+
+        total
+    }
+
+    /// Canjea el vale de `key`: paga una lectura de `paper_id` para `reader`, 98/2 directo desde
+    /// el contrato a la editorial del vale y a la tesorería. No pide la firma de ninguna cuenta:
+    /// la autorización es `signature`, la firma ed25519 de la llave del vale sobre
+    /// `(este contrato, reader, paper_id)` en XDR. Esa firma solo sirve para ese lector y ese
+    /// artículo, así que cualquiera la puede enviar (el sitio, por ejemplo, para que quien lee no
+    /// necesite cuenta). Un vale se canjea una vez y antes de vencer. Si la editorial no puede
+    /// recibir, falla y el vale sigue vigente. Emite `paid` (con `payer` = quien compró el vale) y
+    /// `voucher_redeemed`, y devuelve el reparto.
+    pub fn redeem_voucher(
+        env: Env,
+        key: BytesN<32>,
+        signature: BytesN<64>,
+        reader: Address,
+        paper_id: String,
+    ) -> Split {
+        validate_paper_id(&env, &paper_id);
+        let entry = DataKey::Voucher(key.clone());
+        let mut voucher = read_voucher(&env, &entry);
+        if env.ledger().timestamp() >= voucher.expires_at {
+            panic_with_error!(&env, Error::VoucherExpired);
+        }
+        let message = (
+            env.current_contract_address(),
+            reader.clone(),
+            paper_id.clone(),
+        )
+            .to_xdr(&env);
+        // Si la firma no es de esa llave sobre ese mensaje, la transacción falla aquí.
+        env.crypto().ed25519_verify(&key, &message, &signature);
+        voucher.open = false;
+        env.storage().persistent().set(&entry, &voucher);
+
+        let config = read_config(&env);
+        let split = compute_split(&env, voucher.value, config.fee_bps);
+        transfer_split(
+            &env,
+            &config,
+            &env.current_contract_address(),
+            &voucher.publisher,
+            &split,
+        );
+        extend_instance_ttl(&env);
+
+        Paid {
+            publisher: voucher.publisher,
+            reader: reader.clone(),
+            paper_id: paper_id.clone(),
+            payer: voucher.buyer.clone(),
+            amount: voucher.value,
+            fee: split.fee,
+        }
+        .publish(&env);
+        VoucherRedeemed {
+            buyer: voucher.buyer,
+            reader,
+            key,
+            paper_id,
+            value: voucher.value,
+        }
+        .publish(&env);
+
+        split
+    }
+
+    /// `buyer` recupera los vales de `keys` que vencieron sin canjearse: su valor vuelve del
+    /// contrato a su wallet, sin comisión. Todos tienen que ser suyos, estar sin usar y vencidos
+    /// (`VoucherActive` antes); si uno no cumple, no se devuelve ninguno. Solo firma `buyer`.
+    /// Emite `vouchers_reclaimed` y devuelve el total recuperado.
+    pub fn reclaim_vouchers(env: Env, buyer: Address, keys: Vec<BytesN<32>>) -> i128 {
+        buyer.require_auth();
+        check_keys(&env, &keys);
+        let now = env.ledger().timestamp();
+        let mut total: i128 = 0;
+        for key in keys.iter() {
+            let entry = DataKey::Voucher(key);
+            let mut voucher = read_voucher(&env, &entry);
+            if voucher.buyer != buyer {
+                panic_with_error!(&env, Error::NoVoucher);
+            }
+            if now < voucher.expires_at {
+                panic_with_error!(&env, Error::VoucherActive);
+            }
+            // Una llave repetida en la lista encuentra el vale ya cerrado: `VoucherSpent`.
+            voucher.open = false;
+            env.storage().persistent().set(&entry, &voucher);
+            total = add(&env, total, voucher.value);
+        }
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &env.current_contract_address(),
+            &buyer,
+            &total,
+        );
+        extend_instance_ttl(&env);
+
+        VouchersReclaimed { buyer, keys, total }.publish(&env);
+
+        total
+    }
+
+    /// El vale de `key`, si existe.
+    pub fn voucher(env: Env, key: BytesN<32>) -> Option<Voucher> {
+        env.storage().persistent().get(&DataKey::Voucher(key))
+    }
+
     /// Lo que el contrato le debe a `account` (pagos que no pudo recibir).
     pub fn owed(env: Env, account: Address) -> i128 {
         env.storage()
@@ -1837,6 +2083,28 @@ fn credit(env: &Env, to: &Address, amount: i128) {
         amount,
     }
     .publish(env);
+}
+
+/// El vale de `entry`, si existe y sigue sin usar.
+fn read_voucher(env: &Env, entry: &DataKey) -> Voucher {
+    let voucher: Voucher = match env.storage().persistent().get(entry) {
+        Some(voucher) => voucher,
+        None => panic_with_error!(env, Error::NoVoucher),
+    };
+    if !voucher.open {
+        panic_with_error!(env, Error::VoucherSpent);
+    }
+    voucher
+}
+
+/// Una lista de llaves de vales: de 1 a `MAX_BATCH_ITEMS`.
+fn check_keys(env: &Env, keys: &Vec<BytesN<32>>) {
+    if keys.is_empty() {
+        panic_with_error!(env, Error::EmptyBatch);
+    }
+    if keys.len() > MAX_BATCH_ITEMS {
+        panic_with_error!(env, Error::BatchTooLarge);
+    }
 }
 
 /// La recompensa de `key`, si existe, es de `funder` y sigue abierta.

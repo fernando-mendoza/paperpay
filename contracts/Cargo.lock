@@ -1212,6 +1212,7 @@ dependencies = [
 name = "paperpay-splitter"
 version = "0.8.0"
 dependencies = [
+ "ed25519-dalek",
  "soroban-sdk",
 ]
 

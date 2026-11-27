@@ -19,6 +19,7 @@ use soroban_sdk::{
 
 mod bounty;
 mod pool;
+mod voucher;
 
 /// $0.50 USDC con 7 decimales.
 const PRICE: i128 = 5_000_000;
