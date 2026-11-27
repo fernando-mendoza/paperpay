@@ -4,10 +4,10 @@
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "productionContractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
   "splitter": {
-    "version": "0.8.0",
-    "contractId": "CDUFLVEYPPGHJZTUVPW45YAAB7JAEKDKVZCYAQPKQBVMWETKFB2VPNIF",
-    "wasmSha256": "d90b7c60644a85fbd593109aaa5b10c71aa85d1b3f0e37b4c55682135798faa5",
-    "source": "contracts/splitter @ 6c28419, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+    "version": "0.9.0",
+    "contractId": "CCGNE2XUYN2FNRE3EBE3HSNS7Q3EW4CTISUR6RYBUWQ7ACWZGI4GMYGB",
+    "wasmSha256": "9351005ee73683c99b2344df052e0dabe72e891e303a1ddbd42f52f13c6e1ab4",
+    "source": "contracts/splitter @ 6f3a384, soroban-sdk 29.0.1, stellar-cli 30.0.1",
     "constructor": {
       "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
@@ -15,29 +15,29 @@
       "pass_day_price": 10000000,
       "open_day_price": 50000000
     },
-    "uploadTx": "0365e333df32b7e3f881bc7ab821d7d12b0fd399db3a7a9f792858ba76981cf8",
-    "deployTx": "3b7a1e0377ff55483479aca5cff446e56c886400bb9cd05a40c700655cf3037e",
-    "deployedAt": "2026-11-27T06:17:19Z",
+    "uploadTx": "a863767d63b5d1acd90142fcaabf4e8377d9ca4ceb9054ac6d0e8a2d2bca12e5",
+    "deployTx": "52cd84ef2cb9a6bd58ec088cdd44ed2a4de119a3731a710a9bc85e55a2d7c371",
+    "deployedAt": "2026-11-27T06:31:49Z",
     "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
-    "custody": "además de campañas, pendientes y fondos, guarda las recompensas abiertas; cada una sale solo hacia sus ganadores (award_bounty) o, después del plazo, de vuelta a quien la publicó (cancel_bounty); sin admin",
+    "custody": "además de campañas, pendientes, fondos y recompensas, guarda el valor de los vales sin usar; cada vale sale solo por un canje firmado con su llave (redeem_voucher, a la editorial del vale) o, vencido, de vuelta a quien lo compró (reclaim_vouchers); sin admin",
     "usage": {
-      "post_bounty": {
-        "tx": "2940ac9f0a5c8ea4b1bd83513d7f5bc3afbc61e729ea471287d96827d505f1bd",
-        "what": "GDSKJDGE333YDO43UNFLXSDE4Q3JGRSJAXLQCSRCZCAHX54L222SKHUI publica 10000000 por reproducir crispr-nanomedicine-biotech, plazo de 1 h",
-        "result": "recompensa 0; 10000000 al contrato; evento bounty_posted. Segunda recompensa (1), eb576dc38398f887231c9c02f7f2152097291e48c5b9e8c48972ee24409634db: 3000000 con plazo de 90 s"
+      "buy_vouchers": {
+        "tx": "92e5cbebf39baaaaaa72711ba629912bc262c849fc048ddf4178c7a8d6068e1b",
+        "what": "GBLYYSWRSB3PNPIC6SNDNWEAPHHNBLAQWW4OT3NAYWE6WYSGZOPMCR4S compra 2 vales de 5000000 para la editorial demo, vigentes 150 s; llaves 939bc603dd822f8ed4e138e237becf7c22654f82ea10e7606168b08b2748fbfd y f4630681b236aba473d596a657a20a98b9a0eaa04420b837ecefed50aa8fbf57",
+        "result": "10000000 de quien compra al contrato; evento vouchers_bought"
       },
-      "award_bounty": {
-        "tx": "4d804f948709a332b3c3f5a66300573d541e2aea41b2a977ca72843a663e6f72",
-        "what": "quien la publicó reparte la recompensa 0 en 6000/4000 puntos base; el segundo ganador no tiene trustline",
-        "result": "5880000 al primer ganador, 3920000 pendientes del segundo (credited; los cobra con claim, b592f3fe20b9d1fdeb46eb164d11255c3c8e9a2b99a03b343823feb067178e56) y 200000 a la tesorería; eventos rewarded × 2 y bounty_awarded"
+      "redeem_voucher": {
+        "tx": "6f469d80a927a441185960043b60954c6c65a9940ba461224734accc1bc6851d",
+        "what": "otra cuenta envía el canje del vale 939bc603… para GBTG7FHCR3V4THGO5DJXJ6JULL3CMBEDIO25QTSLTKMJL7WGWQZST72Z (una llave que no existe en la red) y crispr-nanomedicine-biotech; la firma es de la llave del vale (openssl) sobre el XDR de (contrato, reader, paper_id)",
+        "result": "4900000 a la editorial demo y 100000 a la tesorería, desde el contrato; eventos paid (payer = quien compró) y voucher_redeemed"
       },
-      "cancel_bounty": {
-        "tx": "2552af234b4969c5fe093cca23ace48fe9e99765a382eb7c63d0ed2c18862184",
-        "what": "vencido el plazo de la recompensa 1, quien la publicó la cancela",
-        "result": "3000000 de vuelta, sin comisión; evento bounty_cancelled"
+      "reclaim_vouchers": {
+        "tx": "f9ce75a6f3f8cea6732958b3798600b0f93290a2a4efac22ea4e914baa50f9d5",
+        "what": "vencido el vale f4630681… sin usarse, quien lo compró lo recupera",
+        "result": "5000000 de vuelta, sin comisión; evento vouchers_reclaimed"
       }
     },
-    "checks": "simulados antes de enviar: cancelar antes del plazo (#32), otra cuenta repartiendo (#30), repartir dos veces (#31). Al final: saldo del contrato 0, tesorería +200000"
+    "checks": "simulados antes de enviar: la misma llave en otra compra (#37); la firma usada para otro lector, otro artículo y otro vale (falla la verificación ed25519 del host); canjear dos veces (#34); devolver antes de vencer (#36); canjear un vale vencido (#35). Al final: saldo del contrato 0"
   },
   "boveda": {
     "version": "0.1.0",
@@ -71,6 +71,42 @@
     "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."
   },
   "previous": [
+    {
+      "version": "0.8.0",
+      "contractId": "CDUFLVEYPPGHJZTUVPW45YAAB7JAEKDKVZCYAQPKQBVMWETKFB2VPNIF",
+      "wasmSha256": "d90b7c60644a85fbd593109aaa5b10c71aa85d1b3f0e37b4c55682135798faa5",
+      "source": "contracts/splitter @ 6c28419, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200,
+        "pass_day_price": 10000000,
+        "open_day_price": 50000000
+      },
+      "uploadTx": "0365e333df32b7e3f881bc7ab821d7d12b0fd399db3a7a9f792858ba76981cf8",
+      "deployTx": "3b7a1e0377ff55483479aca5cff446e56c886400bb9cd05a40c700655cf3037e",
+      "deployedAt": "2026-11-27T06:17:19Z",
+      "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
+      "custody": "además de campañas, pendientes y fondos, guarda las recompensas abiertas; cada una sale solo hacia sus ganadores (award_bounty) o, después del plazo, de vuelta a quien la publicó (cancel_bounty); sin admin",
+      "usage": {
+        "post_bounty": {
+          "tx": "2940ac9f0a5c8ea4b1bd83513d7f5bc3afbc61e729ea471287d96827d505f1bd",
+          "what": "GDSKJDGE333YDO43UNFLXSDE4Q3JGRSJAXLQCSRCZCAHX54L222SKHUI publica 10000000 por reproducir crispr-nanomedicine-biotech, plazo de 1 h",
+          "result": "recompensa 0; 10000000 al contrato; evento bounty_posted. Segunda recompensa (1), eb576dc38398f887231c9c02f7f2152097291e48c5b9e8c48972ee24409634db: 3000000 con plazo de 90 s"
+        },
+        "award_bounty": {
+          "tx": "4d804f948709a332b3c3f5a66300573d541e2aea41b2a977ca72843a663e6f72",
+          "what": "quien la publicó reparte la recompensa 0 en 6000/4000 puntos base; el segundo ganador no tiene trustline",
+          "result": "5880000 al primer ganador, 3920000 pendientes del segundo (credited; los cobra con claim, b592f3fe20b9d1fdeb46eb164d11255c3c8e9a2b99a03b343823feb067178e56) y 200000 a la tesorería; eventos rewarded × 2 y bounty_awarded"
+        },
+        "cancel_bounty": {
+          "tx": "2552af234b4969c5fe093cca23ace48fe9e99765a382eb7c63d0ed2c18862184",
+          "what": "vencido el plazo de la recompensa 1, quien la publicó la cancela",
+          "result": "3000000 de vuelta, sin comisión; evento bounty_cancelled"
+        }
+      },
+      "checks": "simulados antes de enviar: cancelar antes del plazo (#32), otra cuenta repartiendo (#30), repartir dos veces (#31). Al final: saldo del contrato 0, tesorería +200000"
+    },
     {
       "version": "0.7.0",
       "contractId": "CDOI4FARQOJN6AXPWZQPZN5EBO47JY275L6VRIE3DP2NC35JIAGRDK3N",
