@@ -4,10 +4,10 @@
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "productionContractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
   "splitter": {
-    "version": "0.6.0",
-    "contractId": "CANRPEZT2DUNB3IP6ZDFDMAOH2H5R4AFPYRLYEMLTN4EE6O4QYSS6QM7",
-    "wasmSha256": "b9e66f54e6e88f65d34250262803f574fed86b762b4eecc7b085d08e6e13c3df",
-    "source": "contracts/splitter @ 36e1bec, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+    "version": "0.7.0",
+    "contractId": "CDOI4FARQOJN6AXPWZQPZN5EBO47JY275L6VRIE3DP2NC35JIAGRDK3N",
+    "wasmSha256": "1cbe78d2826c6ae544b04444eb20e7a8e8b1abae4562b36fb8cc37b320e6ecb1",
+    "source": "contracts/splitter @ c4afe8a, soroban-sdk 29.0.1, stellar-cli 30.0.1",
     "constructor": {
       "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
@@ -15,39 +15,29 @@
       "pass_day_price": 10000000,
       "open_day_price": 50000000
     },
-    "uploadTx": "d2f6eede12d314ee3c476e0c97ea74e919cb78ab34787129c05401d2343d2cfa",
-    "deployTx": "f5f14fdc78d0e6f574f68a6a16e3fa324eaa79a2a4dea2ce1e3ffd7c64684d4e",
-    "deployedAt": "2026-11-26T06:18:28Z",
+    "uploadTx": "641b6dfc5d423f64b04b1ef46fdabcfa9eb820e35dfa403bf9e14a483d8e1f69",
+    "deployTx": "04844d1deb5454de84dadfcc3366470ffaf074d3a4ba4b2837923aa90732ecd2",
+    "deployedAt": "2026-11-27T06:05:59Z",
     "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
-    "custody": "guarda los aportes de las campañas sin liberar y lo pendiente de cobro (Owed); cada saldo sale solo por la meta (release_pledges), el plazo (refund_pledge) o su dueño (claim); sin admin",
+    "custody": "además de las campañas y lo pendiente (v0.6.0), guarda los fondos de patrocinio; cada fondo sale solo por una lectura de su editorial (pay_sponsored, firmada por su operador) o de vuelta a su patrocinador (withdraw_pool); sin admin",
     "usage": {
-      "open_campaign": {
-        "tx": "6993e9533f98516b8b70d55927b999d0cb39ba8f111f020686652775b34866f1",
-        "what": "GDLXWAHTSWYSW7NXPJRCSE7BJM3AYGZY2MJMAGVBV7BA6AZP2YTUI5XI (editorial nueva, sin trustline de USDC) ofrece liberar crispr-nanomedicine-biotech por 10000000 con plazo de 1 h",
-        "result": "campaña 0; evento campaign; soporte, no se reclama"
+      "fund_pool": {
+        "tx": "57cecee989c7932615b90ed8c474e523cea9607ce084ac607145977a5660ba4a",
+        "what": "GDABIRUK2QPUERGS3MROYHBGE43C5QOFBSUGXOKDF6Y5YOJ6DJPFPMNE deposita 15000000 para lecturas de la editorial demo, con tope 5000000 y operador GBFGDKALEDEREFGAD75CZAYWMXY3K2LNBNXSMDKC5VP54RGJIMSF6Y5D",
+        "result": "15000000 del patrocinador al contrato; evento pool_funded con balance 15000000"
       },
-      "pledge": {
-        "tx": "2498a4590283b59bb704694f140fea2471c20a7f89d2fd524329237ba97ea189",
-        "what": "GCH3A3NRLUWMHZOFEIJ76K6QCFLOKFJFJRNB5BF4NZZ3WQ5R5QVJFTOA aporta 6000000 a la campaña 0",
-        "result": "6000000 del aportante al contrato (en garantía); evento pledged con raised 6000000. Segundo aporte, b1a2bd6f7a8c26e757470e893469b25bbb4d04a43e8a109eb03d44346339cc31: 4000000 de GCR7FV74T3V4OFU4BMEFCMW3XBEYJY7ZSDNWH66BS3YROUWFVUKCL4MU, completa la meta"
+      "pay_sponsored": {
+        "tx": "de1651fe1aa671f909a5f85dd1db85fd821618408f5258dfa66b28e0c603ad6e",
+        "what": "el operador paga crispr-nanomedicine-biotech (5000000) para GCQY6D2TTI5GGNEAABY2SNDYTDINEN2ODGGULI5NWJHMAPNYADOOW4W2, una llave que no existe en la red",
+        "result": "4900000 a la editorial demo y 100000 a la tesorería, desde el contrato; eventos paid (payer = patrocinador) y sponsored; quedan 10000000 en el fondo"
       },
-      "release_pledges": {
-        "tx": "5204084632dc76ef9107b0cbdde478df45f0ecb7a9a1aea39dec86e324c74010",
-        "what": "la envía GB4WX2XGM7QVV3JI63SV33B27OP2JALEWWMEP2JL3DM3BGICSFILB4AV, sin otras firmas",
-        "result": "200000 a la tesorería; la editorial no tiene trustline, así que 9800000 quedan pendientes a su nombre (evento credited); evento released"
-      },
-      "claim": {
-        "tx": "cd62df31632cef23b99ca2d7cc8013717f947a0843392e1bdc5530d0594f19f8",
-        "what": "la editorial nueva cobra lo pendiente con una firma",
-        "result": "en la misma transacción: trustline_created de USDC y 9800000 del contrato a la editorial; evento claimed"
-      },
-      "refund_pledge": {
-        "tx": "acdbb11b6d7f32ade0f92abe75c33f4d426fc982f9b1ec23a4711d1e558b4706",
-        "what": "campaña 1 (plazo de 90 s) con un aporte de 3000000 de GDV2OP4FNTYY5TBXLRH6NM7WQH5KZIN35AXGEQL6T5OMHSRKBPQQ26CB (a0e7f9d9eec27331f91e37fc0379f30b25fc1e7e65a665c8ba8422bddeea20e1); vencida sin la meta, la envía otra cuenta",
-        "result": "3000000 del contrato a quien aportó; evento unpledged"
+      "withdraw_pool": {
+        "tx": "ea22d0b94ac3ba5cd95e3a4fa01f4d3a8fe0db510a04f4488ad13ec3a6c6e3c4",
+        "what": "el patrocinador retira 10000000",
+        "result": "10000000 del contrato al patrocinador; evento pool_withdrawn con balance 0"
       }
     },
-    "checks": "al final: saldo del contrato 0, tesorería +200000, owed de la editorial 0; un segundo claim falla con NothingToClaim (#22)"
+    "checks": "simulados antes de enviar: otra cuenta como operador (#26), más que el tope (#27), la misma lectura otra vez (#29), el operador retirando (#25), retiro mayor que el saldo (#28). Al final: saldo del contrato 0"
   },
   "boveda": {
     "version": "0.1.0",
@@ -81,6 +71,52 @@
     "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."
   },
   "previous": [
+    {
+      "version": "0.6.0",
+      "contractId": "CANRPEZT2DUNB3IP6ZDFDMAOH2H5R4AFPYRLYEMLTN4EE6O4QYSS6QM7",
+      "wasmSha256": "b9e66f54e6e88f65d34250262803f574fed86b762b4eecc7b085d08e6e13c3df",
+      "source": "contracts/splitter @ 36e1bec, soroban-sdk 29.0.1, stellar-cli 30.0.1",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200,
+        "pass_day_price": 10000000,
+        "open_day_price": 50000000
+      },
+      "uploadTx": "d2f6eede12d314ee3c476e0c97ea74e919cb78ab34787129c05401d2343d2cfa",
+      "deployTx": "f5f14fdc78d0e6f574f68a6a16e3fa324eaa79a2a4dea2ce1e3ffd7c64684d4e",
+      "deployedAt": "2026-11-26T06:18:28Z",
+      "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
+      "custody": "guarda los aportes de las campañas sin liberar y lo pendiente de cobro (Owed); cada saldo sale solo por la meta (release_pledges), el plazo (refund_pledge) o su dueño (claim); sin admin",
+      "usage": {
+        "open_campaign": {
+          "tx": "6993e9533f98516b8b70d55927b999d0cb39ba8f111f020686652775b34866f1",
+          "what": "GDLXWAHTSWYSW7NXPJRCSE7BJM3AYGZY2MJMAGVBV7BA6AZP2YTUI5XI (editorial nueva, sin trustline de USDC) ofrece liberar crispr-nanomedicine-biotech por 10000000 con plazo de 1 h",
+          "result": "campaña 0; evento campaign; soporte, no se reclama"
+        },
+        "pledge": {
+          "tx": "2498a4590283b59bb704694f140fea2471c20a7f89d2fd524329237ba97ea189",
+          "what": "GCH3A3NRLUWMHZOFEIJ76K6QCFLOKFJFJRNB5BF4NZZ3WQ5R5QVJFTOA aporta 6000000 a la campaña 0",
+          "result": "6000000 del aportante al contrato (en garantía); evento pledged con raised 6000000. Segundo aporte, b1a2bd6f7a8c26e757470e893469b25bbb4d04a43e8a109eb03d44346339cc31: 4000000 de GCR7FV74T3V4OFU4BMEFCMW3XBEYJY7ZSDNWH66BS3YROUWFVUKCL4MU, completa la meta"
+        },
+        "release_pledges": {
+          "tx": "5204084632dc76ef9107b0cbdde478df45f0ecb7a9a1aea39dec86e324c74010",
+          "what": "la envía GB4WX2XGM7QVV3JI63SV33B27OP2JALEWWMEP2JL3DM3BGICSFILB4AV, sin otras firmas",
+          "result": "200000 a la tesorería; la editorial no tiene trustline, así que 9800000 quedan pendientes a su nombre (evento credited); evento released"
+        },
+        "claim": {
+          "tx": "cd62df31632cef23b99ca2d7cc8013717f947a0843392e1bdc5530d0594f19f8",
+          "what": "la editorial nueva cobra lo pendiente con una firma",
+          "result": "en la misma transacción: trustline_created de USDC y 9800000 del contrato a la editorial; evento claimed"
+        },
+        "refund_pledge": {
+          "tx": "acdbb11b6d7f32ade0f92abe75c33f4d426fc982f9b1ec23a4711d1e558b4706",
+          "what": "campaña 1 (plazo de 90 s) con un aporte de 3000000 de GDV2OP4FNTYY5TBXLRH6NM7WQH5KZIN35AXGEQL6T5OMHSRKBPQQ26CB (a0e7f9d9eec27331f91e37fc0379f30b25fc1e7e65a665c8ba8422bddeea20e1); vencida sin la meta, la envía otra cuenta",
+          "result": "3000000 del contrato a quien aportó; evento unpledged"
+        }
+      },
+      "checks": "al final: saldo del contrato 0, tesorería +200000, owed de la editorial 0; un segundo claim falla con NothingToClaim (#22)"
+    },
     {
       "version": "0.5.0",
       "contractId": "CA2QHBXMF6KIBBFT5ATQYMFDP75246RQV6NC6YA55QJZX3CRVFUE4RT2",
