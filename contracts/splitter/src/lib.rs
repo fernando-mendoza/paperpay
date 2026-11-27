@@ -42,6 +42,13 @@
 //!   lector cada 24 h.
 //! - `withdraw_pool`: el patrocinador retira lo que no se usó, cuando quiera.
 //!
+//! Recompensas por revisar o reproducir un artículo, la tercera custodia:
+//! - `post_bounty`: alguien deja una recompensa en garantía, con un plazo.
+//! - `award_bounty`: quien la publicó la reparte entre quienes hicieron el trabajo (98%) y la
+//!   tesorería (2%).
+//! - `cancel_bounty`: si nadie la ganó, quien la publicó la recupera, pero solo después del
+//!   plazo: mientras tanto, quien trabaja sabe que el dinero está ahí.
+//!
 //! Si una cuenta no puede recibir lo que le paga el contrato (por ejemplo, una editorial nueva sin
 //! trustline de USDC), su parte no se pierde ni bloquea a nadie: queda pendiente a su nombre, y
 //! `claim` la cobra con una firma que además le abre la trustline (`trust` del SAC, CAP-73).
@@ -86,6 +93,8 @@ pub const MAX_SUBSCRIPTION_DAYS: u32 = 150;
 pub const RENEW_WINDOW_SECONDS: u64 = DAY_SECONDS;
 /// Plazo máximo de una campaña de acceso abierto, contado desde que se abre.
 pub const MAX_CAMPAIGN_DAYS: u32 = 90;
+/// Plazo máximo de una recompensa, en días.
+pub const MAX_BOUNTY_DAYS: u32 = 90;
 /// Después del plazo, las entradas de una campaña siguen en la red al menos estos días, para que
 /// cada aporte de una campaña fallida se pueda devolver.
 pub const REFUND_GRACE_DAYS: u32 = 30;
@@ -138,7 +147,8 @@ pub enum Error {
     NoSubscription = 15,
     /// Al pase le falta más de `RENEW_WINDOW_SECONDS`: todavía no toca renovar.
     RenewTooEarly = 16,
-    /// Plazo de campaña que ya pasó o que queda a más de `MAX_CAMPAIGN_DAYS`.
+    /// Plazo que ya pasó o que queda demasiado lejos: más de `MAX_CAMPAIGN_DAYS` para una campaña
+    /// o de `MAX_BOUNTY_DAYS` para una recompensa.
     InvalidDeadline = 17,
     /// No hay campaña con ese id.
     NoCampaign = 18,
@@ -165,6 +175,12 @@ pub enum Error {
     PoolTooLow = 28,
     /// El fondo ya pagó ese artículo para ese lector en las últimas 24 h.
     AlreadySponsored = 29,
+    /// No hay recompensa con ese id publicada por esa cuenta.
+    NoBounty = 30,
+    /// La recompensa ya se pagó o se canceló.
+    BountyClosed = 31,
+    /// La recompensa sigue en pie: no se cancela antes de su plazo.
+    BountyActive = 32,
 }
 
 #[contracttype]
@@ -257,6 +273,18 @@ pub struct Pool {
     pub balance: i128,
 }
 
+/// Una recompensa por revisar o reproducir `paper_id`: `funder` dejó `amount` en el contrato
+/// hasta `deadline` (segundos Unix, hora del ledger). `open` es falso cuando ya se pagó o se canceló.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Bounty {
+    pub funder: Address,
+    pub paper_id: String,
+    pub amount: i128,
+    pub deadline: u64,
+    pub open: bool,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -280,6 +308,10 @@ enum DataKey {
     /// Marcador temporal: el fondo de `sponsor` ya pagó `paper_id` para `reader`. Vence solo en
     /// `SPONSORED_TTL_LEDGERS`.
     Sponsored(Address, Address, String),
+    /// Id de la próxima recompensa (instance): los ids son secuenciales desde 0.
+    NextBounty,
+    /// Una recompensa, por id.
+    Bounty(u32),
 }
 
 /// Comprobante de un artículo pagado. Topics: `["paid", publisher, reader]`.
@@ -524,6 +556,51 @@ pub struct PoolWithdrawn {
     pub balance: i128,
 }
 
+/// Una recompensa nueva. Topics: `["bounty_posted", funder]`. `amount` ya está en el contrato.
+#[contractevent(topics = ["bounty_posted"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BountyPosted {
+    #[topic]
+    pub funder: Address,
+    pub bounty_id: u32,
+    pub paper_id: String,
+    pub amount: i128,
+    pub deadline: u64,
+}
+
+/// Una recompensa repartida. Topics: `["bounty_awarded", funder]`. `amount` es el total y `fee` la
+/// comisión; lo que recibió cada ganador va en su propio evento `rewarded`.
+#[contractevent(topics = ["bounty_awarded"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BountyAwarded {
+    #[topic]
+    pub funder: Address,
+    pub bounty_id: u32,
+    pub paper_id: String,
+    pub amount: i128,
+    pub fee: i128,
+}
+
+/// La parte de una recompensa que le tocó a un ganador. Topics: `["rewarded", winner]`.
+#[contractevent(topics = ["rewarded"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Rewarded {
+    #[topic]
+    pub winner: Address,
+    pub bounty_id: u32,
+    pub amount: i128,
+}
+
+/// Una recompensa cancelada después de su plazo. Topics: `["bounty_cancelled", funder]`.
+#[contractevent(topics = ["bounty_cancelled"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BountyCancelled {
+    #[topic]
+    pub funder: Address,
+    pub bounty_id: u32,
+    pub amount: i128,
+}
+
 #[contract]
 pub struct Splitter;
 
@@ -619,18 +696,7 @@ impl Splitter {
         let config = read_config(&env);
         let split = compute_split(&env, amount, config.fee_bps);
 
-        let mut parts: Vec<i128> = Vec::new(&env);
-        let mut assigned: i128 = 0;
-        for share in authors.iter() {
-            let part = match split.publisher.checked_mul(share.bps as i128) {
-                Some(scaled) => scaled / BPS_DENOMINATOR,
-                None => panic_with_error!(&env, Error::AmountOverflow),
-            };
-            // Cada parte es un piso de `publisher × bps / 10 000`: la suma nunca pasa de `publisher`.
-            assigned += part;
-            parts.push_back(part);
-        }
-        parts.set(0, parts.get_unchecked(0) + (split.publisher - assigned));
+        let parts = share_parts(&env, split.publisher, &authors);
 
         let usdc = token::Client::new(&env, &config.token);
         for (share, part) in authors.iter().zip(parts.iter()) {
@@ -1431,6 +1497,152 @@ impl Splitter {
             .get(&DataKey::Pool(sponsor, publisher))
     }
 
+    /// `funder` publica una recompensa de `amount` por revisar o reproducir `paper_id`. El dinero
+    /// pasa de su wallet al contrato y queda en garantía hasta `deadline` (segundos Unix, a no más
+    /// de `MAX_BOUNTY_DAYS`): antes del plazo solo puede salir hacia quienes ganen
+    /// (`award_bounty`); después, también puede volver a `funder` (`cancel_bounty`). Solo firma
+    /// `funder`. Emite `bounty_posted` y devuelve el id de la recompensa.
+    pub fn post_bounty(
+        env: Env,
+        funder: Address,
+        paper_id: String,
+        amount: i128,
+        deadline: u64,
+    ) -> u32 {
+        funder.require_auth();
+        validate_paper_id(&env, &paper_id);
+        if amount <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let now = env.ledger().timestamp();
+        if deadline <= now || deadline - now > MAX_BOUNTY_DAYS as u64 * DAY_SECONDS {
+            panic_with_error!(&env, Error::InvalidDeadline);
+        }
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &funder,
+            env.current_contract_address(),
+            &amount,
+        );
+        let id: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::NextBounty)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::NextBounty, &(id + 1));
+        let key = DataKey::Bounty(id);
+        env.storage().persistent().set(
+            &key,
+            &Bounty {
+                funder: funder.clone(),
+                paper_id: paper_id.clone(),
+                amount,
+                deadline,
+                open: true,
+            },
+        );
+        keep_campaign(&env, &key, deadline);
+        extend_instance_ttl(&env);
+
+        BountyPosted {
+            funder,
+            bounty_id: id,
+            paper_id,
+            amount,
+            deadline,
+        }
+        .publish(&env);
+
+        id
+    }
+
+    /// `funder` reparte su recompensa `bounty_id` entre `winners` (de 1 a `MAX_AUTHORS` cuentas,
+    /// con partes en puntos base que suman 100%): la tesorería recibe la comisión y los ganadores
+    /// el resto, cada uno su parte. Quién gana lo decide quien publicó la recompensa; el contrato
+    /// garantiza que el dinero existe y que sale completo, una sola vez. `funder` no puede ser
+    /// ganador. Se puede repartir antes o después del plazo, mientras no se haya cancelado. Si un
+    /// ganador no puede recibir (sin trustline), su parte queda pendiente a su nombre para
+    /// `claim`. Solo firma `funder`. Emite un `rewarded` por ganador y `bounty_awarded`; devuelve
+    /// el reparto (lo que va a los ganadores y la comisión).
+    pub fn award_bounty(env: Env, funder: Address, bounty_id: u32, winners: Vec<Share>) -> Split {
+        funder.require_auth();
+        let key = DataKey::Bounty(bounty_id);
+        let mut bounty = read_bounty(&env, &key, &funder);
+        validate_shares(&env, &winners);
+        for share in winners.iter() {
+            if share.account == funder {
+                panic_with_error!(&env, Error::InvalidShares);
+            }
+        }
+        bounty.open = false;
+        env.storage().persistent().set(&key, &bounty);
+
+        let config = read_config(&env);
+        let split = compute_split(&env, bounty.amount, config.fee_bps);
+        let parts = share_parts(&env, split.publisher, &winners);
+        for (share, part) in winners.iter().zip(parts.iter()) {
+            payout(&env, &config, &share.account, part);
+            Rewarded {
+                winner: share.account,
+                bounty_id,
+                amount: part,
+            }
+            .publish(&env);
+        }
+        payout(&env, &config, &config.treasury, split.fee);
+        extend_instance_ttl(&env);
+
+        BountyAwarded {
+            funder,
+            bounty_id,
+            paper_id: bounty.paper_id,
+            amount: bounty.amount,
+            fee: split.fee,
+        }
+        .publish(&env);
+
+        split
+    }
+
+    /// `funder` cancela su recompensa `bounty_id` y recupera todo, sin comisión. Solo después del
+    /// plazo (`BountyActive` antes) y si no se repartió. Solo firma `funder`. Emite
+    /// `bounty_cancelled` y devuelve lo recuperado.
+    pub fn cancel_bounty(env: Env, funder: Address, bounty_id: u32) -> i128 {
+        funder.require_auth();
+        let key = DataKey::Bounty(bounty_id);
+        let mut bounty = read_bounty(&env, &key, &funder);
+        if env.ledger().timestamp() < bounty.deadline {
+            panic_with_error!(&env, Error::BountyActive);
+        }
+        bounty.open = false;
+        env.storage().persistent().set(&key, &bounty);
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &env.current_contract_address(),
+            &funder,
+            &bounty.amount,
+        );
+        extend_instance_ttl(&env);
+
+        BountyCancelled {
+            funder,
+            bounty_id,
+            amount: bounty.amount,
+        }
+        .publish(&env);
+
+        bounty.amount
+    }
+
+    /// La recompensa `bounty_id`, si existe.
+    pub fn bounty(env: Env, bounty_id: u32) -> Option<Bounty> {
+        env.storage().persistent().get(&DataKey::Bounty(bounty_id))
+    }
+
     /// Lo que el contrato le debe a `account` (pagos que no pudo recibir).
     pub fn owed(env: Env, account: Address) -> i128 {
         env.storage()
@@ -1627,6 +1839,21 @@ fn credit(env: &Env, to: &Address, amount: i128) {
     .publish(env);
 }
 
+/// La recompensa de `key`, si existe, es de `funder` y sigue abierta.
+fn read_bounty(env: &Env, key: &DataKey, funder: &Address) -> Bounty {
+    let bounty: Bounty = match env.storage().persistent().get(key) {
+        Some(bounty) => bounty,
+        None => panic_with_error!(env, Error::NoBounty),
+    };
+    if bounty.funder != *funder {
+        panic_with_error!(env, Error::NoBounty);
+    }
+    if !bounty.open {
+        panic_with_error!(env, Error::BountyClosed);
+    }
+    bounty
+}
+
 fn read_pool(env: &Env, key: &DataKey) -> Pool {
     match env.storage().persistent().get(key) {
         Some(pool) => pool,
@@ -1652,8 +1879,9 @@ fn read_campaign(env: &Env, campaign_id: u32) -> Campaign {
     }
 }
 
-/// Las entradas de una campaña viven hasta su plazo y `REFUND_GRACE_DAYS` más (y el margen de
-/// `keep_until`): así cada aporte de una campaña fallida se puede devolver.
+/// Las entradas de una campaña (y las recompensas) viven hasta su plazo y `REFUND_GRACE_DAYS` más
+/// (y el margen de `keep_until`): así cada aporte de una campaña fallida se puede devolver y una
+/// recompensa vencida se puede cancelar.
 fn keep_campaign(env: &Env, key: &DataKey, deadline: u64) {
     keep_until(env, key, deadline + REFUND_GRACE_DAYS as u64 * DAY_SECONDS);
 }
@@ -1722,6 +1950,25 @@ fn validate_shares(env: &Env, authors: &Vec<Share>) {
     if total as i128 != BPS_DENOMINATOR {
         panic_with_error!(env, Error::InvalidShares);
     }
+}
+
+/// Reparte `total` entre `shares` según sus puntos base. Cada parte se redondea hacia abajo y lo
+/// que sobra por el redondeo va a la primera (el autor de correspondencia o el primer ganador):
+/// las partes suman exactamente `total`. `shares` ya pasó por `validate_shares`.
+fn share_parts(env: &Env, total: i128, shares: &Vec<Share>) -> Vec<i128> {
+    let mut parts: Vec<i128> = Vec::new(env);
+    let mut assigned: i128 = 0;
+    for share in shares.iter() {
+        let part = match total.checked_mul(share.bps as i128) {
+            Some(scaled) => scaled / BPS_DENOMINATOR,
+            None => panic_with_error!(env, Error::AmountOverflow),
+        };
+        // Cada parte es un piso de `total × bps / 10 000`: la suma nunca pasa de `total`.
+        assigned += part;
+        parts.push_back(part);
+    }
+    parts.set(0, parts.get_unchecked(0) + (total - assigned));
+    parts
 }
 
 fn add(env: &Env, a: i128, b: i128) -> i128 {

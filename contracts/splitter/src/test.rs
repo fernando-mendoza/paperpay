@@ -17,6 +17,7 @@ use soroban_sdk::{
     vec, Address, Env, Event, IntoVal, String, Symbol, Vec,
 };
 
+mod bounty;
 mod pool;
 
 /// $0.50 USDC con 7 decimales.
