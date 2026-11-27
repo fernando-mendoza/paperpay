@@ -4,10 +4,10 @@
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "productionContractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
   "splitter": {
-    "version": "0.15.0",
-    "contractId": "CBFYNOBCVMLQF3DACYYU24FLWDHJLR4ZSZZT2OJ4RKXEFYBZKF5EHXAV",
-    "wasmSha256": "9a5e9bdb3ca567900d16b45bd0a1df1dbb18917ad56a36bf8baf415d38641800",
-    "source": "contracts/splitter @ 3ddde33, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
+    "version": "0.16.0",
+    "contractId": "CCMUFZQR543HAJYYWMVIMA2A47VL2YVEJBRQMJA2F3UELAXAIPWEWBYZ",
+    "wasmSha256": "10b35983349911698bba5b99776605003d66111578dd2a2fceb001154ffc474a",
+    "source": "contracts/splitter @ 40aa14f, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
     "constructor": {
       "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
@@ -15,29 +15,29 @@
       "pass_day_price": 10000000,
       "open_day_price": 50000000
     },
-    "uploadTx": "4515068642dfd3cf4b533a779150e3e2f662fc3a4aad5db09280b3e8b5b20c73",
-    "deployTx": "f2e06487aedf9b0c2cd17baaa27c8f74c325b63478a764e1671bd7e717b7f254",
-    "deployedAt": "2026-11-27T22:08:29Z",
+    "uploadTx": "8dce60e43de2647b802d39ecb1f9c7d0ef4b55f60cede80b597a6c53b28fed00",
+    "deployTx": "3dfe9b52e47416acf659d24036e7212bda95dedd62a950e1105e7e5adddb97e5",
+    "deployedAt": "2026-11-27T22:11:54Z",
     "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
-    "custody": "además de lo anterior, guarda los hitos sin liberar de cada encargo; salen solo hacia quien traduce y la tesorería (release_milestone, uno por llamada, con la firma de quien paga) o, desde el plazo, de vuelta a quien paga (cancel_grant); sin admin",
+    "custody": "la misma de la v0.15.0: el agente con tope no guarda fondos. El presupuesto es una allowance del token al contrato y cada pago va directo de la wallet del dueño a la editorial y a la tesorería",
     "usage": {
-      "fund_grant": {
-        "tx": "f5e843b4ba026f570b7794dc502dd35e439227eea3a9c901738def0a932ad1d3",
-        "what": "GCBCC6QYOI2D6DE6EBYWOVEKAIR4KJ6PUBDMBBCJFCDYKZU6P36KOHUQ encarga a GAJJJOLRTED7UERQZ7XKHK3TJ3A3G77KOP4KGMBCCEWWAYXKAYNFF3DS la traducción de crispr-nanomedicine-biotech en hitos de 5000000, 5000000 y 10000000, plazo de 1 h",
-        "result": "encargo 0; 20000000 al contrato; evento grant_funded. Segundo encargo (1), 519cd1edce93d0701cf2a5cf0b445e58458498096df0d2cddc51cf60b47df20f: 1000000 y 2000000 con plazo de 90 s"
+      "authorize_agent": {
+        "tx": "ab4ee2e08050219d68410b0bc5fd27545d90606e65da60ab00c316e46c269796",
+        "what": "soporte: GDSK47A7XO7URX7VY7ME2CGIXVZWOA4CZ7KLAFVDAND6VNILUL4OCDN5 autoriza a GAUVX46MDI2MPXS3QACOGKU3WAWFR3OFEYSUC6B25OOTOQZVANKO7SVN: tope 5000000 por lectura, presupuesto 12000000, 1 día",
+        "result": "no mueve fondos; allowance de 12000000 al contrato; evento agent_authorized"
       },
-      "release_milestone": {
-        "tx": "00f594717bca572baace5dd756a564dbd6c642548cf4600954a7501e92025dde",
-        "what": "quien paga libera el hito 0 del encargo 0; la traductora no tiene trustline. Después los hitos 1 (ecc18e472cd41c61bc3ba48dd05404a0385a0e43d957381922c2589c4c3d56c7) y 2 (293355f0f09198d7bf5c3a8bdf0315c4096800554a690c14af2fd3f7eda2f1e1)",
-        "result": "4900000 pendientes de la traductora (credited; los cobra con claim, 2c5c01c00e0432c194e25e0701eef3071007ed2b87484ce8d56ff74eadf19d60) y 100000 a la tesorería; al final 19600000 para ella y 400000 a la tesorería; eventos milestone_released"
+      "pay_as_agent": {
+        "tx": "8a1b1576b0806ae35cf0e23cfb2ddbce2025d27f18b967a304506a286f942658",
+        "what": "el agente paga 5000000 por crispr-nanomedicine-biotech con su sola firma; después quantum-cryptography-post-quantum (38c9dafd994ee031e0ab051df80519e13b1b449510d560a38949e09b709d84eb)",
+        "result": "4900000 a la editorial demo y 100000 a la tesorería, desde la wallet de la dueña; eventos paid (a nombre de la dueña) y agent_paid; al presupuesto le quedan 2000000 después del segundo pago"
       },
-      "cancel_grant": {
-        "tx": "ce133f19589d788efcaa895dff5d4dd3d3b980a0f63366c59212edafdeda5133",
-        "what": "vencido el plazo del encargo 1, con un hito liberado (b7ddcc89ba8f758138e9854478d2fe7842809420bcc074cab1fc940f5c70148c), quien paga lo cancela",
-        "result": "2000000 de vuelta, sin comisión; evento grant_cancelled"
+      "revoke_agent": {
+        "tx": "03a47c0f0ab975b06353f53dc9c81079457a7c60ea33ebd362760eccedceadc6",
+        "what": "soporte: la dueña retira el permiso",
+        "result": "permiso borrado y allowance en 0; evento agent_revoked"
       }
     },
-    "checks": "simulados antes de enviar: quien traduce liberándose un hito (#69), cancelar antes del plazo (#71), liberar un encargo ya pagado (#70), cancelar dos veces (#70). Al final: saldo del contrato 0, tesorería +420000"
+    "checks": "simulados antes de enviar: pagar sin permiso (#72), pasar del tope por lectura (#27), otra cuenta como agente (#72), pagar más de lo que queda (#74), pagar con el permiso retirado (#72). El contrato nunca tuvo saldo; la dueña terminó con 10000000 de sus 20000000"
   },
   "boveda": {
     "version": "0.1.0",
@@ -71,6 +71,42 @@
     "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."
   },
   "previous": [
+    {
+      "version": "0.15.0",
+      "contractId": "CBFYNOBCVMLQF3DACYYU24FLWDHJLR4ZSZZT2OJ4RKXEFYBZKF5EHXAV",
+      "wasmSha256": "9a5e9bdb3ca567900d16b45bd0a1df1dbb18917ad56a36bf8baf415d38641800",
+      "source": "contracts/splitter @ 3ddde33, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200,
+        "pass_day_price": 10000000,
+        "open_day_price": 50000000
+      },
+      "uploadTx": "4515068642dfd3cf4b533a779150e3e2f662fc3a4aad5db09280b3e8b5b20c73",
+      "deployTx": "f2e06487aedf9b0c2cd17baaa27c8f74c325b63478a764e1671bd7e717b7f254",
+      "deployedAt": "2026-11-27T22:08:29Z",
+      "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
+      "custody": "además de lo anterior, guarda los hitos sin liberar de cada encargo; salen solo hacia quien traduce y la tesorería (release_milestone, uno por llamada, con la firma de quien paga) o, desde el plazo, de vuelta a quien paga (cancel_grant); sin admin",
+      "usage": {
+        "fund_grant": {
+          "tx": "f5e843b4ba026f570b7794dc502dd35e439227eea3a9c901738def0a932ad1d3",
+          "what": "GCBCC6QYOI2D6DE6EBYWOVEKAIR4KJ6PUBDMBBCJFCDYKZU6P36KOHUQ encarga a GAJJJOLRTED7UERQZ7XKHK3TJ3A3G77KOP4KGMBCCEWWAYXKAYNFF3DS la traducción de crispr-nanomedicine-biotech en hitos de 5000000, 5000000 y 10000000, plazo de 1 h",
+          "result": "encargo 0; 20000000 al contrato; evento grant_funded. Segundo encargo (1), 519cd1edce93d0701cf2a5cf0b445e58458498096df0d2cddc51cf60b47df20f: 1000000 y 2000000 con plazo de 90 s"
+        },
+        "release_milestone": {
+          "tx": "00f594717bca572baace5dd756a564dbd6c642548cf4600954a7501e92025dde",
+          "what": "quien paga libera el hito 0 del encargo 0; la traductora no tiene trustline. Después los hitos 1 (ecc18e472cd41c61bc3ba48dd05404a0385a0e43d957381922c2589c4c3d56c7) y 2 (293355f0f09198d7bf5c3a8bdf0315c4096800554a690c14af2fd3f7eda2f1e1)",
+          "result": "4900000 pendientes de la traductora (credited; los cobra con claim, 2c5c01c00e0432c194e25e0701eef3071007ed2b87484ce8d56ff74eadf19d60) y 100000 a la tesorería; al final 19600000 para ella y 400000 a la tesorería; eventos milestone_released"
+        },
+        "cancel_grant": {
+          "tx": "ce133f19589d788efcaa895dff5d4dd3d3b980a0f63366c59212edafdeda5133",
+          "what": "vencido el plazo del encargo 1, con un hito liberado (b7ddcc89ba8f758138e9854478d2fe7842809420bcc074cab1fc940f5c70148c), quien paga lo cancela",
+          "result": "2000000 de vuelta, sin comisión; evento grant_cancelled"
+        }
+      },
+      "checks": "simulados antes de enviar: quien traduce liberándose un hito (#69), cancelar antes del plazo (#71), liberar un encargo ya pagado (#70), cancelar dos veces (#70). Al final: saldo del contrato 0, tesorería +420000"
+    },
     {
       "version": "0.14.0",
       "contractId": "CBGHC7PRFEOKYP6NQQB4ZIXLFHBZUDB7OJIBOJ6L73HFCZ2IR6YSESYP",
