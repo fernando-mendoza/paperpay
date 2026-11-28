@@ -1,5 +1,18 @@
 # Estado de QA
 
+## Revisión del 27 de noviembre de 2026: contrato v0.18.0 (renta con opción a compra)
+
+- `pnpm test:contracts`: 267 pruebas (13 nuevas, en `contracts/splitter/src/test/rent.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
+  - **Cuesta lo mismo:** rentar por 0.10 y comprar después deja al lector con 0.50 menos, a la editorial con 0.49 y a la tesorería con 0.01, igual que una compra directa. Con montos que no dividen exacto, los dos pagos suman justo el precio de compra.
+  - **Ventana:** la compra con descuento vale un segundo antes de que venza la renta y ya no en el segundo exacto (`RentalExpired`); en ese mismo segundo ya se puede rentar otra vez.
+  - **De quién es la renta:** es por lector, editorial y artículo; la renta de una cuenta no le da descuento a otra.
+  - **Firmas:** el árbol de autorización de las dos funciones cubre las dos transferencias, con sus montos.
+  - **Sin saldo para la diferencia:** la compra falla, no se mueve nada y la renta sigue.
+  - **Sin custodia:** el contrato queda en 0 en cada paso.
+- Mutaciones (24), con `tools/mutaciones-v0180.py` del run `2026-11-27-paperpay-contrato-v130` del hub: todas detectadas. Entre ellas: rentar sin firma, una renta igual o más cara que la compra, rentar dos veces, la renta sin cobrar, comprar con la renta vencida, comprar sin borrar la renta (descuento dos veces), y la compra cobrando el precio completo o solo la renta.
+- Red Stellar local y testnet (`tools/usar-v0180.sh`, 27-nov 19:58 CDMX): las dos funciones usadas, una renta que se deja vencer y seis errores simulados antes de enviar. La primera corrida del script falló por un error del script, no del contrato: el lector no tenía saldo para la segunda compra, y la simulación fallaba por eso antes de llegar a la renta vencida.
+- **No probado:** no hay pantalla ni API. Que la renta y el precio de compra sean los del catálogo no lo comprueba el contrato: lo valida quien da el acceso, como en `pay`.
+
 ## Revisión del 27 de noviembre de 2026: contrato v0.17.0 (pagar con el saldo pendiente)
 
 - `pnpm test:contracts`: 254 pruebas (9 nuevas, en `contracts/splitter/src/test/owed.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
