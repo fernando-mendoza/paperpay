@@ -1,5 +1,18 @@
 # Estado de QA
 
+## Revisión del 27 de noviembre de 2026: contrato mecenas v0.1.0 (un segundo contrato)
+
+- El contrato de reparto quedó en 130,465 bytes de 131,072 con la v0.20.0 y `stellar contract build` ya lo entrega optimizado: no cabe otra función. Las funciones nuevas van en `contracts/mecenas` (16,913 bytes).
+- `pnpm test:contracts`: 18 pruebas de mecenas (`contracts/mecenas/src/test.rs`), además de las 294 del reparto y las 10 de la bóveda. `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
+  - **Flujo:** a la mitad del periodo se retira la mitad; con 10 stroops en 3 segundos salen 3, 3 y 4, sin perder nada. Solo retira quien recibe: ni el mecenas puede sacar lo ya devengado.
+  - **Corte:** el mecenas recupera lo no devengado sin comisión y el flujo queda terminado en ese momento; lo devengado sigue disponible para quien recibe aunque pase el tiempo. Se corta un segundo antes del final y ya no en el segundo final. Cortar en el mismo segundo en que se abrió devuelve todo y deja el flujo con duración cero, sin dividir entre cero.
+  - **Lectura pendiente:** quien la toma no paga ni recibe nada; cobra la editorial. Una por lector y editorial: faltando un minuto para las 24 h falla, pasadas vuelve a poder. A otro precio o de otra editorial no hay nada que tomar. La última borra la entrada.
+  - **Firmas:** los árboles de autorización de las cinco funciones; `withdraw_stream`, `cancel_stream` y `take_read` no autorizan ninguna transferencia de quien firma.
+  - **Invariante de custodia:** el saldo del contrato es siempre lo no retirado de los flujos más las lecturas pendientes.
+- Mutaciones (48), con `tools/mutaciones-mecenas010.py` del run `2026-11-27-paperpay-contrato-v130` del hub: todas detectadas. La lista hizo agregar dos aserciones (`38ca286`): retirar en el segundo de un corte inmediato, y la vida en la red de las lecturas recién dejadas.
+- Red Stellar local y testnet (`tools/usar-mecenas010.sh`, 27-nov 21:42 CDMX): las cinco funciones usadas y siete errores simulados antes de enviar. En testnet el laboratorio retiró 0.1666666 a los pocos segundos y el mecenas recuperó 0.7916667 al cortar; el script comprobó que retiros, comisiones y devolución suman 1.00 exacto.
+- **No probado:** no hay pantalla ni API. Que quien toma una lectura pendiente la necesite no se puede comprobar: el tope es una por wallet, editorial y día.
+
 ## Revisión del 27 de noviembre de 2026: contrato v0.20.0 (cinco extensiones)
 
 - `pnpm test:contracts`: 294 pruebas (11 nuevas, en los archivos de cada familia), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
