@@ -77,49 +77,120 @@
     }
   },
   "mecenas": {
-    "version": "0.1.0",
-    "contractId": "CCG7IU2NIQSKHHICEZOVKGTUWOALVTCSH7YQU4J7O3354G7TJH3JY5XE",
-    "wasmSha256": "e2c717f7e81a3a90a540218b3f2374569d98931ff46fa5370c826c77c111575e",
-    "source": "contracts/mecenas @ f6b24ac, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
+    "version": "0.2.0",
+    "contractId": "CD72IGDU4E2LU7FSZJFCCX3OPKD4M6VFTC2AQU2MXC7LY35UDVAU3TCJ",
+    "wasmSha256": "0b03c5e62dbaf7a0eac183cd855e630d671ffb00f7444a3fc9667decc6fb1903",
+    "source": "contracts/mecenas @ 59336a5, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
     "constructor": {
       "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
       "fee_bps": 200
     },
-    "uploadTx": "21c8066f60061825b3daa85520a864ee481e5a6fa5ea0d0087529ade668ff46d",
-    "deployTx": "8968768c4e1e5f767f9ced4e1791a1f61e123531a6c696250d23b560f8b082c1",
-    "deployedAt": "2026-11-28T03:42:59Z",
+    "uploadTx": "a2da32221713cbc8ca033fb45fae6ac4ac1a5ad6e4c0ed7bce8848f661f337b9",
+    "deployTx": "fe6954fd4e3ef80c4204e4a6e9b4d46d6d1e7b5a6b702c64ef0d590fb215343f",
+    "deployedAt": "2026-11-28T04:12:44Z",
     "status": "desplegado en testnet, sin usar en el sitio",
-    "custody": "guarda lo no retirado de cada flujo (sale hacia quien recibe al retirar, o de vuelta al mecenas lo no devengado al cortar) y las lecturas pendientes (salen hacia su editorial y la tesorería, una por lectura tomada); sin admin",
+    "custody": "guarda lo no retirado de cada flujo, las lecturas pendientes, lo que queda de cada fianza (sale por el árbitro dentro del plazo, o de vuelta a la editorial después), lo apadrinado sin usar (sale por una lectura del lector, o de vuelta al padrino) y las mitades de las lecturas a medias abiertas (salen hacia la editorial al completarse, o de vuelta a quien abrió); sin admin",
     "usage": {
-      "open_stream": {
-        "tx": "1fc976465e5c82f473075bba9d6010b5e34c0570f2816211e2cbd7ba0fba2b1d",
-        "what": "GCIJDXYKHBGQGHN2VXQCN4CJ5INDO3Q7BCKPCADDRVLHKB3TE3H66V5J abre un flujo de 10000000 en 120 s para GC356T3QRAIGRHXIKBZBTGGVDBZMC4V5J47LKUVN72UJB2O2OKVIWJ5L",
-        "result": "flujo 0; 10000000 al contrato; evento stream_opened"
+      "post_bond": {
+        "tx": "d8e26219ca100ef461d632a7ff5f6aca764ab0894e681acb96119e4381292ac5",
+        "what": "GD34BMQQKHRKLZ7Y3U5WBR2TKSXMAU3RWV666GPALGTCHLLM73VAGAIN respalda crispr-nanomedicine-biotech con 10000000 por 90 s; árbitro GDAIKMJNUHIOKF7RF45LM4VQZEE73HTP65PJVDDOWUHOX455TZGPLW6Z",
+        "result": "fianza 0; 10000000 al contrato; evento bond_posted"
       },
-      "withdraw_stream": {
-        "tx": "3804d75a5221877f9e9489206e5355db21c53424b42acdae64cf30a28d3dcc11",
-        "what": "quien recibe retira lo devengado a los pocos segundos",
-        "result": "1666666 salen del flujo (98% para quien recibe, 2% a la tesorería); evento stream_withdrawn. Segundo retiro después del corte: 46a99b39690a038fc41d54960e6629bce50c41e7941a7fb5ad0104c9b0444a73"
+      "slash_bond": {
+        "tx": "cac4b0234a2294cf4a9f05fd74d5d148f1de51509922f0f55f33e35a4ad274f1",
+        "what": "el árbitro manda 3000000 a GBQAJKZV7FI6K62UKS3TWKTLBA72OO57GSQWOJYPPOSJGCZRE4EMG4TD",
+        "result": "3000000 a la lectora afectada, sin comisión; quedan 7000000; evento bond_slashed"
       },
-      "cancel_stream": {
-        "tx": "eb467ca679eed4b88d1b662bcaf5e1d12a31640f5ff8e5f094fee7458077f325",
-        "what": "el mecenas corta el flujo",
-        "result": "7916667 de vuelta al mecenas, sin comisión; 2083333 quedan como devengados; evento stream_cancelled"
+      "release_bond": {
+        "tx": "7c887540473c160bf27f8a81f9416cb904e6c847a6ee3b61dba939d2c05cf0bd",
+        "what": "terminado el plazo, la revista recupera lo que quedó",
+        "result": "7000000 de vuelta, sin comisión; evento bond_released"
       },
-      "leave_read": {
-        "tx": "1f7b8daf3330a90b60a0aa4596c8634dde8214c9b7f4bf0b21770ffb76a79e06",
-        "what": "GAFAEGZCQB54HTPTAKLEXWG2V2MHTEMTLJI7PTWVZ723GYZHZR6BGVQ3 deja 2 lecturas de 5000000 de la editorial demo",
-        "result": "10000000 al contrato; 2 pendientes; evento reads_left"
+      "sponsor_reader": {
+        "tx": "a873cc7780b01b8eac827b72a2dd12f8a20e3bb9010ffa9e237dacd760186c12",
+        "what": "GD4JFK6NVUP4KDIFSYSUKJMJQ6MTHIG5XZFPOXO2RLPJTTD6OQ6C4NMO deja 10000000 para las lecturas de GDT3BAW6NA2JQKHGZ4ACJJZTWXDGBXH4XUVOG6OARMYEHRSND4ZDN5GE con la editorial demo",
+        "result": "10000000 al contrato; evento reader_sponsored"
       },
-      "take_read": {
-        "tx": "fca6b229135e5dc8e3307cb48f415a65b62861255f0859e0fa88ed9dec051f0b",
-        "what": "GBJO2NKGSMDJCMS6EQYPPLKO3NRURLZTCPXKINS57JJ32DDQF2TDY5Y2, sin USDC ni trustline, toma una para crispr-nanomedicine-biotech",
-        "result": "4900000 a la editorial demo y 100000 a la tesorería; queda 1 pendiente; evento read_taken"
+      "read_sponsored": {
+        "tx": "9f911a95a7601d7d3c27eef41381bfd3cbb0cb006ffab14e0c72b2a97072f90e",
+        "what": "la ahijada, sin USDC ni trustline, lee crispr-nanomedicine-biotech por 5000000",
+        "result": "4900000 a la editorial demo y 100000 a la tesorería; quedan 5000000 apadrinados; evento read_taken"
+      },
+      "reclaim_sponsorship": {
+        "tx": "d43f5161c7c9ddeb51ff4639c08aaa35d6cef0c9ca5f6ca7627ddb13aa80195c",
+        "what": "la madrina recupera lo que no se usó",
+        "result": "5000000 de vuelta, sin comisión; evento sponsorship_reclaimed"
+      },
+      "open_shared": {
+        "tx": "87e6b6f90ec27757b0216946d4caafe727084d81b4fd1521b4642a97b2c46b6c",
+        "what": "GB5BXHUNJMSZTIF47Y3ON5H6Q3ML72UWXVBHARKNBNUYZGIJJJ4QWY77 abre una lectura a medias de 5000000 con GBGOSZAHFY7UCT5CNWHK55LL5V5N2RMFAKTA5LV26DON2FKA43AGP7CF",
+        "result": "2500000 al contrato; lectura a medias 0; evento shared_opened"
+      },
+      "join_shared": {
+        "tx": "480a80c8aa28faba2abfcc351d146a3d3661cdfb336734918ca93c15243680cc",
+        "what": "Beto pone su mitad",
+        "result": "4900000 a la editorial demo y 100000 a la tesorería; evento shared_joined"
+      },
+      "cancel_shared": {
+        "tx": "93a2371c1b0a4296793fc7000fd228fad16789251ccca6d7607f1a6d8a25314b",
+        "what": "Ana cancela otra lectura a medias (9d0e77f6a9972fb1e56a5e786351bf78876c303006c7fd8d280d2f011f8cb91d) que nadie completó",
+        "result": "2500000 de vuelta, sin comisión; evento shared_cancelled"
+      },
+      "pay_from_stream": {
+        "tx": "8fc7cde31ef6dacfaf7895b7af75e527f1d4201044a6d3e50b2029b3969337bc",
+        "what": "GBGKX4IZE7PF446MIS5SK2YLCJDTEN5URRI55VKSZUB3PAFSLLGSZEHR paga 500000 por un artículo con lo devengado de su flujo (5192a32e989d43c715a0d6a35aa8fb351a504cef295fd03b8237425d71331d22)",
+        "result": "490000 a la editorial demo y 10000 a la tesorería; evento read_taken"
       }
     },
-    "checks": "simulados antes de enviar: el mecenas retirando (#6), quien recibe cortando (#6), cortar dos veces (#8), retirar sin nada nuevo (#7), tomar sin pendientes (#10), tomar dos el mismo día (#11), tomar a otro precio (#10). Al final: saldo del contrato 5000000 (una lectura pendiente)"
+    "checks": "simulados antes de enviar: la revista como su propio árbitro (#15), el árbitro pagándose (#15), la revista ejecutando su fianza (#12) o recuperándola antes del plazo (#14), ejecutar después del plazo (#13), otra cuenta leyendo con lo apadrinado (#16), leer por más del saldo (#16), a medias con una misma (#19), otra cuenta completando (#17), completar una cancelada (#18), el mecenas pagando con el flujo (#6), pagar más de lo devengado (#7). Al final: saldo del contrato 9500000 (el flujo sin retirar)"
   },
+  "mecenasPrevious": [
+    {
+      "version": "0.1.0",
+      "contractId": "CCG7IU2NIQSKHHICEZOVKGTUWOALVTCSH7YQU4J7O3354G7TJH3JY5XE",
+      "wasmSha256": "e2c717f7e81a3a90a540218b3f2374569d98931ff46fa5370c826c77c111575e",
+      "source": "contracts/mecenas @ f6b24ac, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200
+      },
+      "uploadTx": "21c8066f60061825b3daa85520a864ee481e5a6fa5ea0d0087529ade668ff46d",
+      "deployTx": "8968768c4e1e5f767f9ced4e1791a1f61e123531a6c696250d23b560f8b082c1",
+      "deployedAt": "2026-11-28T03:42:59Z",
+      "status": "desplegado en testnet, sin usar en el sitio",
+      "custody": "guarda lo no retirado de cada flujo (sale hacia quien recibe al retirar, o de vuelta al mecenas lo no devengado al cortar) y las lecturas pendientes (salen hacia su editorial y la tesorería, una por lectura tomada); sin admin",
+      "usage": {
+        "open_stream": {
+          "tx": "1fc976465e5c82f473075bba9d6010b5e34c0570f2816211e2cbd7ba0fba2b1d",
+          "what": "GCIJDXYKHBGQGHN2VXQCN4CJ5INDO3Q7BCKPCADDRVLHKB3TE3H66V5J abre un flujo de 10000000 en 120 s para GC356T3QRAIGRHXIKBZBTGGVDBZMC4V5J47LKUVN72UJB2O2OKVIWJ5L",
+          "result": "flujo 0; 10000000 al contrato; evento stream_opened"
+        },
+        "withdraw_stream": {
+          "tx": "3804d75a5221877f9e9489206e5355db21c53424b42acdae64cf30a28d3dcc11",
+          "what": "quien recibe retira lo devengado a los pocos segundos",
+          "result": "1666666 salen del flujo (98% para quien recibe, 2% a la tesorería); evento stream_withdrawn. Segundo retiro después del corte: 46a99b39690a038fc41d54960e6629bce50c41e7941a7fb5ad0104c9b0444a73"
+        },
+        "cancel_stream": {
+          "tx": "eb467ca679eed4b88d1b662bcaf5e1d12a31640f5ff8e5f094fee7458077f325",
+          "what": "el mecenas corta el flujo",
+          "result": "7916667 de vuelta al mecenas, sin comisión; 2083333 quedan como devengados; evento stream_cancelled"
+        },
+        "leave_read": {
+          "tx": "1f7b8daf3330a90b60a0aa4596c8634dde8214c9b7f4bf0b21770ffb76a79e06",
+          "what": "GAFAEGZCQB54HTPTAKLEXWG2V2MHTEMTLJI7PTWVZ723GYZHZR6BGVQ3 deja 2 lecturas de 5000000 de la editorial demo",
+          "result": "10000000 al contrato; 2 pendientes; evento reads_left"
+        },
+        "take_read": {
+          "tx": "fca6b229135e5dc8e3307cb48f415a65b62861255f0859e0fa88ed9dec051f0b",
+          "what": "GBJO2NKGSMDJCMS6EQYPPLKO3NRURLZTCPXKINS57JJ32DDQF2TDY5Y2, sin USDC ni trustline, toma una para crispr-nanomedicine-biotech",
+          "result": "4900000 a la editorial demo y 100000 a la tesorería; queda 1 pendiente; evento read_taken"
+        }
+      },
+      "checks": "simulados antes de enviar: el mecenas retirando (#6), quien recibe cortando (#6), cortar dos veces (#8), retirar sin nada nuevo (#7), tomar sin pendientes (#10), tomar dos el mismo día (#11), tomar a otro precio (#10). Al final: saldo del contrato 5000000 (una lectura pendiente)"
+    }
+  ],
   "demoPublisher": {
     "address": "GA3MOPOJ374G4APKR4RE7VPXF5CEQKER3FA3LZ2XSAARIRSZEF6QXUZI",
     "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."
