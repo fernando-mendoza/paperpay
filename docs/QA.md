@@ -1,5 +1,17 @@
 # Estado de QA
 
+## Revisión del 27 de noviembre de 2026: contrato mecenas v0.3.0 a v0.5.0 (tres funciones más de la fianza)
+
+- `pnpm test:contracts`: 42 pruebas de mecenas (6 nuevas, en `contracts/mecenas/src/test.rs`), además de las 294 del reparto y las 10 de la bóveda. `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
+  - **`top_up_bond`:** solo la editorial de esa fianza, nunca con 0; vale en el último segundo del plazo y ya no en el segundo exacto. El árbitro puede ejecutar el total aumentado y, si no, vuelve entero al terminar el plazo.
+  - **`clear_bond`:** solo el árbitro, solo dentro del plazo; devuelve lo que queda después de una ejecución parcial y deja la fianza en cero. Cumplido el plazo, la editorial la recupera por su cuenta.
+  - **`pay_arbiter`:** solo la editorial de esa fianza; el árbitro recibe el neto, la tesorería la comisión y la fianza no se toca.
+  - **Firmas y eventos:** el árbol de autorización y el evento de las tres funciones.
+- Mutaciones (30 de 30), con `tools/mutaciones-mecenas050.py` del run `2026-11-27-paperpay-contrato-v130` del hub. Corrieron **después** de desplegar, no antes como en las versiones anteriores: las tres versiones salieron entre las 23:49 y las 23:54.
+- Red Stellar local y testnet (`tools/usar-mecenas030.sh`, `040` y `050`, 27-nov 23:49, 23:52 y 23:54 CDMX): una función por versión, cada una en un contrato nuevo, y cuatro errores simulados antes de enviar. La v0.5.0 contiene las 18 funciones.
+- **Dos comprobaciones redundantes, sin prueba propia:** `top_up_bond` renueva la vida de la fianza en la red aunque `post_bond` ya la dejó hasta 30 días después del plazo, y `pay_arbiter` rechaza el monto 0 antes de que lo rechace el cálculo de la comisión. Quitar cualquiera de las dos no cambia el resultado de ninguna prueba.
+- **No probado:** no hay pantalla ni API. Que el árbitro sea independiente de la editorial no lo puede comprobar el contrato, y con `clear_bond` puede devolverle la fianza cuando quiera dentro del plazo. Si el árbitro no puede recibir USDC (sin trustline), `pay_arbiter` falla y no cambia nada.
+
 ## Revisión del 27 de noviembre de 2026: contrato mecenas v0.2.0 (diez funciones más)
 
 - `pnpm test:contracts`: 36 pruebas de mecenas (18 nuevas, en `contracts/mecenas/src/test.rs`), además de las 294 del reparto y las 10 de la bóveda. `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
