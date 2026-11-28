@@ -25,6 +25,7 @@ mod grant;
 mod lock;
 mod owed;
 mod pool;
+mod rent;
 mod stake;
 mod tab;
 mod voucher;

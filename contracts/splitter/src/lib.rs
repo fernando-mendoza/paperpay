@@ -111,6 +111,13 @@
 //! - `pay_from_owed`: quien tiene dinero pendiente en el contrato (una recompensa, un hito o un
 //!   cobro que no pudo recibir) paga una lectura con ese saldo, sin retirarlo y sin trustline.
 //!
+//! Renta con opción a compra, sin custodia: leer barato por unas horas y, si sirve, comprar
+//! pagando solo la diferencia.
+//! - `rent`: quien lee paga la renta de un artículo por un periodo; el contrato guarda cuánto
+//!   pagó, hasta cuándo y el precio de compra pactado.
+//! - `buy_out`: mientras la renta siga vigente, quien lee completa la compra pagando el precio
+//!   pactado menos lo que ya pagó de renta.
+//!
 //! Si una cuenta no puede recibir lo que le paga el contrato (por ejemplo, una editorial nueva sin
 //! trustline de USDC), su parte no se pierde ni bloquea a nadie: queda pendiente a su nombre, y
 //! `claim` la cobra con una firma que además le abre la trustline (`trust` del SAC, CAP-73).
@@ -171,6 +178,8 @@ pub const MAX_MILESTONES: u32 = 10;
 pub const MAX_GRANT_DAYS: u32 = 90;
 /// Vigencia máxima del permiso de un agente, en días: un permiso de gasto se renueva seguido.
 pub const MAX_AGENT_DAYS: u32 = 30;
+/// Duración máxima de una renta, en segundos (7 días).
+pub const MAX_RENT_SECONDS: u64 = 7 * DAY_SECONDS;
 /// Máximo de editoriales con deuda en una cuenta abierta.
 pub const MAX_TAB_PUBLISHERS: u32 = 10;
 /// Después del plazo, las entradas de una campaña siguen en la red al menos estos días, para que
@@ -351,6 +360,14 @@ pub enum Error {
     AllowanceInUse = 75,
     /// A lo pendiente de esa cuenta no le alcanza para ese pago.
     OwedTooLow = 76,
+    /// Esa cuenta no tiene una renta de ese artículo (o ya la convirtió en compra).
+    NoRental = 77,
+    /// La renta ya venció: la compra con descuento ya no aplica.
+    RentalExpired = 78,
+    /// Esa cuenta ya tiene una renta vigente de ese artículo.
+    RentalActive = 79,
+    /// La renta tiene que costar menos que la compra.
+    RentNotCheaper = 80,
 }
 
 #[contracttype]
@@ -562,6 +579,17 @@ pub struct AgentPermit {
     pub expires_at: u64,
 }
 
+/// Una renta: `paid` es lo que ya se pagó por leer el artículo hasta `until` (segundos Unix) y
+/// `full_price`, lo que cuesta comprarlo. Mientras la renta siga vigente, la compra cuesta solo
+/// la diferencia.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Rental {
+    pub paid: i128,
+    pub full_price: i128,
+    pub until: u64,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -613,6 +641,8 @@ enum DataKey {
     Grant(u32),
     /// El permiso del agente de un dueño (uno por dueño: la allowance del token es una por cuenta).
     Agent(Address),
+    /// La renta de `reader` (`.0`) del artículo `.2` de `publisher` (`.1`).
+    Rental(Address, Address, String),
 }
 
 /// Comprobante de un artículo pagado. Topics: `["paid", publisher, reader]`.
@@ -1306,6 +1336,38 @@ pub struct PaidFromOwed {
     pub paper_id: String,
     pub amount: i128,
     pub remaining: i128,
+}
+
+/// Una renta. Topics: `["rented", publisher, reader]`. Da acceso hasta `until` (segundos Unix);
+/// no es un `paid`. `full_price` es el precio de compra pactado para `buy_out`.
+#[contractevent(topics = ["rented"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Rented {
+    #[topic]
+    pub publisher: Address,
+    #[topic]
+    pub reader: Address,
+    pub paper_id: String,
+    pub amount: i128,
+    pub fee: i128,
+    pub full_price: i128,
+    pub until: u64,
+}
+
+/// Una renta convertida en compra. Topics: `["bought_out", publisher, reader]`. Acompaña al
+/// `paid` de la compra: `rented` es lo que ya se había pagado de renta, `amount` la diferencia
+/// que se pagó ahora y `total`, el precio de compra completo.
+#[contractevent(topics = ["bought_out"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BoughtOut {
+    #[topic]
+    pub publisher: Address,
+    #[topic]
+    pub reader: Address,
+    pub paper_id: String,
+    pub rented: i128,
+    pub amount: i128,
+    pub total: i128,
 }
 
 #[contract]
@@ -3824,6 +3886,128 @@ impl Splitter {
         .publish(&env);
 
         split
+    }
+
+    /// `reader` renta `paper_id` de `publisher` por `period` segundos (de 1 a `MAX_RENT_SECONDS`):
+    /// paga `amount`, que va directo de su wallet a la editorial (menos la comisión) y a la
+    /// tesorería. `full_price` es el precio de compra del artículo y tiene que ser mayor que la
+    /// renta (`RentNotCheaper`): el contrato lo guarda junto con lo pagado, para que
+    /// `buy_out` cobre solo la diferencia mientras la renta siga vigente. Una renta vigente no se
+    /// repite (`RentalActive`); una vencida se reemplaza. Como en `pay`, los precios los valida
+    /// quien da el acceso, contra el evento. Solo firma `reader`. Emite `rented` y devuelve hasta
+    /// cuándo vale la renta (segundos Unix).
+    pub fn rent(
+        env: Env,
+        reader: Address,
+        publisher: Address,
+        paper_id: String,
+        amount: i128,
+        full_price: i128,
+        period: u64,
+    ) -> u64 {
+        reader.require_auth();
+        validate_paper_id(&env, &paper_id);
+        if period == 0 || period > MAX_RENT_SECONDS {
+            panic_with_error!(&env, Error::InvalidDays);
+        }
+        let config = read_config(&env);
+        let split = compute_split(&env, amount, config.fee_bps);
+        if full_price <= amount {
+            panic_with_error!(&env, Error::RentNotCheaper);
+        }
+        let entry = DataKey::Rental(reader.clone(), publisher.clone(), paper_id.clone());
+        let now = env.ledger().timestamp();
+        let current: Option<Rental> = env.storage().persistent().get(&entry);
+        if let Some(rental) = current {
+            if now < rental.until {
+                panic_with_error!(&env, Error::RentalActive);
+            }
+        }
+
+        transfer_split(&env, &config, &reader, &publisher, &split);
+        let until = now + period;
+        env.storage().persistent().set(
+            &entry,
+            &Rental {
+                paid: amount,
+                full_price,
+                until,
+            },
+        );
+        keep_until(&env, &entry, until);
+        extend_instance_ttl(&env);
+
+        Rented {
+            publisher,
+            reader,
+            paper_id,
+            amount,
+            fee: split.fee,
+            full_price,
+            until,
+        }
+        .publish(&env);
+
+        until
+    }
+
+    /// `reader` convierte su renta vigente de `paper_id` de `publisher` en compra: paga el precio
+    /// pactado al rentar menos lo que ya pagó de renta, con el mismo reparto. Solo mientras la
+    /// renta no haya vencido (`RentalExpired` después); una renta se convierte una sola vez.
+    /// Solo firma `reader`. Emite `paid` (el acceso ya no vence) y `bought_out`; devuelve el
+    /// reparto de la diferencia.
+    pub fn buy_out(env: Env, reader: Address, publisher: Address, paper_id: String) -> Split {
+        reader.require_auth();
+        let entry = DataKey::Rental(reader.clone(), publisher.clone(), paper_id.clone());
+        let rental: Rental = match env.storage().persistent().get(&entry) {
+            Some(rental) => rental,
+            None => panic_with_error!(&env, Error::NoRental),
+        };
+        if env.ledger().timestamp() >= rental.until {
+            panic_with_error!(&env, Error::RentalExpired);
+        }
+        env.storage().persistent().remove(&entry);
+
+        let config = read_config(&env);
+        // `full_price > paid` desde `rent`: la diferencia es positiva.
+        let amount = rental.full_price - rental.paid;
+        let split = compute_split(&env, amount, config.fee_bps);
+        transfer_split(&env, &config, &reader, &publisher, &split);
+        extend_instance_ttl(&env);
+
+        Paid {
+            publisher: publisher.clone(),
+            reader: reader.clone(),
+            paper_id: paper_id.clone(),
+            payer: reader.clone(),
+            amount,
+            fee: split.fee,
+        }
+        .publish(&env);
+        BoughtOut {
+            publisher,
+            reader,
+            paper_id,
+            rented: rental.paid,
+            amount,
+            total: rental.full_price,
+        }
+        .publish(&env);
+
+        split
+    }
+
+    /// La renta de `reader` del artículo `paper_id` de `publisher`, si tiene una (vigente o
+    /// vencida).
+    pub fn rental(
+        env: Env,
+        reader: Address,
+        publisher: Address,
+        paper_id: String,
+    ) -> Option<Rental> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Rental(reader, publisher, paper_id))
     }
 
     /// Lo que el contrato le debe a `account` (pagos que no pudo recibir).
