@@ -6,6 +6,7 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 
 | Versión | Contrato (testnet) | Funciones nuevas | Pruebas | ¿La usa el sitio? |
 | --- | --- | --- | --- | --- |
+| [0.17.0](#0170-27-nov-2026) | `CALLI4…KX2P` | `pay_from_owed` | 254 | No |
 | [0.16.0](#0160-27-nov-2026) | `CCMUFZ…WBYZ` | `pay_as_agent` (más `authorize_agent` y `revoke_agent`, de soporte) | 245 | No |
 | [0.15.0](#0150-27-nov-2026) | `CBFYNO…HXAV` | `fund_grant`, `release_milestone`, `cancel_grant` | 231 | No |
 | [0.14.0](#0140-27-nov-2026) | `CBGHC7…ESYP` | `accept_bounty`, `submit_review`, `forfeit_stake` | 215 | No |
@@ -22,6 +23,21 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 | [0.3.0](#030-25-nov-2026) | `CCQRUT…HEQD` | `gift_batch`, `tip`, `refund` | 32 | No |
 | [0.2.0](#020-23-nov-2026) | `CAIMQY…HOR5` | `pay_batch`, `gift` | 21 | Del 23 al 25 de noviembre. Sigue como contrato anterior: sus regalos y lecturas valen |
 | [0.1.0](#010-23-nov-2026) | `CDOUF6…BPOZ` | `pay`, `split`, `config` | 11 | No (reemplazada) |
+
+## 0.17.0 (27 nov 2026)
+
+Pagar con el saldo pendiente: quien ganó dinero en el contrato y todavía no puede recibir USDC lee con lo que ganó.
+
+- **`pay_from_owed(account, publisher, paper_id, amount)`:** paga una lectura con lo que el contrato le debe a `account` (una recompensa, un hito de traducción, un cobro que quedó pendiente por no tener trustline), sin retirarlo antes: 98% a la editorial y 2% a la tesorería, desde la custodia del contrato. Si lo pendiente no alcanza, falla (`OwedTooLow`) y no cambia nada. Lo que sobra sigue pendiente y se cobra con `claim`. Emite `paid` y `paid_from_owed`.
+- Error nuevo: `OwedTooLow` (76).
+- Por qué no es un `pay` más: el dinero no sale de una wallet. Es el primer pago que se hace con un saldo interno del contrato, y funciona para una cuenta sin trustline de USDC.
+- No cambia la custodia: gasta "lo pendiente" que el contrato ya guardaba desde la v0.6.0.
+- Código: `1324c5f`, más una prueba (`2efb3b2`). Versión en `73b661f`.
+- En la red (primero en una red Stellar local, después en testnet):
+  - contrato [`CALLI44DK4TUF3GCPU55V55A6CLBJS2ADZYU4JTPGJCUVN4QZCJZKX2P`](https://stellar.expert/explorer/testnet/contract/CALLI44DK4TUF3GCPU55V55A6CLBJS2ADZYU4JTPGJCUVN4QZCJZKX2P), WASM `a91c26e2…`;
+  - una revisora sin trustline gana una recompensa de 1.00 ([`award_bounty` `d7f3dca1…`](https://stellar.expert/explorer/testnet/tx/d7f3dca1abb916cb4244581e4142750e997cbec4778a403e9eae19e2a734c974)): sus 0.98 quedan pendientes;
+  - [`pay_from_owed` `eb6b7150…`](https://stellar.expert/explorer/testnet/tx/eb6b71507e6732bb664d1f1b7fcbc9ac67fffb20acab6b84f78dd1384db5eba4): paga 0.50 por un artículo con ese saldo (0.49 a la editorial demo, 0.01 a la tesorería); le quedan 0.48, que cobra con [`claim` `a8d2f39f…`](https://stellar.expert/explorer/testnet/tx/a8d2f39f38a91a5d11accb5c672dc8fdec90b23bb152e67bdfd9589046f6db6e).
+- Pruebas: 9 nuevas, 254 en total, en `src/test/owed.rs`. Se rompió el código de 13 formas a propósito y alguna prueba detectó cada una.
 
 ## 0.16.0 (27 nov 2026)
 
