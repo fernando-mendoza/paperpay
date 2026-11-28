@@ -1530,6 +1530,9 @@ fn abrir_una_lectura_a_medias_deja_la_mitad_en_el_contrato() {
     );
     assert_eq!(s.held(), PRICE / 2 + 500_001);
     assert_eq!(s.mecenas.shared(&2), None);
+    // Y si la cancela, recupera exactamente lo que puso.
+    assert_eq!(s.mecenas.cancel_shared(&ana, &1), 500_001);
+    assert_eq!(s.held(), PRICE / 2);
 }
 
 #[test]
