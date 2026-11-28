@@ -463,3 +463,166 @@ fn el_permiso_vive_en_la_red_hasta_que_vence() {
     });
     assert_eq!(ttl, (7 * DAY / 5) as u32 + 7 * DAY_LEDGERS);
 }
+
+// ---------- pay_batch_as_agent ----------
+
+#[test]
+fn el_agente_paga_varios_articulos_con_una_firma_dentro_del_tope_y_del_presupuesto() {
+    let s = setup();
+    let agent = authorized(&s);
+    let other_publisher = Address::generate(&s.env);
+    let before = s.usdc.balance(&s.payer);
+    let items = vec![
+        &s.env,
+        item(&s.env, "crispr-nanomedicine-biotech", &s.publisher, PRICE),
+        item(
+            &s.env,
+            "quantum-cryptography-post-quantum",
+            &other_publisher,
+            3_000_000,
+        ),
+    ];
+    let split = s.splitter.pay_batch_as_agent(&agent, &s.payer, &items);
+    let receipts = s.receipts();
+    let auths = s.env.auths();
+
+    assert_eq!(
+        split,
+        Split {
+            publisher: 4_900_000 + 2_940_000,
+            fee: 100_000 + 60_000
+        }
+    );
+    assert_eq!(s.usdc.balance(&s.payer), before - 8_000_000);
+    assert_eq!(s.usdc.balance(&s.publisher), 4_900_000);
+    assert_eq!(s.usdc.balance(&other_publisher), 2_940_000);
+    assert_eq!(s.usdc.balance(&s.treasury), 160_000);
+    assert_eq!(s.usdc.balance(&agent), 0);
+    assert_eq!(s.usdc.balance(&s.splitter.address), 0);
+    assert_eq!(allowance(&s, &s.payer), BUDGET - 8_000_000);
+    let second = String::from_str(&s.env, "quantum-cryptography-post-quantum");
+    assert_eq!(
+        receipts,
+        [
+            Paid {
+                publisher: s.publisher.clone(),
+                reader: s.payer.clone(),
+                paper_id: paper(&s.env),
+                payer: s.payer.clone(),
+                amount: PRICE,
+                fee: 100_000,
+            }
+            .to_xdr(&s.env, &s.splitter.address),
+            AgentPaid {
+                owner: s.payer.clone(),
+                agent: agent.clone(),
+                paper_id: paper(&s.env),
+                amount: PRICE,
+                remaining: BUDGET - PRICE,
+            }
+            .to_xdr(&s.env, &s.splitter.address),
+            Paid {
+                publisher: other_publisher.clone(),
+                reader: s.payer.clone(),
+                paper_id: second.clone(),
+                payer: s.payer.clone(),
+                amount: 3_000_000,
+                fee: 60_000,
+            }
+            .to_xdr(&s.env, &s.splitter.address),
+            AgentPaid {
+                owner: s.payer.clone(),
+                agent: agent.clone(),
+                paper_id: second,
+                amount: 3_000_000,
+                remaining: BUDGET - 8_000_000,
+            }
+            .to_xdr(&s.env, &s.splitter.address),
+        ]
+    );
+    assert_eq!(
+        auths,
+        std::vec![(
+            agent.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.splitter.address.clone(),
+                    Symbol::new(&s.env, "pay_batch_as_agent"),
+                    (agent.clone(), s.payer.clone(), items.clone()).into_val(&s.env),
+                )),
+                sub_invocations: std::vec![],
+            }
+        )]
+    );
+}
+
+#[test]
+fn el_paquete_del_agente_es_todo_o_nada_y_respeta_cada_limite() {
+    let s = setup();
+    let agent = authorized(&s);
+    let before = s.usdc.balance(&s.payer);
+    let batch = |list: &Vec<Item>| s.splitter.try_pay_batch_as_agent(&agent, &s.payer, list);
+    let one = |id: &str, amount: i128| item(&s.env, id, &s.publisher, amount);
+
+    assert_eq!(batch(&Vec::new(&s.env)), Err(Ok(Error::EmptyBatch.into())));
+    let mut too_big: Vec<Item> = Vec::new(&s.env);
+    for _ in 0..=MAX_BATCH_ITEMS {
+        too_big.push_back(one("a", 1));
+    }
+    assert_eq!(batch(&too_big), Err(Ok(Error::BatchTooLarge.into())));
+    assert_eq!(
+        batch(&vec![&s.env, one("a", PRICE), one("a", PRICE)]),
+        Err(Ok(Error::DuplicatePaper.into()))
+    );
+    // El segundo pasa del tope por lectura: tampoco se cobra el primero.
+    assert_eq!(
+        batch(&vec![&s.env, one("a", PRICE), one("b", CAP + 1)]),
+        Err(Ok(Error::AboveMaxPerRead.into()))
+    );
+    // Cinco lecturas al tope pasan del presupuesto de 2.00: no se cobra ninguna.
+    assert_eq!(
+        batch(&vec![
+            &s.env,
+            one("a", CAP),
+            one("b", CAP),
+            one("c", CAP),
+            one("d", CAP),
+            one("e", CAP)
+        ]),
+        Err(Ok(Error::BudgetExhausted.into()))
+    );
+    assert_eq!(
+        batch(&vec![&s.env, one("a", PRICE), one("b", 0)]),
+        Err(Ok(Error::InvalidAmount.into()))
+    );
+    let stranger = Address::generate(&s.env);
+    assert_eq!(
+        s.splitter
+            .try_pay_batch_as_agent(&stranger, &s.payer, &vec![&s.env, one("a", PRICE)]),
+        Err(Ok(Error::NoAgent.into()))
+    );
+    s.env.set_auths(&[]);
+    assert!(batch(&vec![&s.env, one("a", PRICE)]).is_err());
+    s.env.mock_all_auths();
+    assert_eq!(s.usdc.balance(&s.payer), before);
+    assert_eq!(s.usdc.balance(&s.publisher), 0);
+    assert_eq!(allowance(&s, &s.payer), BUDGET);
+
+    // Cuatro al tope sí: justo el presupuesto.
+    assert!(batch(&vec![
+        &s.env,
+        one("a", CAP),
+        one("b", CAP),
+        one("c", CAP),
+        one("d", CAP)
+    ])
+    .is_ok());
+    assert_eq!(allowance(&s, &s.payer), 0);
+    assert_eq!(s.usdc.balance(&s.payer), before - BUDGET);
+
+    s.advance(7 * DAY);
+    assert_eq!(
+        batch(&vec![&s.env, one("e", 1)]),
+        Err(Ok(Error::AgentExpired.into()))
+    );
+}

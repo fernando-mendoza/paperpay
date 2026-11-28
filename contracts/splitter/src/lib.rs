@@ -4266,6 +4266,270 @@ impl Splitter {
         env.storage().persistent().get(&DataKey::Apc(apc_id))
     }
 
+    /// `reader` extiende su renta vigente de `paper_id` de `publisher` otros `period` segundos:
+    /// paga `amount` con el mismo reparto, y eso se suma a lo que ya cuenta para la compra
+    /// (`buy_out` cobra menos). El vencimiento nuevo no queda a más de `MAX_RENT_SECONDS` de
+    /// ahora (`InvalidDays`) y lo pagado en total sigue por debajo del precio de compra
+    /// (`RentNotCheaper`: si lo alcanza, conviene comprar). Una renta vencida no se extiende
+    /// (`RentalExpired`). Solo firma `reader`. Emite `rented` con el vencimiento nuevo, que
+    /// devuelve.
+    pub fn extend_rental(
+        env: Env,
+        reader: Address,
+        publisher: Address,
+        paper_id: String,
+        amount: i128,
+        period: u64,
+    ) -> u64 {
+        reader.require_auth();
+        let entry = DataKey::Rental(reader.clone(), publisher.clone(), paper_id.clone());
+        let mut rental: Rental = match env.storage().persistent().get(&entry) {
+            Some(rental) => rental,
+            None => panic_with_error!(&env, Error::NoRental),
+        };
+        let now = env.ledger().timestamp();
+        if now >= rental.until {
+            panic_with_error!(&env, Error::RentalExpired);
+        }
+        if period == 0
+            || period > MAX_RENT_SECONDS
+            || rental.until - now > MAX_RENT_SECONDS - period
+        {
+            panic_with_error!(&env, Error::InvalidDays);
+        }
+        let config = read_config(&env);
+        let split = compute_split(&env, amount, config.fee_bps);
+        let paid = add(&env, rental.paid, amount);
+        if rental.full_price <= paid {
+            panic_with_error!(&env, Error::RentNotCheaper);
+        }
+
+        transfer_split(&env, &config, &reader, &publisher, &split);
+        rental.paid = paid;
+        rental.until += period;
+        env.storage().persistent().set(&entry, &rental);
+        keep_until(&env, &entry, rental.until);
+        extend_instance_ttl(&env);
+
+        Rented {
+            publisher,
+            reader,
+            paper_id,
+            amount,
+            fee: split.fee,
+            full_price: rental.full_price,
+            until: rental.until,
+        }
+        .publish(&env);
+
+        rental.until
+    }
+
+    /// `journal` acepta el manuscrito del cargo `apc_id` con una exención: perdona `waived` del
+    /// cargo (más que cero y menos que todo), que vuelve completo a quien lo pagó, y cobra el
+    /// resto con el reparto de siempre. Sirve para las exenciones parciales que las revistas dan
+    /// a quien no puede pagar el cargo completo. Solo antes del plazo (`ApcExpired`). Quien no
+    /// pueda recibir queda con su parte pendiente para `claim`. Solo firma `journal`. Emite
+    /// `manuscript_accepted` con lo cobrado; devuelve su reparto.
+    pub fn accept_with_waiver(env: Env, journal: Address, apc_id: u32, waived: i128) -> Split {
+        journal.require_auth();
+        let entry = DataKey::Apc(apc_id);
+        let mut apc = read_apc(&env, &entry);
+        if apc.journal != journal {
+            panic_with_error!(&env, Error::NoApc);
+        }
+        if env.ledger().timestamp() >= apc.deadline {
+            panic_with_error!(&env, Error::ApcExpired);
+        }
+        if waived <= 0 || waived >= apc.amount {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        apc.open = false;
+        env.storage().persistent().set(&entry, &apc);
+
+        let config = read_config(&env);
+        let charged = apc.amount - waived;
+        let split = compute_split(&env, charged, config.fee_bps);
+        payout(&env, &config, &journal, split.publisher);
+        payout(&env, &config, &config.treasury, split.fee);
+        payout(&env, &config, &apc.author, waived);
+        extend_instance_ttl(&env);
+
+        ManuscriptAccepted {
+            journal,
+            author: apc.author,
+            apc_id,
+            manuscript_id: apc.manuscript_id,
+            amount: charged,
+            fee: split.fee,
+        }
+        .publish(&env);
+
+        split
+    }
+
+    /// `funder` agrega un hito de `amount` al final de su encargo `grant_id` (por ejemplo, una
+    /// segunda revisión que no estaba prevista): el monto pasa de su wallet al contrato y se
+    /// libera como los demás, en orden. Solo a un encargo abierto y hasta `MAX_MILESTONES` hitos
+    /// (`InvalidMilestones`). Solo firma `funder`. Emite `grant_funded` con el monto agregado y
+    /// devuelve cuántos hitos tiene ahora el encargo.
+    pub fn add_milestone(env: Env, funder: Address, grant_id: u32, amount: i128) -> u32 {
+        funder.require_auth();
+        let entry = DataKey::Grant(grant_id);
+        let mut grant = read_grant(&env, &entry, &funder);
+        if amount <= 0 || grant.milestones.len() >= MAX_MILESTONES {
+            panic_with_error!(&env, Error::InvalidMilestones);
+        }
+        // La suma de todos los hitos sigue cabiendo: `cancel_grant` la recorre sin revisar.
+        let mut total = amount;
+        for milestone in grant.milestones.iter() {
+            total = add(&env, total, milestone);
+        }
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &funder,
+            env.current_contract_address(),
+            &amount,
+        );
+        grant.milestones.push_back(amount);
+        env.storage().persistent().set(&entry, &grant);
+        extend_instance_ttl(&env);
+
+        let count = grant.milestones.len();
+        GrantFunded {
+            funder,
+            translator: grant.translator,
+            grant_id,
+            paper_id: grant.paper_id,
+            total: amount,
+            milestones: count,
+            deadline: grant.deadline,
+        }
+        .publish(&env);
+
+        count
+    }
+
+    /// `funder` sube su recompensa `bounty_id` en `amount`: pasa de su wallet al contrato y se
+    /// suma a lo que se reparte (o a lo que recupera si la cancela). Solo a una recompensa
+    /// abierta y antes de su plazo (`BountyExpired`). La garantía mínima de quien la tome después
+    /// se calcula sobre el total nuevo. Solo firma `funder`. Emite `bounty_posted` con el total
+    /// nuevo, que devuelve.
+    pub fn increase_bounty(env: Env, funder: Address, bounty_id: u32, amount: i128) -> i128 {
+        funder.require_auth();
+        let key = DataKey::Bounty(bounty_id);
+        let mut bounty = read_bounty(&env, &key, &funder);
+        if env.ledger().timestamp() >= bounty.deadline {
+            panic_with_error!(&env, Error::BountyExpired);
+        }
+        if amount <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &funder,
+            env.current_contract_address(),
+            &amount,
+        );
+        bounty.amount = add(&env, bounty.amount, amount);
+        env.storage().persistent().set(&key, &bounty);
+        extend_instance_ttl(&env);
+
+        BountyPosted {
+            funder,
+            bounty_id,
+            paper_id: bounty.paper_id,
+            amount: bounty.amount,
+            deadline: bounty.deadline,
+        }
+        .publish(&env);
+
+        bounty.amount
+    }
+
+    /// `agent` paga varios artículos (`items`, de 1 a `MAX_BATCH_ITEMS`, sin repetir) con el
+    /// USDC de `owner` y una sola firma, la suya. Valen las reglas de `pay_as_agent`, artículo
+    /// por artículo: cada monto dentro del tope por lectura (`AboveMaxPerRead`) y la suma dentro
+    /// de lo que queda del presupuesto (`BudgetExhausted`). Es todo o nada: si un artículo
+    /// falla, no se cobra ninguno. Emite `paid` y `agent_paid` por artículo; devuelve el reparto
+    /// total.
+    pub fn pay_batch_as_agent(env: Env, agent: Address, owner: Address, items: Vec<Item>) -> Split {
+        agent.require_auth();
+        let permit = read_permit(&env, &owner);
+        if permit.agent != agent {
+            panic_with_error!(&env, Error::NoAgent);
+        }
+        if env.ledger().timestamp() >= permit.expires_at {
+            panic_with_error!(&env, Error::AgentExpired);
+        }
+        if env.storage().persistent().has(&DataKey::Sub(owner.clone())) {
+            panic_with_error!(&env, Error::AllowanceInUse);
+        }
+        if items.is_empty() {
+            panic_with_error!(&env, Error::EmptyBatch);
+        }
+        if items.len() > MAX_BATCH_ITEMS {
+            panic_with_error!(&env, Error::BatchTooLarge);
+        }
+
+        let config = read_config(&env);
+        let usdc = token::Client::new(&env, &config.token);
+        let spender = env.current_contract_address();
+        let mut remaining = usdc.allowance(&owner, &spender);
+        let mut seen: Map<String, bool> = Map::new(&env);
+        let mut total = Split {
+            publisher: 0,
+            fee: 0,
+        };
+        for item in items.iter() {
+            validate_paper_id(&env, &item.paper_id);
+            if seen.contains_key(item.paper_id.clone()) {
+                panic_with_error!(&env, Error::DuplicatePaper);
+            }
+            seen.set(item.paper_id.clone(), true);
+            let split = compute_split(&env, item.amount, config.fee_bps);
+            if item.amount > permit.max_per_read {
+                panic_with_error!(&env, Error::AboveMaxPerRead);
+            }
+            if item.amount > remaining {
+                panic_with_error!(&env, Error::BudgetExhausted);
+            }
+            remaining -= item.amount;
+            if split.publisher > 0 {
+                usdc.transfer_from(&spender, &owner, &item.publisher, &split.publisher);
+            }
+            if split.fee > 0 {
+                usdc.transfer_from(&spender, &owner, &config.treasury, &split.fee);
+            }
+            // Cada parte es menor que el presupuesto, que ya cabe en un i128.
+            total.publisher += split.publisher;
+            total.fee += split.fee;
+
+            Paid {
+                publisher: item.publisher,
+                reader: owner.clone(),
+                paper_id: item.paper_id.clone(),
+                payer: owner.clone(),
+                amount: item.amount,
+                fee: split.fee,
+            }
+            .publish(&env);
+            AgentPaid {
+                owner: owner.clone(),
+                agent: agent.clone(),
+                paper_id: item.paper_id,
+                amount: item.amount,
+                remaining,
+            }
+            .publish(&env);
+        }
+        extend_instance_ttl(&env);
+
+        total
+    }
+
     /// Lo que el contrato le debe a `account` (pagos que no pudo recibir).
     pub fn owed(env: Env, account: Address) -> i128 {
         env.storage()

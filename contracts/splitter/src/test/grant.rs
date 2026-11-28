@@ -614,3 +614,104 @@ fn el_saldo_del_contrato_cuenta_los_hitos_sin_liberar_y_lo_pendiente() {
         "quedan los dos hitos sin liberar del tercer encargo"
     );
 }
+
+// ---------- add_milestone ----------
+
+#[test]
+fn agregar_un_hito_deposita_mas_y_se_libera_al_final_como_los_demas() {
+    let s = setup();
+    let (funder, translator, id) = funded(&s);
+    s.fund(&funder, 3_000_000);
+    let count = s.splitter.add_milestone(&funder, &id, &3_000_000);
+    let receipts = s.receipts();
+    let auths = s.env.auths();
+
+    assert_eq!(count, 4);
+    assert_eq!(s.usdc.balance(&funder), 0);
+    assert_eq!(s.usdc.balance(&s.splitter.address), TOTAL + 3_000_000);
+    let grant = s.splitter.grant(&id).unwrap();
+    assert_eq!(
+        grant.milestones,
+        vec![&s.env, DRAFT, REVIEW, FINAL, 3_000_000]
+    );
+    assert_eq!(grant.released, 0);
+    let expected = GrantFunded {
+        funder: funder.clone(),
+        translator: translator.clone(),
+        grant_id: id,
+        paper_id: paper(&s.env),
+        total: 3_000_000,
+        milestones: 4,
+        deadline: grant.deadline,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.splitter.address)]);
+    assert_eq!(
+        auths,
+        std::vec![(
+            funder.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.splitter.address.clone(),
+                    Symbol::new(&s.env, "add_milestone"),
+                    (funder.clone(), id, 3_000_000i128).into_val(&s.env),
+                )),
+                sub_invocations: std::vec![s.transfer_auth(
+                    &funder,
+                    &s.splitter.address,
+                    3_000_000
+                )],
+            }
+        )]
+    );
+
+    for _ in 0..4 {
+        s.splitter.release_milestone(&funder, &id);
+    }
+    assert_eq!(s.usdc.balance(&translator), 19_600_000 + 2_940_000);
+    assert_eq!(s.usdc.balance(&s.splitter.address), 0);
+    assert!(!s.splitter.grant(&id).unwrap().open);
+}
+
+#[test]
+fn solo_quien_paga_agrega_hitos_hasta_el_maximo_y_a_un_encargo_abierto() {
+    let s = setup();
+    let (funder, translator, id) = funded(&s);
+    s.fund(&funder, 10 * PRICE);
+    let add_one = |who: &Address, grant: u32, amount: i128| {
+        s.splitter.try_add_milestone(who, &grant, &amount)
+    };
+
+    for amount in [0, -1] {
+        assert_eq!(
+            add_one(&funder, id, amount),
+            Err(Ok(Error::InvalidMilestones.into()))
+        );
+    }
+    assert_eq!(
+        add_one(&translator, id, PRICE),
+        Err(Ok(Error::NoGrant.into()))
+    );
+    assert_eq!(add_one(&funder, 99, PRICE), Err(Ok(Error::NoGrant.into())));
+    s.env.set_auths(&[]);
+    assert!(add_one(&funder, id, PRICE).is_err());
+    s.env.mock_all_auths();
+    assert_eq!(s.usdc.balance(&s.splitter.address), TOTAL);
+
+    // De 3 a 10 hitos caben 7 más; el undécimo no.
+    for _ in 0..7 {
+        s.splitter.add_milestone(&funder, &id, &PRICE);
+    }
+    assert_eq!(
+        add_one(&funder, id, PRICE),
+        Err(Ok(Error::InvalidMilestones.into()))
+    );
+
+    // Cancelar devuelve también los hitos agregados, y a un encargo cerrado no se le agrega.
+    s.advance(30 * DAY);
+    assert_eq!(s.splitter.cancel_grant(&funder, &id), TOTAL + 7 * PRICE);
+    assert_eq!(
+        add_one(&funder, id, PRICE),
+        Err(Ok(Error::GrantClosed.into()))
+    );
+    assert_eq!(s.usdc.balance(&s.splitter.address), 0);
+}

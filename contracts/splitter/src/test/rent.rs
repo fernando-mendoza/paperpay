@@ -500,3 +500,105 @@ fn la_renta_vive_en_la_red_hasta_que_vence() {
     });
     assert_eq!(ttl, (TWO_DAYS / 5) as u32 + 7 * DAY_LEDGERS);
 }
+
+// ---------- extend_rental ----------
+
+#[test]
+fn extender_la_renta_suma_tiempo_y_lo_pagado_cuenta_para_la_compra() {
+    let s = setup();
+    let before = s.usdc.balance(&s.payer);
+    let until = rented(&s);
+    let extended = s
+        .splitter
+        .extend_rental(&s.payer, &s.publisher, &paper(&s.env), &RENT, &DAY);
+    let receipts = s.receipts();
+    let auths = s.env.auths();
+
+    assert_eq!(extended, until + DAY);
+    assert_eq!(
+        s.splitter.rental(&s.payer, &s.publisher, &paper(&s.env)),
+        Some(Rental {
+            paid: 2 * RENT,
+            full_price: PRICE,
+            until: extended,
+        })
+    );
+    assert_eq!(s.usdc.balance(&s.publisher), 2 * 980_000);
+    assert_eq!(s.usdc.balance(&s.treasury), 2 * 20_000);
+    let expected = Rented {
+        publisher: s.publisher.clone(),
+        reader: s.payer.clone(),
+        paper_id: paper(&s.env),
+        amount: RENT,
+        fee: 20_000,
+        full_price: PRICE,
+        until: extended,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.splitter.address)]);
+    assert_eq!(
+        auths,
+        std::vec![(
+            s.payer.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.splitter.address.clone(),
+                    Symbol::new(&s.env, "extend_rental"),
+                    (
+                        s.payer.clone(),
+                        s.publisher.clone(),
+                        paper(&s.env),
+                        RENT,
+                        DAY
+                    )
+                        .into_val(&s.env),
+                )),
+                sub_invocations: std::vec![
+                    s.transfer_auth(&s.payer, &s.publisher, 980_000),
+                    s.transfer_auth(&s.payer, &s.treasury, 20_000),
+                ],
+            }
+        )]
+    );
+
+    // Con 0.20 ya pagados, comprar cuesta solo los 0.30 que faltan.
+    let split = s.splitter.buy_out(&s.payer, &s.publisher, &paper(&s.env));
+    assert_eq!(split.publisher + split.fee, PRICE - 2 * RENT);
+    assert_eq!(s.usdc.balance(&s.payer), before - PRICE);
+    assert_eq!(s.usdc.balance(&s.splitter.address), 0);
+}
+
+#[test]
+fn extender_exige_una_renta_vigente_y_que_siga_siendo_mas_barata_que_comprar() {
+    let s = setup();
+    let extend = |amount: i128, period: u64| {
+        s.splitter
+            .try_extend_rental(&s.payer, &s.publisher, &paper(&s.env), &amount, &period)
+    };
+
+    assert_eq!(extend(RENT, DAY), Err(Ok(Error::NoRental.into())));
+    rented(&s);
+    for amount in [0, -1] {
+        assert_eq!(extend(amount, DAY), Err(Ok(Error::InvalidAmount.into())));
+    }
+    // Con 0.10 pagados y compra de 0.50, extender por 0.40 ya sería pagar el precio completo.
+    assert_eq!(
+        extend(PRICE - RENT, DAY),
+        Err(Ok(Error::RentNotCheaper.into()))
+    );
+    // Quedan 2 días de renta y el vencimiento no pasa de 7 desde ahora: 5 días más sí, un
+    // segundo más no.
+    for period in [0, MAX_RENT_SECONDS + 1, 5 * DAY + 1] {
+        assert_eq!(extend(RENT, period), Err(Ok(Error::InvalidDays.into())));
+    }
+    s.env.set_auths(&[]);
+    assert!(extend(RENT, DAY).is_err());
+    s.env.mock_all_auths();
+    assert_eq!(s.usdc.balance(&s.publisher), 980_000);
+
+    // Los dos bordes a la vez: un stroop menos que el precio y justo 7 días.
+    assert_eq!(extend(PRICE - RENT - 1, 5 * DAY), Ok(Ok(START + 7 * DAY)));
+
+    // Vencida, ya no se extiende: hay que rentar de nuevo.
+    s.advance(7 * DAY);
+    assert_eq!(extend(1, 1), Err(Ok(Error::RentalExpired.into())));
+}

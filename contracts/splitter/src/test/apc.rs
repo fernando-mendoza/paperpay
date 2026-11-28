@@ -528,3 +528,109 @@ fn el_saldo_del_contrato_cuenta_los_cargos_sin_decidir_y_lo_pendiente() {
         "queda el cargo sin decidir"
     );
 }
+
+// ---------- accept_with_waiver ----------
+
+#[test]
+fn aceptar_con_exencion_cobra_una_parte_y_devuelve_la_otra_a_quien_envio() {
+    let s = setup();
+    let (author, journal, id) = submitted(&s);
+    let split = s.splitter.accept_with_waiver(&journal, &id, &5_000_000);
+    let receipts = s.receipts();
+    let auths = s.env.auths();
+
+    // De 2.00, la revista perdona 0.50 y cobra 1.50: 1.47 para ella y 0.03 de comisión.
+    assert_eq!(
+        split,
+        Split {
+            publisher: 14_700_000,
+            fee: 300_000
+        }
+    );
+    assert_eq!(s.usdc.balance(&journal), 14_700_000);
+    assert_eq!(s.usdc.balance(&s.treasury), 300_000);
+    assert_eq!(
+        s.usdc.balance(&author),
+        5_000_000,
+        "lo perdonado vuelve completo, sin comisión"
+    );
+    assert_eq!(s.usdc.balance(&s.splitter.address), 0);
+    assert!(!s.splitter.apc(&id).unwrap().open);
+    let expected = ManuscriptAccepted {
+        journal: journal.clone(),
+        author: author.clone(),
+        apc_id: id,
+        manuscript_id: manuscript(&s.env),
+        amount: 15_000_000,
+        fee: 300_000,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.splitter.address)]);
+    assert_eq!(
+        auths,
+        std::vec![(
+            journal.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.splitter.address.clone(),
+                    Symbol::new(&s.env, "accept_with_waiver"),
+                    (journal.clone(), id, 5_000_000i128).into_val(&s.env),
+                )),
+                sub_invocations: std::vec![],
+            }
+        )]
+    );
+}
+
+#[test]
+fn la_exencion_es_una_parte_del_cargo_y_solo_la_da_la_revista_antes_del_plazo() {
+    let s = setup();
+    let (author, journal, id) = submitted(&s);
+    let (_, late_journal, late) = submitted(&s);
+    let waive = |who: &Address, apc: u32, waived: i128| {
+        s.splitter.try_accept_with_waiver(who, &apc, &waived)
+    };
+
+    // Perdonar nada es `accept_manuscript`; perdonar todo es `reject_manuscript`.
+    for waived in [0, -1, CHARGE, CHARGE + 1] {
+        assert_eq!(
+            waive(&journal, id, waived),
+            Err(Ok(Error::InvalidAmount.into()))
+        );
+    }
+    assert_eq!(waive(&author, id, 5_000_000), Err(Ok(Error::NoApc.into())));
+    assert_eq!(waive(&journal, 99, 5_000_000), Err(Ok(Error::NoApc.into())));
+    s.env.set_auths(&[]);
+    assert!(waive(&journal, id, 5_000_000).is_err());
+    s.env.mock_all_auths();
+    assert_eq!(s.usdc.balance(&s.splitter.address), 2 * CHARGE);
+
+    // El borde: perdonar todo menos un stroop.
+    assert!(waive(&journal, id, CHARGE - 1).is_ok());
+    assert_eq!(s.usdc.balance(&author), CHARGE - 1);
+    assert_eq!(s.usdc.balance(&journal), 1);
+    assert_eq!(waive(&journal, id, 1), Err(Ok(Error::ApcClosed.into())));
+
+    s.advance(30 * DAY);
+    assert_eq!(
+        waive(&late_journal, late, 5_000_000),
+        Err(Ok(Error::ApcExpired.into()))
+    );
+    assert_eq!(s.usdc.balance(&s.splitter.address), CHARGE);
+}
+
+#[test]
+fn si_quien_envio_no_puede_recibir_lo_perdonado_queda_pendiente_y_la_revista_cobra() {
+    let s = setup_with(true);
+    let (author, journal, id) = submitted(&s);
+    let issuer = StellarAssetClient::new(&s.env, &s.usdc.address);
+    issuer.set_authorized(&author, &false);
+
+    s.splitter.accept_with_waiver(&journal, &id, &5_000_000);
+    assert_eq!(s.usdc.balance(&journal), 14_700_000);
+    assert_eq!(s.splitter.owed(&author), 5_000_000);
+    assert_eq!(s.usdc.balance(&s.splitter.address), 5_000_000);
+
+    issuer.set_authorized(&author, &true);
+    assert_eq!(s.splitter.claim(&author), 5_000_000);
+    assert_eq!(s.usdc.balance(&s.splitter.address), 0);
+}

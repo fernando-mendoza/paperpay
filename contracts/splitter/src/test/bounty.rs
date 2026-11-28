@@ -553,3 +553,114 @@ fn el_saldo_del_contrato_cuenta_las_recompensas_abiertas_los_fondos_y_lo_pendien
         "queda la recompensa abierta y el resto del fondo"
     );
 }
+
+// ---------- increase_bounty ----------
+
+#[test]
+fn quien_publico_sube_la_recompensa_y_el_reparto_y_la_garantia_siguen_al_total_nuevo() {
+    let s = setup();
+    let (funder, id) = s.posted_bounty();
+    s.fund(&funder, 5_000_000);
+    let total = s.splitter.increase_bounty(&funder, &id, &5_000_000);
+    let receipts = s.receipts();
+    let auths = s.env.auths();
+
+    assert_eq!(total, REWARD + 5_000_000);
+    let bounty = s.splitter.bounty(&id).unwrap();
+    assert_eq!(bounty.amount, total);
+    assert_eq!(s.usdc.balance(&funder), 0);
+    assert_eq!(s.usdc.balance(&s.splitter.address), total);
+    let expected = BountyPosted {
+        funder: funder.clone(),
+        bounty_id: id,
+        paper_id: paper(&s.env),
+        amount: total,
+        deadline: bounty.deadline,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.splitter.address)]);
+    assert_eq!(
+        auths,
+        std::vec![(
+            funder.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.splitter.address.clone(),
+                    Symbol::new(&s.env, "increase_bounty"),
+                    (funder.clone(), id, 5_000_000i128).into_val(&s.env),
+                )),
+                sub_invocations: std::vec![s.transfer_auth(
+                    &funder,
+                    &s.splitter.address,
+                    5_000_000
+                )],
+            }
+        )]
+    );
+
+    // La garantía mínima es el 10% del total nuevo (1.50), y se reparte ese total.
+    let reviewer = s.funder(2_000_000);
+    assert_eq!(
+        s.splitter.try_accept_bounty(&reviewer, &id, &1_499_999),
+        Err(Ok(Error::StakeTooLow.into()))
+    );
+    s.splitter.accept_bounty(&reviewer, &id, &1_500_000);
+    s.splitter.submit_review(
+        &reviewer,
+        &id,
+        &soroban_sdk::BytesN::from_array(&s.env, &[1; 32]),
+    );
+    let winners = vec![&s.env, share(&reviewer, 10_000)];
+    let split = s.splitter.award_bounty(&funder, &id, &winners);
+    assert_eq!(
+        split,
+        Split {
+            publisher: 14_700_000,
+            fee: 300_000
+        }
+    );
+    assert_eq!(s.usdc.balance(&reviewer), 2_000_000 + 14_700_000);
+    assert_eq!(s.usdc.balance(&s.splitter.address), 0);
+}
+
+#[test]
+fn solo_quien_publico_sube_su_recompensa_abierta_y_antes_del_plazo() {
+    let s = setup();
+    let (funder, id) = s.posted_bounty();
+    let (other, cancelled) = s.posted_bounty();
+    let stranger = s.funder(REWARD);
+    s.fund(&funder, REWARD);
+    let raise = |who: &Address, bounty: u32, amount: i128| {
+        s.splitter.try_increase_bounty(who, &bounty, &amount)
+    };
+
+    for amount in [0, -1] {
+        assert_eq!(
+            raise(&funder, id, amount),
+            Err(Ok(Error::InvalidAmount.into()))
+        );
+    }
+    // Otra cuenta no le sube la recompensa a nadie (para eso está publicar la suya).
+    assert_eq!(
+        raise(&stranger, id, REWARD),
+        Err(Ok(Error::NoBounty.into()))
+    );
+    assert_eq!(raise(&funder, 99, REWARD), Err(Ok(Error::NoBounty.into())));
+    s.env.set_auths(&[]);
+    assert!(raise(&funder, id, REWARD).is_err());
+    s.env.mock_all_auths();
+    assert_eq!(s.splitter.bounty(&id).unwrap().amount, REWARD);
+
+    s.advance(7 * DAY - 1);
+    assert_eq!(raise(&funder, id, 1), Ok(Ok(REWARD + 1)));
+    s.advance(1);
+    assert_eq!(raise(&funder, id, 1), Err(Ok(Error::BountyExpired.into())));
+    s.splitter.cancel_bounty(&other, &cancelled);
+    assert_eq!(
+        raise(&other, cancelled, 1),
+        Err(Ok(Error::BountyClosed.into()))
+    );
+
+    // Cancelar devuelve el total, con lo agregado.
+    assert_eq!(s.splitter.cancel_bounty(&funder, &id), REWARD + 1);
+    assert_eq!(s.usdc.balance(&s.splitter.address), 0);
+}
