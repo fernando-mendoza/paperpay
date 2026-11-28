@@ -774,3 +774,1052 @@ fn el_saldo_del_contrato_es_lo_no_retirado_de_los_flujos_mas_las_lecturas_pendie
     assert_eq!(s.held(), 2 * PRICE, "quedan dos lecturas pendientes");
     assert_eq!(s.now(), START + SPAN / 3 * 2 + SPAN);
 }
+
+// =====================================================================
+// v0.2.0: pay_from_stream, fianza de integridad, apadrinar a un lector y leer a medias
+// =====================================================================
+
+use super::{
+    Bond, BondPosted, BondReleased, BondSlashed, ReaderSponsored, Shared, SharedCancelled,
+    SharedJoined, SharedOpened, SponsorshipReclaimed, MAX_BOND_SECONDS,
+};
+
+/// La fianza de prueba: 2 USDC por 30 días.
+const BOND: i128 = 20_000_000;
+const TERM: u64 = 30 * DAY;
+
+impl Setup<'_> {
+    /// Una fianza de 2 USDC por 30 días. Devuelve la editorial, el árbitro y el id.
+    fn bonded(&self) -> (Address, Address, u32) {
+        let publisher = self.funded(BOND);
+        let arbiter = Address::generate(&self.env);
+        let id = self
+            .mecenas
+            .post_bond(&publisher, &arbiter, &paper(&self.env), &BOND, &TERM);
+        (publisher, arbiter, id)
+    }
+
+    /// Ana abre una lectura a medias de 0.50 con Beto. Devuelve a los dos, la editorial y el id.
+    fn halved(&self) -> (Address, Address, Address, u32) {
+        let ana = self.funded(PRICE);
+        let beto = self.funded(PRICE);
+        let publisher = Address::generate(&self.env);
+        let id = self
+            .mecenas
+            .open_shared(&ana, &beto, &publisher, &paper(&self.env), &PRICE);
+        (ana, beto, publisher, id)
+    }
+}
+
+fn empty(env: &Env) -> String {
+    String::from_str(env, "")
+}
+
+// ---------- pay_from_stream ----------
+
+#[test]
+fn quien_recibe_un_flujo_paga_una_lectura_con_lo_devengado_sin_retirarlo() {
+    let s = setup();
+    let (_, lab, id) = s.opened();
+    let publisher = Address::generate(&s.env);
+    // A la mitad del periodo hay 0.50 devengado: justo una lectura.
+    s.advance(SPAN / 2);
+    let split = s
+        .mecenas
+        .pay_from_stream(&lab, &id, &publisher, &paper(&s.env), &PRICE);
+    let receipts = s.receipts();
+    let auths = s.env.auths();
+
+    assert_eq!(
+        split,
+        Split {
+            net: 4_900_000,
+            fee: 100_000
+        }
+    );
+    assert_eq!(s.usdc.balance(&publisher), 4_900_000);
+    assert_eq!(s.usdc.balance(&s.treasury), 100_000);
+    assert_eq!(s.usdc.balance(&lab), 0, "no pasó por su wallet");
+    assert_eq!(s.mecenas.stream(&id).unwrap().withdrawn, PRICE);
+    assert_eq!(s.held(), GRANT - PRICE);
+    let expected = ReadTaken {
+        publisher: publisher.clone(),
+        reader: lab.clone(),
+        paper_id: paper(&s.env),
+        amount: PRICE,
+        fee: 100_000,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.mecenas.address)]);
+    assert_eq!(
+        auths,
+        std::vec![(
+            lab.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.mecenas.address.clone(),
+                    Symbol::new(&s.env, "pay_from_stream"),
+                    (lab.clone(), id, publisher.clone(), paper(&s.env), PRICE).into_val(&s.env),
+                )),
+                sub_invocations: std::vec![],
+            }
+        )]
+    );
+
+    // Lo devengado ya se gastó: ni un stroop más por aquí ni por un retiro.
+    assert_eq!(
+        s.mecenas
+            .try_pay_from_stream(&lab, &id, &publisher, &paper(&s.env), &1),
+        Err(Ok(Error::NothingToWithdraw.into()))
+    );
+    assert_eq!(
+        s.mecenas.try_withdraw_stream(&lab, &id),
+        Err(Ok(Error::NothingToWithdraw.into()))
+    );
+}
+
+#[test]
+fn pagar_con_el_flujo_no_pasa_de_lo_devengado_y_solo_lo_hace_quien_recibe() {
+    let s = setup();
+    let (patron, lab, id) = s.opened();
+    let publisher = Address::generate(&s.env);
+    let pay = |who: &Address, stream: u32, amount: i128| {
+        s.mecenas
+            .try_pay_from_stream(who, &stream, &publisher, &paper(&s.env), &amount)
+    };
+
+    // A un cuarto del periodo hay 0.25 devengado.
+    s.advance(SPAN / 4);
+    assert_eq!(
+        pay(&lab, id, 2_500_001),
+        Err(Ok(Error::NothingToWithdraw.into()))
+    );
+    for amount in [0, -1] {
+        assert_eq!(pay(&lab, id, amount), Err(Ok(Error::InvalidAmount.into())));
+    }
+    assert_eq!(pay(&patron, id, 1), Err(Ok(Error::NoStream.into())));
+    assert_eq!(pay(&lab, 99, 1), Err(Ok(Error::NoStream.into())));
+    assert_eq!(
+        s.mecenas
+            .try_pay_from_stream(&lab, &id, &publisher, &empty(&s.env), &1),
+        Err(Ok(Error::InvalidPaperId.into()))
+    );
+    s.env.set_auths(&[]);
+    assert!(pay(&lab, id, 1).is_err());
+    s.env.mock_all_auths();
+    assert_eq!(s.held(), GRANT);
+
+    // Justo lo devengado sí. Después el flujo sigue y el resto se retira como siempre.
+    assert!(pay(&lab, id, 2_500_000).is_ok());
+    s.advance(SPAN);
+    s.mecenas.withdraw_stream(&lab, &id);
+    assert_eq!(s.usdc.balance(&lab), 7_350_000);
+    assert_eq!(s.usdc.balance(&publisher), 2_450_000);
+    assert_eq!(s.held(), 0);
+}
+
+// ---------- post_bond ----------
+
+#[test]
+fn la_fianza_queda_en_el_contrato_con_su_arbitro_y_su_plazo() {
+    let s = setup();
+    let publisher = s.funded(2 * BOND);
+    let arbiter = Address::generate(&s.env);
+    let id = s
+        .mecenas
+        .post_bond(&publisher, &arbiter, &paper(&s.env), &BOND, &TERM);
+    let receipts = s.receipts();
+    let auths = s.env.auths();
+
+    assert_eq!(id, 0);
+    assert_eq!(s.usdc.balance(&publisher), BOND);
+    assert_eq!(s.held(), BOND);
+    assert_eq!(
+        s.mecenas.bond(&id),
+        Some(Bond {
+            publisher: publisher.clone(),
+            arbiter: arbiter.clone(),
+            paper_id: paper(&s.env),
+            amount: BOND,
+            until: START + TERM,
+        })
+    );
+    let expected = BondPosted {
+        publisher: publisher.clone(),
+        arbiter: arbiter.clone(),
+        bond_id: 0,
+        paper_id: paper(&s.env),
+        amount: BOND,
+        until: START + TERM,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.mecenas.address)]);
+    assert_eq!(
+        auths,
+        std::vec![(
+            publisher.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.mecenas.address.clone(),
+                    Symbol::new(&s.env, "post_bond"),
+                    (
+                        publisher.clone(),
+                        arbiter.clone(),
+                        paper(&s.env),
+                        BOND,
+                        TERM
+                    )
+                        .into_val(&s.env),
+                )),
+                sub_invocations: std::vec![s.transfer_auth(&publisher, &s.mecenas.address, BOND)],
+            }
+        )]
+    );
+
+    // Los ids son secuenciales.
+    assert_eq!(
+        s.mecenas
+            .post_bond(&publisher, &arbiter, &paper(&s.env), &BOND, &DAY),
+        1
+    );
+    assert_eq!(s.mecenas.bond(&1).unwrap().until, START + DAY);
+    assert_eq!(s.mecenas.bond(&2), None);
+    assert_eq!(s.held(), 2 * BOND);
+}
+
+#[test]
+fn la_fianza_rechaza_datos_invalidos_y_la_editorial_no_puede_ser_su_propio_arbitro() {
+    let s = setup();
+    let publisher = s.funded(3 * BOND);
+    let arbiter = Address::generate(&s.env);
+    let post = |judge: &Address, amount: i128, duration: u64| {
+        s.mecenas
+            .try_post_bond(&publisher, judge, &paper(&s.env), &amount, &duration)
+    };
+
+    for amount in [0, -1] {
+        assert_eq!(
+            post(&arbiter, amount, TERM),
+            Err(Ok(Error::InvalidAmount.into()))
+        );
+    }
+    for duration in [0, MAX_BOND_SECONDS + 1] {
+        assert_eq!(
+            post(&arbiter, BOND, duration),
+            Err(Ok(Error::InvalidDuration.into()))
+        );
+    }
+    assert_eq!(
+        post(&publisher, BOND, TERM),
+        Err(Ok(Error::SelfArbiter.into()))
+    );
+    assert_eq!(
+        s.mecenas
+            .try_post_bond(&publisher, &arbiter, &empty(&s.env), &BOND, &TERM),
+        Err(Ok(Error::InvalidPaperId.into()))
+    );
+    s.env.set_auths(&[]);
+    assert!(post(&arbiter, BOND, TERM).is_err());
+    s.env.mock_all_auths();
+    assert_eq!(s.held(), 0);
+    assert_eq!(s.mecenas.bond(&0), None);
+
+    // Los bordes sí valen: un segundo y el máximo.
+    assert!(post(&arbiter, BOND, 1).is_ok());
+    assert!(post(&arbiter, BOND, MAX_BOND_SECONDS).is_ok());
+}
+
+// ---------- slash_bond ----------
+
+#[test]
+fn el_arbitro_ejecuta_la_fianza_por_partes_a_favor_de_quien_corresponda() {
+    let s = setup();
+    let (publisher, arbiter, id) = s.bonded();
+    let ana = Address::generate(&s.env);
+    let beto = Address::generate(&s.env);
+    let remaining = s.mecenas.slash_bond(&arbiter, &id, &ana, &5_000_000);
+    let receipts = s.receipts();
+    let auths = s.env.auths();
+
+    assert_eq!(remaining, 15_000_000);
+    assert_eq!(s.usdc.balance(&ana), 5_000_000, "completo, sin comisión");
+    assert_eq!(s.usdc.balance(&s.treasury), 0);
+    assert_eq!(s.usdc.balance(&arbiter), 0);
+    assert_eq!(s.held(), 15_000_000);
+    assert_eq!(s.mecenas.bond(&id).unwrap().amount, 15_000_000);
+    let expected = BondSlashed {
+        arbiter: arbiter.clone(),
+        to: ana.clone(),
+        bond_id: id,
+        amount: 5_000_000,
+        remaining: 15_000_000,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.mecenas.address)]);
+    assert_eq!(
+        auths,
+        std::vec![(
+            arbiter.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.mecenas.address.clone(),
+                    Symbol::new(&s.env, "slash_bond"),
+                    (arbiter.clone(), id, ana.clone(), 5_000_000i128).into_val(&s.env),
+                )),
+                sub_invocations: std::vec![],
+            }
+        )]
+    );
+
+    // El resto, a otra persona: la fianza queda en cero y la editorial ya no recupera nada.
+    assert_eq!(s.mecenas.slash_bond(&arbiter, &id, &beto, &15_000_000), 0);
+    assert_eq!(s.usdc.balance(&beto), 15_000_000);
+    assert_eq!(s.held(), 0);
+    s.advance(TERM);
+    assert_eq!(
+        s.mecenas.try_release_bond(&publisher, &id),
+        Err(Ok(Error::NothingToWithdraw.into()))
+    );
+}
+
+#[test]
+fn solo_el_arbitro_ejecuta_dentro_del_plazo_sin_pasarse_y_nunca_a_su_favor() {
+    let s = setup();
+    let (publisher, arbiter, id) = s.bonded();
+    let ana = Address::generate(&s.env);
+    let stranger = Address::generate(&s.env);
+    let slash =
+        |who: &Address, to: &Address, amount: i128| s.mecenas.try_slash_bond(who, &id, to, &amount);
+
+    // La editorial no puede sacar su fianza antes por esta vía, ni un extraño.
+    for who in [&publisher, &stranger] {
+        assert_eq!(slash(who, who, 1), Err(Ok(Error::NoBond.into())));
+    }
+    assert_eq!(
+        s.mecenas.try_slash_bond(&arbiter, &99, &ana, &1),
+        Err(Ok(Error::NoBond.into()))
+    );
+    assert_eq!(
+        slash(&arbiter, &arbiter, 1),
+        Err(Ok(Error::SelfArbiter.into()))
+    );
+    for amount in [0, -1, BOND + 1] {
+        assert_eq!(
+            slash(&arbiter, &ana, amount),
+            Err(Ok(Error::InvalidAmount.into()))
+        );
+    }
+    s.env.set_auths(&[]);
+    assert!(slash(&arbiter, &ana, 1).is_err());
+    s.env.mock_all_auths();
+    assert_eq!(s.held(), BOND);
+
+    // Un segundo antes de que termine el plazo todavía; en el segundo final, ya no.
+    s.advance(TERM - 1);
+    assert_eq!(slash(&arbiter, &ana, 1), Ok(Ok(BOND - 1)));
+    s.advance(1);
+    assert_eq!(slash(&arbiter, &ana, 1), Err(Ok(Error::BondExpired.into())));
+    assert_eq!(s.usdc.balance(&ana), 1);
+}
+
+// ---------- release_bond ----------
+
+#[test]
+fn pasado_el_plazo_la_editorial_recupera_lo_que_queda_de_la_fianza() {
+    let s = setup();
+    let (publisher, arbiter, id) = s.bonded();
+    let ana = Address::generate(&s.env);
+    let stranger = Address::generate(&s.env);
+    s.mecenas.slash_bond(&arbiter, &id, &ana, &5_000_000);
+
+    s.advance(TERM - 1);
+    assert_eq!(
+        s.mecenas.try_release_bond(&publisher, &id),
+        Err(Ok(Error::BondActive.into()))
+    );
+    s.advance(1);
+    for who in [&arbiter, &stranger] {
+        assert_eq!(
+            s.mecenas.try_release_bond(who, &id),
+            Err(Ok(Error::NoBond.into()))
+        );
+    }
+    assert_eq!(
+        s.mecenas.try_release_bond(&publisher, &99),
+        Err(Ok(Error::NoBond.into()))
+    );
+    s.env.set_auths(&[]);
+    assert!(s.mecenas.try_release_bond(&publisher, &id).is_err());
+    s.env.mock_all_auths();
+    assert_eq!(s.held(), 15_000_000);
+
+    let back = s.mecenas.release_bond(&publisher, &id);
+    let receipts = s.receipts();
+    let auths = s.env.auths();
+    assert_eq!(back, 15_000_000);
+    assert_eq!(s.usdc.balance(&publisher), 15_000_000);
+    assert_eq!(s.usdc.balance(&s.treasury), 0);
+    assert_eq!(s.held(), 0);
+    assert_eq!(s.mecenas.bond(&id).unwrap().amount, 0);
+    let expected = BondReleased {
+        publisher: publisher.clone(),
+        bond_id: id,
+        amount: 15_000_000,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.mecenas.address)]);
+    assert_eq!(
+        auths,
+        std::vec![(
+            publisher.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.mecenas.address.clone(),
+                    Symbol::new(&s.env, "release_bond"),
+                    (publisher.clone(), id).into_val(&s.env),
+                )),
+                sub_invocations: std::vec![],
+            }
+        )]
+    );
+    assert_eq!(
+        s.mecenas.try_release_bond(&publisher, &id),
+        Err(Ok(Error::NothingToWithdraw.into()))
+    );
+}
+
+// ---------- sponsor_reader ----------
+
+#[test]
+fn apadrinar_deposita_para_las_lecturas_de_un_lector_con_una_editorial() {
+    let s = setup();
+    let sponsor = s.funded(3 * PRICE);
+    let reader = Address::generate(&s.env);
+    let publisher = Address::generate(&s.env);
+    let balance = s
+        .mecenas
+        .sponsor_reader(&sponsor, &reader, &publisher, &(2 * PRICE));
+    let receipts = s.receipts();
+    let auths = s.env.auths();
+
+    assert_eq!(balance, 2 * PRICE);
+    assert_eq!(s.usdc.balance(&sponsor), PRICE);
+    assert_eq!(s.held(), 2 * PRICE);
+    assert_eq!(
+        s.usdc.balance(&reader),
+        0,
+        "el dinero no pasa por el lector"
+    );
+    assert_eq!(
+        s.mecenas.sponsorship(&sponsor, &reader, &publisher),
+        2 * PRICE
+    );
+    let expected = ReaderSponsored {
+        sponsor: sponsor.clone(),
+        reader: reader.clone(),
+        publisher: publisher.clone(),
+        amount: 2 * PRICE,
+        balance: 2 * PRICE,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.mecenas.address)]);
+    assert_eq!(
+        auths,
+        std::vec![(
+            sponsor.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.mecenas.address.clone(),
+                    Symbol::new(&s.env, "sponsor_reader"),
+                    (
+                        sponsor.clone(),
+                        reader.clone(),
+                        publisher.clone(),
+                        2 * PRICE
+                    )
+                        .into_val(&s.env),
+                )),
+                sub_invocations: std::vec![s.transfer_auth(
+                    &sponsor,
+                    &s.mecenas.address,
+                    2 * PRICE
+                )],
+            }
+        )]
+    );
+
+    // Otro depósito se suma. Montos inválidos y sin firma, nada.
+    assert_eq!(
+        s.mecenas
+            .sponsor_reader(&sponsor, &reader, &publisher, &PRICE),
+        3 * PRICE
+    );
+    for amount in [0, -1] {
+        assert_eq!(
+            s.mecenas
+                .try_sponsor_reader(&sponsor, &reader, &publisher, &amount),
+            Err(Ok(Error::InvalidAmount.into()))
+        );
+    }
+    s.env.set_auths(&[]);
+    assert!(s
+        .mecenas
+        .try_sponsor_reader(&sponsor, &reader, &publisher, &1)
+        .is_err());
+    assert_eq!(s.held(), 3 * PRICE);
+}
+
+// ---------- read_sponsored ----------
+
+#[test]
+fn el_lector_apadrinado_paga_con_su_firma_y_no_pone_dinero() {
+    let s = setup();
+    let sponsor = s.funded(2 * PRICE);
+    let reader = Address::generate(&s.env);
+    let publisher = Address::generate(&s.env);
+    s.mecenas
+        .sponsor_reader(&sponsor, &reader, &publisher, &(2 * PRICE));
+    let split = s
+        .mecenas
+        .read_sponsored(&reader, &sponsor, &publisher, &paper(&s.env), &PRICE);
+    let receipts = s.receipts();
+    let auths = s.env.auths();
+
+    assert_eq!(
+        split,
+        Split {
+            net: 4_900_000,
+            fee: 100_000
+        }
+    );
+    assert_eq!(s.usdc.balance(&publisher), 4_900_000);
+    assert_eq!(s.usdc.balance(&s.treasury), 100_000);
+    assert_eq!(s.usdc.balance(&reader), 0);
+    assert_eq!(s.mecenas.sponsorship(&sponsor, &reader, &publisher), PRICE);
+    assert_eq!(s.held(), PRICE);
+    let expected = ReadTaken {
+        publisher: publisher.clone(),
+        reader: reader.clone(),
+        paper_id: paper(&s.env),
+        amount: PRICE,
+        fee: 100_000,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.mecenas.address)]);
+    assert_eq!(
+        auths,
+        std::vec![(
+            reader.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.mecenas.address.clone(),
+                    Symbol::new(&s.env, "read_sponsored"),
+                    (
+                        reader.clone(),
+                        sponsor.clone(),
+                        publisher.clone(),
+                        paper(&s.env),
+                        PRICE
+                    )
+                        .into_val(&s.env),
+                )),
+                sub_invocations: std::vec![],
+            }
+        )]
+    );
+}
+
+#[test]
+fn lo_apadrinado_es_de_ese_lector_con_esa_editorial_y_no_se_pasa_del_saldo() {
+    let s = setup();
+    let sponsor = s.funded(2 * PRICE);
+    let reader = Address::generate(&s.env);
+    let other_reader = Address::generate(&s.env);
+    let publisher = Address::generate(&s.env);
+    let other_publisher = Address::generate(&s.env);
+    s.mecenas
+        .sponsor_reader(&sponsor, &reader, &publisher, &(2 * PRICE));
+    let read = |who: &Address, from: &Address, to: &Address, amount: i128| {
+        s.mecenas
+            .try_read_sponsored(who, from, to, &paper(&s.env), &amount)
+    };
+
+    // Otro lector, otra editorial u otro padrino no tienen saldo aquí.
+    assert_eq!(
+        read(&other_reader, &sponsor, &publisher, PRICE),
+        Err(Ok(Error::SponsorshipTooLow.into()))
+    );
+    assert_eq!(
+        read(&reader, &sponsor, &other_publisher, PRICE),
+        Err(Ok(Error::SponsorshipTooLow.into()))
+    );
+    assert_eq!(
+        read(&reader, &other_reader, &publisher, PRICE),
+        Err(Ok(Error::SponsorshipTooLow.into()))
+    );
+    assert_eq!(
+        read(&reader, &sponsor, &publisher, 2 * PRICE + 1),
+        Err(Ok(Error::SponsorshipTooLow.into()))
+    );
+    for amount in [0, -1] {
+        assert_eq!(
+            read(&reader, &sponsor, &publisher, amount),
+            Err(Ok(Error::InvalidAmount.into()))
+        );
+    }
+    assert_eq!(
+        s.mecenas
+            .try_read_sponsored(&reader, &sponsor, &publisher, &empty(&s.env), &PRICE),
+        Err(Ok(Error::InvalidPaperId.into()))
+    );
+    s.env.set_auths(&[]);
+    assert!(read(&reader, &sponsor, &publisher, PRICE).is_err());
+    s.env.mock_all_auths();
+    assert_eq!(s.held(), 2 * PRICE);
+
+    // Gastar justo el saldo lo deja en cero y borra la entrada.
+    assert!(read(&reader, &sponsor, &publisher, 2 * PRICE).is_ok());
+    assert_eq!(s.mecenas.sponsorship(&sponsor, &reader, &publisher), 0);
+    let stored = s.env.as_contract(&s.mecenas.address, || {
+        s.env.storage().persistent().has(&DataKey::Sponsorship(
+            sponsor.clone(),
+            reader.clone(),
+            publisher.clone(),
+        ))
+    });
+    assert!(!stored);
+    assert_eq!(s.held(), 0);
+    assert_eq!(
+        read(&reader, &sponsor, &publisher, 1),
+        Err(Ok(Error::SponsorshipTooLow.into()))
+    );
+}
+
+// ---------- reclaim_sponsorship ----------
+
+#[test]
+fn el_padrino_recupera_lo_que_no_se_uso_y_solo_el() {
+    let s = setup();
+    let sponsor = s.funded(2 * PRICE);
+    let reader = Address::generate(&s.env);
+    let publisher = Address::generate(&s.env);
+    s.mecenas
+        .sponsor_reader(&sponsor, &reader, &publisher, &(2 * PRICE));
+    s.mecenas
+        .read_sponsored(&reader, &sponsor, &publisher, &paper(&s.env), &PRICE);
+
+    // El lector no puede llevarse el dinero: como padrino de sí mismo no tiene nada.
+    assert_eq!(
+        s.mecenas
+            .try_reclaim_sponsorship(&reader, &reader, &publisher),
+        Err(Ok(Error::NothingToWithdraw.into()))
+    );
+    s.env.set_auths(&[]);
+    assert!(s
+        .mecenas
+        .try_reclaim_sponsorship(&sponsor, &reader, &publisher)
+        .is_err());
+    s.env.mock_all_auths();
+    assert_eq!(s.held(), PRICE);
+
+    let back = s.mecenas.reclaim_sponsorship(&sponsor, &reader, &publisher);
+    let receipts = s.receipts();
+    let auths = s.env.auths();
+    assert_eq!(back, PRICE);
+    assert_eq!(s.usdc.balance(&sponsor), PRICE, "completo, sin comisión");
+    assert_eq!(
+        s.usdc.balance(&s.treasury),
+        100_000,
+        "solo la de la lectura"
+    );
+    assert_eq!(s.held(), 0);
+    assert_eq!(s.mecenas.sponsorship(&sponsor, &reader, &publisher), 0);
+    let expected = SponsorshipReclaimed {
+        sponsor: sponsor.clone(),
+        reader: reader.clone(),
+        publisher: publisher.clone(),
+        amount: PRICE,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.mecenas.address)]);
+    assert_eq!(
+        auths,
+        std::vec![(
+            sponsor.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.mecenas.address.clone(),
+                    Symbol::new(&s.env, "reclaim_sponsorship"),
+                    (sponsor.clone(), reader.clone(), publisher.clone()).into_val(&s.env),
+                )),
+                sub_invocations: std::vec![],
+            }
+        )]
+    );
+    assert_eq!(
+        s.mecenas
+            .try_reclaim_sponsorship(&sponsor, &reader, &publisher),
+        Err(Ok(Error::NothingToWithdraw.into()))
+    );
+    assert_eq!(
+        s.mecenas
+            .try_read_sponsored(&reader, &sponsor, &publisher, &paper(&s.env), &1),
+        Err(Ok(Error::SponsorshipTooLow.into()))
+    );
+}
+
+// ---------- open_shared ----------
+
+#[test]
+fn abrir_una_lectura_a_medias_deja_la_mitad_en_el_contrato() {
+    let s = setup();
+    let ana = s.funded(2 * PRICE);
+    let beto = Address::generate(&s.env);
+    let publisher = Address::generate(&s.env);
+    let id = s
+        .mecenas
+        .open_shared(&ana, &beto, &publisher, &paper(&s.env), &PRICE);
+    let receipts = s.receipts();
+    let auths = s.env.auths();
+
+    assert_eq!(id, 0);
+    assert_eq!(s.usdc.balance(&ana), 2 * PRICE - PRICE / 2);
+    assert_eq!(s.held(), PRICE / 2);
+    assert_eq!(s.usdc.balance(&publisher), 0);
+    assert_eq!(
+        s.mecenas.shared(&id),
+        Some(Shared {
+            first: ana.clone(),
+            second: beto.clone(),
+            publisher: publisher.clone(),
+            paper_id: paper(&s.env),
+            price: PRICE,
+            open: true,
+        })
+    );
+    let expected = SharedOpened {
+        first: ana.clone(),
+        second: beto.clone(),
+        shared_id: 0,
+        publisher: publisher.clone(),
+        paper_id: paper(&s.env),
+        price: PRICE,
+        paid: PRICE / 2,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.mecenas.address)]);
+    assert_eq!(
+        auths,
+        std::vec![(
+            ana.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.mecenas.address.clone(),
+                    Symbol::new(&s.env, "open_shared"),
+                    (
+                        ana.clone(),
+                        beto.clone(),
+                        publisher.clone(),
+                        paper(&s.env),
+                        PRICE
+                    )
+                        .into_val(&s.env),
+                )),
+                sub_invocations: std::vec![s.transfer_auth(&ana, &s.mecenas.address, PRICE / 2)],
+            }
+        )]
+    );
+
+    // Con precio impar, quien abre pone el stroop de más. Los ids son secuenciales.
+    assert_eq!(
+        s.mecenas
+            .open_shared(&ana, &beto, &publisher, &paper(&s.env), &1_000_001),
+        1
+    );
+    assert_eq!(s.held(), PRICE / 2 + 500_001);
+    assert_eq!(s.mecenas.shared(&2), None);
+}
+
+#[test]
+fn abrir_a_medias_rechaza_precios_e_ids_invalidos_y_leer_a_medias_con_uno_mismo() {
+    let s = setup();
+    let ana = s.funded(2 * PRICE);
+    let beto = Address::generate(&s.env);
+    let publisher = Address::generate(&s.env);
+    let open = |other: &Address, price: i128| {
+        s.mecenas
+            .try_open_shared(&ana, other, &publisher, &paper(&s.env), &price)
+    };
+
+    // Cada mitad vale al menos un stroop.
+    for price in [1, 0, -1] {
+        assert_eq!(open(&beto, price), Err(Ok(Error::InvalidAmount.into())));
+    }
+    assert_eq!(open(&ana, PRICE), Err(Ok(Error::SamePerson.into())));
+    assert_eq!(
+        s.mecenas
+            .try_open_shared(&ana, &beto, &publisher, &empty(&s.env), &PRICE),
+        Err(Ok(Error::InvalidPaperId.into()))
+    );
+    s.env.set_auths(&[]);
+    assert!(open(&beto, PRICE).is_err());
+    s.env.mock_all_auths();
+    assert_eq!(s.held(), 0);
+    assert_eq!(s.mecenas.shared(&0), None);
+
+    // El precio mínimo sí vale: un stroop cada quien.
+    assert!(open(&beto, 2).is_ok());
+    assert_eq!(s.held(), 1);
+}
+
+// ---------- join_shared ----------
+
+#[test]
+fn cuando_la_otra_persona_pone_su_mitad_la_editorial_cobra_el_precio_completo() {
+    let s = setup();
+    let (ana, beto, publisher, id) = s.halved();
+    let split = s.mecenas.join_shared(&beto, &id);
+    let receipts = s.receipts();
+    let auths = s.env.auths();
+
+    assert_eq!(
+        split,
+        Split {
+            net: 4_900_000,
+            fee: 100_000
+        }
+    );
+    assert_eq!(s.usdc.balance(&publisher), 4_900_000);
+    assert_eq!(s.usdc.balance(&s.treasury), 100_000);
+    assert_eq!(s.usdc.balance(&ana), PRICE / 2);
+    assert_eq!(s.usdc.balance(&beto), PRICE / 2);
+    assert_eq!(s.held(), 0);
+    assert!(!s.mecenas.shared(&id).unwrap().open);
+    let expected = SharedJoined {
+        publisher: publisher.clone(),
+        first: ana.clone(),
+        second: beto.clone(),
+        shared_id: id,
+        paper_id: paper(&s.env),
+        price: PRICE,
+        fee: 100_000,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.mecenas.address)]);
+    assert_eq!(
+        auths,
+        std::vec![(
+            beto.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.mecenas.address.clone(),
+                    Symbol::new(&s.env, "join_shared"),
+                    (beto.clone(), id).into_val(&s.env),
+                )),
+                sub_invocations: std::vec![s.transfer_auth(&beto, &s.mecenas.address, PRICE / 2)],
+            }
+        )]
+    );
+}
+
+#[test]
+fn solo_la_persona_nombrada_completa_la_lectura_a_medias_y_una_sola_vez() {
+    let s = setup();
+    let (ana, beto, publisher, id) = s.halved();
+    let stranger = s.funded(PRICE);
+
+    for who in [&stranger, &ana] {
+        assert_eq!(
+            s.mecenas.try_join_shared(who, &id),
+            Err(Ok(Error::NoShared.into()))
+        );
+    }
+    assert_eq!(
+        s.mecenas.try_join_shared(&beto, &99),
+        Err(Ok(Error::NoShared.into()))
+    );
+    s.env.set_auths(&[]);
+    assert!(s.mecenas.try_join_shared(&beto, &id).is_err());
+    s.env.mock_all_auths();
+    assert_eq!(s.held(), PRICE / 2);
+    assert!(s.mecenas.shared(&id).unwrap().open);
+
+    // Con precio impar, quien completa pone la mitad redondeada hacia abajo y no se pierde nada.
+    let odd = s
+        .mecenas
+        .open_shared(&ana, &beto, &publisher, &paper(&s.env), &1_000_001);
+    s.mecenas.join_shared(&beto, &odd);
+    assert_eq!(s.usdc.balance(&beto), PRICE - 500_000);
+    assert_eq!(
+        s.usdc.balance(&publisher) + s.usdc.balance(&s.treasury),
+        1_000_001
+    );
+
+    s.mecenas.join_shared(&beto, &id);
+    assert_eq!(
+        s.mecenas.try_join_shared(&beto, &id),
+        Err(Ok(Error::SharedClosed.into()))
+    );
+    assert_eq!(s.held(), 0);
+}
+
+// ---------- cancel_shared ----------
+
+#[test]
+fn quien_abrio_recupera_su_mitad_mientras_la_otra_persona_no_haya_pagado() {
+    let s = setup();
+    let (ana, beto, publisher, id) = s.halved();
+    let (other_ana, other_beto, _, joined) = s.halved();
+    let stranger = Address::generate(&s.env);
+
+    // Ni la otra persona ni un extraño pueden llevarse esa mitad.
+    for who in [&beto, &stranger] {
+        assert_eq!(
+            s.mecenas.try_cancel_shared(who, &id),
+            Err(Ok(Error::NoShared.into()))
+        );
+    }
+    assert_eq!(
+        s.mecenas.try_cancel_shared(&ana, &99),
+        Err(Ok(Error::NoShared.into()))
+    );
+    s.env.set_auths(&[]);
+    assert!(s.mecenas.try_cancel_shared(&ana, &id).is_err());
+    s.env.mock_all_auths();
+
+    let back = s.mecenas.cancel_shared(&ana, &id);
+    let receipts = s.receipts();
+    let auths = s.env.auths();
+    assert_eq!(back, PRICE / 2);
+    assert_eq!(
+        s.usdc.balance(&ana),
+        PRICE,
+        "su mitad completa, sin comisión"
+    );
+    assert_eq!(s.usdc.balance(&publisher), 0);
+    assert!(!s.mecenas.shared(&id).unwrap().open);
+    let expected = SharedCancelled {
+        first: ana.clone(),
+        shared_id: id,
+        amount: PRICE / 2,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.mecenas.address)]);
+    assert_eq!(
+        auths,
+        std::vec![(
+            ana.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.mecenas.address.clone(),
+                    Symbol::new(&s.env, "cancel_shared"),
+                    (ana.clone(), id).into_val(&s.env),
+                )),
+                sub_invocations: std::vec![],
+            }
+        )]
+    );
+
+    // Cancelada, ya no se completa; completada, ya no se cancela.
+    assert_eq!(
+        s.mecenas.try_join_shared(&beto, &id),
+        Err(Ok(Error::SharedClosed.into()))
+    );
+    assert_eq!(
+        s.mecenas.try_cancel_shared(&ana, &id),
+        Err(Ok(Error::SharedClosed.into()))
+    );
+    s.mecenas.join_shared(&other_beto, &joined);
+    assert_eq!(
+        s.mecenas.try_cancel_shared(&other_ana, &joined),
+        Err(Ok(Error::SharedClosed.into()))
+    );
+    assert_eq!(s.held(), 0);
+}
+
+// ---------- TTL y custodia (v0.2.0) ----------
+
+#[test]
+fn las_fianzas_lo_apadrinado_y_las_mitades_viven_en_la_red_lo_que_hace_falta() {
+    let s = setup();
+    let (_, _, bond) = s.bonded();
+    let (_, _, _, shared) = s.halved();
+    let sponsor = s.funded(PRICE);
+    let reader = Address::generate(&s.env);
+    let publisher = Address::generate(&s.env);
+    s.mecenas
+        .sponsor_reader(&sponsor, &reader, &publisher, &PRICE);
+
+    let (bond_ttl, shared_ttl, sponsored_ttl, max) = s.env.as_contract(&s.mecenas.address, || {
+        let storage = s.env.storage().persistent();
+        (
+            storage.get_ttl(&DataKey::Bond(bond)),
+            storage.get_ttl(&DataKey::Shared(shared)),
+            storage.get_ttl(&DataKey::Sponsorship(
+                sponsor.clone(),
+                reader.clone(),
+                publisher.clone(),
+            )),
+            s.env.storage().max_ttl(),
+        )
+    });
+    // La fianza: hasta su plazo, 30 días de gracia para recuperarla y una semana de margen.
+    assert_eq!(bond_ttl, ((TERM + 30 * DAY) / 5) as u32 + 7 * DAY_LEDGERS);
+    // Lo que no tiene fecha vive el máximo.
+    assert_eq!(shared_ttl, max);
+    assert_eq!(sponsored_ttl, max);
+
+    // Gastar una parte de lo apadrinado renueva lo que queda.
+    s.advance(30 * DAY);
+    s.mecenas
+        .read_sponsored(&reader, &sponsor, &publisher, &paper(&s.env), &1_000_000);
+    let after = s.env.as_contract(&s.mecenas.address, || {
+        s.env.storage().persistent().get_ttl(&DataKey::Sponsorship(
+            sponsor.clone(),
+            reader.clone(),
+            publisher.clone(),
+        ))
+    });
+    assert_eq!(after, max);
+}
+
+#[test]
+fn el_saldo_del_contrato_cuenta_fianzas_apadrinados_y_mitades_ademas_de_flujos() {
+    let s = setup();
+    let (_, lab, stream) = s.opened();
+    let (bond_publisher, arbiter, bond) = s.bonded();
+    let (ana, _, _, to_cancel) = s.halved();
+    let (_, beto, _, to_join) = s.halved();
+    let sponsor = s.funded(2 * PRICE);
+    let reader = Address::generate(&s.env);
+    let publisher = Address::generate(&s.env);
+    let victim = Address::generate(&s.env);
+    let check = || {
+        let flow = s.mecenas.stream(&stream).unwrap();
+        let mut held = flow.amount - flow.withdrawn;
+        held += s.mecenas.bond(&bond).unwrap().amount;
+        held += s.mecenas.sponsorship(&sponsor, &reader, &publisher);
+        for id in [to_cancel, to_join] {
+            let half = s.mecenas.shared(&id).unwrap();
+            if half.open {
+                held += half.price - half.price / 2;
+            }
+        }
+        assert_eq!(s.held(), held);
+    };
+    check();
+
+    s.mecenas
+        .sponsor_reader(&sponsor, &reader, &publisher, &(2 * PRICE));
+    check();
+    s.advance(SPAN / 2);
+    s.mecenas
+        .pay_from_stream(&lab, &stream, &publisher, &paper(&s.env), &PRICE);
+    check();
+    s.mecenas.slash_bond(&arbiter, &bond, &victim, &5_000_000);
+    check();
+    s.mecenas
+        .read_sponsored(&reader, &sponsor, &publisher, &paper(&s.env), &PRICE);
+    check();
+    s.mecenas.join_shared(&beto, &to_join);
+    check();
+    s.mecenas.cancel_shared(&ana, &to_cancel);
+    check();
+    s.mecenas.reclaim_sponsorship(&sponsor, &reader, &publisher);
+    check();
+    s.advance(TERM);
+    s.mecenas.release_bond(&bond_publisher, &bond);
+    s.mecenas.withdraw_stream(&lab, &stream);
+    check();
+    assert_eq!(s.held(), 0);
+}

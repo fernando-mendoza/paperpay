@@ -18,9 +18,29 @@
 //! - `take_read`: un lector toma una con su firma, sin pagar; la editorial cobra en ese momento.
 //!   Una por lector y editorial cada 24 h.
 //!
-//! El contrato guarda dos cosas y nada más: lo no retirado de cada flujo y las lecturas
-//! pendientes. Cada una tiene sus salidas fijas. La configuración se fija al desplegar y no
-//! cambia: no hay admin.
+//! Desde la v0.2.0:
+//! - `pay_from_stream`: quien recibe un flujo paga una lectura con lo devengado, sin retirarlo.
+//!
+//! Fianza de integridad: una editorial respalda un artículo con su dinero.
+//! - `post_bond`: la editorial deposita una fianza por un artículo y nombra a un árbitro (un
+//!   comité de integridad), por un plazo.
+//! - `slash_bond`: dentro del plazo, el árbitro manda parte o toda la fianza a quien corresponda
+//!   (por ejemplo, a los lectores de un artículo retractado). Nunca a sí mismo.
+//! - `release_bond`: pasado el plazo, la editorial recupera lo que quede.
+//!
+//! Apadrinar a un lector: alguien paga las lecturas de una persona concreta.
+//! - `sponsor_reader`: el padrino deposita para las lecturas de un lector con una editorial.
+//! - `read_sponsored`: ese lector paga una lectura con ese saldo, con su sola firma.
+//! - `reclaim_sponsorship`: el padrino recupera lo que no se usó.
+//!
+//! Leer a medias: dos personas compran un artículo entre las dos.
+//! - `open_shared`: una pone su mitad y nombra a la otra.
+//! - `join_shared`: la otra pone su mitad; la editorial cobra y las dos tienen acceso.
+//! - `cancel_shared`: quien abrió recupera su mitad mientras la otra no haya pagado.
+//!
+//! El contrato guarda lo no retirado de cada flujo, las lecturas pendientes, las fianzas, lo
+//! apadrinado sin usar y las mitades de las lecturas a medias sin completar. Cada cosa tiene sus
+//! salidas fijas. La configuración se fija al desplegar y no cambia: no hay admin.
 
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
@@ -39,6 +59,8 @@ pub const DAY_SECONDS: u64 = 86_400;
 pub const MAX_STREAM_SECONDS: u64 = 90 * DAY_SECONDS;
 /// Lecturas pendientes que se pueden dejar en una llamada.
 pub const MAX_READS_PER_GIFT: u32 = 50;
+/// Duración máxima de una fianza, en segundos (90 días).
+pub const MAX_BOND_SECONDS: u64 = 90 * DAY_SECONDS;
 
 const DAY_IN_LEDGERS: u32 = 17_280;
 const INSTANCE_TTL_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
@@ -67,7 +89,7 @@ pub enum Error {
     InvalidDuration = 5,
     /// No hay flujo con ese id (o esa cuenta no es parte de él).
     NoStream = 6,
-    /// Todavía no hay nada devengado sin retirar.
+    /// No hay nada (o no hay suficiente) devengado sin retirar, o no queda nada por recuperar.
     NothingToWithdraw = 7,
     /// El flujo ya terminó o ya se canceló: no queda nada por cortar.
     StreamEnded = 8,
@@ -77,6 +99,22 @@ pub enum Error {
     NoPendingRead = 10,
     /// Ese lector ya tomó una lectura pendiente de esa editorial en las últimas 24 h.
     AlreadyTaken = 11,
+    /// No hay fianza con ese id (o esa cuenta no es parte de ella).
+    NoBond = 12,
+    /// El plazo de la fianza ya terminó: lo que queda solo puede volver a la editorial.
+    BondExpired = 13,
+    /// El plazo de la fianza sigue corriendo: la editorial todavía no la recupera.
+    BondActive = 14,
+    /// La editorial no puede ser su propio árbitro, ni el árbitro pagarse a sí mismo.
+    SelfArbiter = 15,
+    /// A lo apadrinado para ese lector no le alcanza para ese pago.
+    SponsorshipTooLow = 16,
+    /// No hay lectura a medias con ese id (o esa cuenta no es parte de ella).
+    NoShared = 17,
+    /// La lectura a medias ya se completó o se canceló.
+    SharedClosed = 18,
+    /// Para leer a medias hacen falta dos cuentas distintas.
+    SamePerson = 19,
 }
 
 #[contracttype]
@@ -112,6 +150,32 @@ pub struct Stream {
     pub withdrawn: i128,
 }
 
+/// Una fianza de integridad: `publisher` dejó `amount` en el contrato para respaldar `paper_id`.
+/// Hasta `until` (segundos Unix), `arbiter` puede mandar parte o todo a quien corresponda; desde
+/// `until`, lo que quede vuelve a `publisher`. `amount` es lo que queda.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Bond {
+    pub publisher: Address,
+    pub arbiter: Address,
+    pub paper_id: String,
+    pub amount: i128,
+    pub until: u64,
+}
+
+/// Una lectura a medias: `first` puso su mitad de `price` por `paper_id` de `publisher` y espera
+/// la de `second`. `open` es falso cuando se completó o se canceló.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Shared {
+    pub first: Address,
+    pub second: Address,
+    pub publisher: Address,
+    pub paper_id: String,
+    pub price: i128,
+    pub open: bool,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -125,6 +189,16 @@ enum DataKey {
     /// Marcador temporal: `reader` (`.0`) ya tomó una lectura pendiente de `publisher` (`.1`).
     /// Vence solo en `TAKEN_TTL_LEDGERS`.
     Taken(Address, Address),
+    /// Id de la próxima fianza (instance).
+    NextBond,
+    /// Una fianza, por id.
+    Bond(u32),
+    /// Lo que `sponsor` (`.0`) dejó para las lecturas de `reader` (`.1`) con `publisher` (`.2`).
+    Sponsorship(Address, Address, Address),
+    /// Id de la próxima lectura a medias (instance).
+    NextShared,
+    /// Una lectura a medias, por id.
+    Shared(u32),
 }
 
 /// Un flujo nuevo. Topics: `["stream_opened", patron, beneficiary]`. `amount` ya está en el
@@ -194,6 +268,116 @@ pub struct ReadTaken {
     pub paper_id: String,
     pub amount: i128,
     pub fee: i128,
+}
+
+/// Una fianza nueva. Topics: `["bond_posted", publisher, arbiter]`. `amount` ya está en el
+/// contrato hasta `until`.
+#[contractevent(topics = ["bond_posted"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BondPosted {
+    #[topic]
+    pub publisher: Address,
+    #[topic]
+    pub arbiter: Address,
+    pub bond_id: u32,
+    pub paper_id: String,
+    pub amount: i128,
+    pub until: u64,
+}
+
+/// Parte de una fianza ejecutada. Topics: `["bond_slashed", arbiter, to]`. `amount` pasó a `to` y
+/// `remaining` es lo que queda de la fianza.
+#[contractevent(topics = ["bond_slashed"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BondSlashed {
+    #[topic]
+    pub arbiter: Address,
+    #[topic]
+    pub to: Address,
+    pub bond_id: u32,
+    pub amount: i128,
+    pub remaining: i128,
+}
+
+/// Una fianza devuelta a la editorial al terminar su plazo. Topics: `["bond_released", publisher]`.
+#[contractevent(topics = ["bond_released"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BondReleased {
+    #[topic]
+    pub publisher: Address,
+    pub bond_id: u32,
+    pub amount: i128,
+}
+
+/// Un depósito para las lecturas de un lector. Topics: `["reader_sponsored", sponsor, reader]`.
+/// `balance` es lo que ese lector tiene ahora de ese padrino con esa editorial.
+#[contractevent(topics = ["reader_sponsored"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReaderSponsored {
+    #[topic]
+    pub sponsor: Address,
+    #[topic]
+    pub reader: Address,
+    pub publisher: Address,
+    pub amount: i128,
+    pub balance: i128,
+}
+
+/// Lo apadrinado que volvió al padrino sin usarse. Topics: `["sponsorship_reclaimed", sponsor,
+/// reader]`.
+#[contractevent(topics = ["sponsorship_reclaimed"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SponsorshipReclaimed {
+    #[topic]
+    pub sponsor: Address,
+    #[topic]
+    pub reader: Address,
+    pub publisher: Address,
+    pub amount: i128,
+}
+
+/// Una lectura a medias abierta. Topics: `["shared_opened", first, second]`. `paid` es la mitad
+/// que ya puso `first`.
+#[contractevent(topics = ["shared_opened"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SharedOpened {
+    #[topic]
+    pub first: Address,
+    #[topic]
+    pub second: Address,
+    pub shared_id: u32,
+    pub publisher: Address,
+    pub paper_id: String,
+    pub price: i128,
+    pub paid: i128,
+}
+
+/// Una lectura a medias completada: el comprobante de acceso de las dos cuentas. Topics:
+/// `["shared_joined", publisher, first, second]`. La editorial cobró `price` menos `fee`.
+#[contractevent(topics = ["shared_joined"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SharedJoined {
+    #[topic]
+    pub publisher: Address,
+    #[topic]
+    pub first: Address,
+    #[topic]
+    pub second: Address,
+    pub shared_id: u32,
+    pub paper_id: String,
+    pub price: i128,
+    pub fee: i128,
+}
+
+/// Una lectura a medias cancelada. Topics: `["shared_cancelled", first]`. `amount` volvió a
+/// `first`.
+#[contractevent(topics = ["shared_cancelled"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SharedCancelled {
+    #[topic]
+    pub first: Address,
+    pub shared_id: u32,
+    pub amount: i128,
 }
 
 #[contract]
@@ -481,6 +665,476 @@ impl Mecenas {
             .unwrap_or(0)
     }
 
+    /// `beneficiary` paga `amount` por `paper_id` de `publisher` con lo devengado de su flujo
+    /// `stream_id`, sin retirarlo antes: la editorial recibe el monto menos la comisión y la
+    /// tesorería, la comisión, desde el flujo. Si lo devengado sin retirar no alcanza, falla
+    /// (`NothingToWithdraw`). Solo firma `beneficiary`. Emite `read_taken` y devuelve el reparto.
+    pub fn pay_from_stream(
+        env: Env,
+        beneficiary: Address,
+        stream_id: u32,
+        publisher: Address,
+        paper_id: String,
+        amount: i128,
+    ) -> Split {
+        beneficiary.require_auth();
+        validate_paper_id(&env, &paper_id);
+        let entry = DataKey::Stream(stream_id);
+        let mut stream = read_stream(&env, &entry);
+        if stream.beneficiary != beneficiary {
+            panic_with_error!(&env, Error::NoStream);
+        }
+        let config = read_config(&env);
+        let split = compute_split(&env, amount, config.fee_bps);
+        let available = accrued(&stream, env.ledger().timestamp()) - stream.withdrawn;
+        if amount > available {
+            panic_with_error!(&env, Error::NothingToWithdraw);
+        }
+        stream.withdrawn += amount;
+        env.storage().persistent().set(&entry, &stream);
+
+        pay_from_custody(&env, &config, &publisher, &split);
+        extend_instance_ttl(&env);
+
+        ReadTaken {
+            publisher,
+            reader: beneficiary,
+            paper_id,
+            amount,
+            fee: split.fee,
+        }
+        .publish(&env);
+
+        split
+    }
+
+    /// `publisher` respalda `paper_id` con una fianza: deposita `amount`, que queda en el
+    /// contrato durante `duration` segundos (de 1 a `MAX_BOND_SECONDS`), y nombra a `arbiter`
+    /// (por ejemplo, un comité de integridad), que no puede ser la propia editorial
+    /// (`SelfArbiter`). Dentro del plazo solo el árbitro mueve ese dinero (`slash_bond`); pasado
+    /// el plazo, lo que quede vuelve a la editorial (`release_bond`). Solo firma `publisher`.
+    /// Emite `bond_posted` y devuelve el id de la fianza.
+    pub fn post_bond(
+        env: Env,
+        publisher: Address,
+        arbiter: Address,
+        paper_id: String,
+        amount: i128,
+        duration: u64,
+    ) -> u32 {
+        publisher.require_auth();
+        validate_paper_id(&env, &paper_id);
+        if amount <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        if duration == 0 || duration > MAX_BOND_SECONDS {
+            panic_with_error!(&env, Error::InvalidDuration);
+        }
+        if publisher == arbiter {
+            panic_with_error!(&env, Error::SelfArbiter);
+        }
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &publisher,
+            env.current_contract_address(),
+            &amount,
+        );
+        let id: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::NextBond)
+            .unwrap_or(0);
+        env.storage().instance().set(&DataKey::NextBond, &(id + 1));
+        let until = env.ledger().timestamp() + duration;
+        let entry = DataKey::Bond(id);
+        env.storage().persistent().set(
+            &entry,
+            &Bond {
+                publisher: publisher.clone(),
+                arbiter: arbiter.clone(),
+                paper_id: paper_id.clone(),
+                amount,
+                until,
+            },
+        );
+        keep_until(&env, &entry, until + GRACE_SECONDS);
+        extend_instance_ttl(&env);
+
+        BondPosted {
+            publisher,
+            arbiter,
+            bond_id: id,
+            paper_id,
+            amount,
+            until,
+        }
+        .publish(&env);
+
+        id
+    }
+
+    /// `arbiter` ejecuta `amount` de la fianza `bond_id` a favor de `to` (un lector afectado, un
+    /// fondo de devoluciones): solo dentro del plazo (`BondExpired` después), sin pasar de lo que
+    /// queda y nunca hacia sí mismo (`SelfArbiter`). Se puede ejecutar por partes. Sin comisión:
+    /// es una compensación. Solo firma `arbiter`. Emite `bond_slashed` y devuelve lo que queda.
+    pub fn slash_bond(env: Env, arbiter: Address, bond_id: u32, to: Address, amount: i128) -> i128 {
+        arbiter.require_auth();
+        let entry = DataKey::Bond(bond_id);
+        let mut bond = read_bond(&env, &entry);
+        if bond.arbiter != arbiter {
+            panic_with_error!(&env, Error::NoBond);
+        }
+        if env.ledger().timestamp() >= bond.until {
+            panic_with_error!(&env, Error::BondExpired);
+        }
+        if to == arbiter {
+            panic_with_error!(&env, Error::SelfArbiter);
+        }
+        if amount <= 0 || amount > bond.amount {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        bond.amount -= amount;
+        env.storage().persistent().set(&entry, &bond);
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &env.current_contract_address(),
+            &to,
+            &amount,
+        );
+        extend_instance_ttl(&env);
+
+        BondSlashed {
+            arbiter,
+            to,
+            bond_id,
+            amount,
+            remaining: bond.amount,
+        }
+        .publish(&env);
+
+        bond.amount
+    }
+
+    /// `publisher` recupera lo que queda de su fianza `bond_id`, sin comisión: solo desde que
+    /// termina el plazo (`BondActive` antes). Si el árbitro la ejecutó completa, no queda nada
+    /// (`NothingToWithdraw`). Solo firma `publisher`. Emite `bond_released` y devuelve lo
+    /// recuperado.
+    pub fn release_bond(env: Env, publisher: Address, bond_id: u32) -> i128 {
+        publisher.require_auth();
+        let entry = DataKey::Bond(bond_id);
+        let mut bond = read_bond(&env, &entry);
+        if bond.publisher != publisher {
+            panic_with_error!(&env, Error::NoBond);
+        }
+        if env.ledger().timestamp() < bond.until {
+            panic_with_error!(&env, Error::BondActive);
+        }
+        if bond.amount <= 0 {
+            panic_with_error!(&env, Error::NothingToWithdraw);
+        }
+        let amount = bond.amount;
+        bond.amount = 0;
+        env.storage().persistent().set(&entry, &bond);
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &env.current_contract_address(),
+            &publisher,
+            &amount,
+        );
+        extend_instance_ttl(&env);
+
+        BondReleased {
+            publisher,
+            bond_id,
+            amount,
+        }
+        .publish(&env);
+
+        amount
+    }
+
+    /// La fianza `bond_id`, si existe.
+    pub fn bond(env: Env, bond_id: u32) -> Option<Bond> {
+        env.storage().persistent().get(&DataKey::Bond(bond_id))
+    }
+
+    /// `sponsor` apadrina a `reader`: deposita `amount` para sus lecturas con `publisher`. El
+    /// dinero pasa de su wallet al contrato y tiene dos salidas: una lectura de ese lector con
+    /// esa editorial (`read_sponsored`) o de vuelta a `sponsor` (`reclaim_sponsorship`). Un
+    /// depósito nuevo se suma al saldo. No hay operador: el lector lo usa con su propia firma.
+    /// Solo firma `sponsor`. Emite `reader_sponsored` y devuelve el saldo.
+    pub fn sponsor_reader(
+        env: Env,
+        sponsor: Address,
+        reader: Address,
+        publisher: Address,
+        amount: i128,
+    ) -> i128 {
+        sponsor.require_auth();
+        if amount <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let entry = DataKey::Sponsorship(sponsor.clone(), reader.clone(), publisher.clone());
+        let before: i128 = env.storage().persistent().get(&entry).unwrap_or(0);
+        let balance = match before.checked_add(amount) {
+            Some(balance) => balance,
+            None => panic_with_error!(&env, Error::AmountOverflow),
+        };
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &sponsor,
+            env.current_contract_address(),
+            &amount,
+        );
+        env.storage().persistent().set(&entry, &balance);
+        keep_max(&env, &entry);
+        extend_instance_ttl(&env);
+
+        ReaderSponsored {
+            sponsor,
+            reader,
+            publisher,
+            amount,
+            balance,
+        }
+        .publish(&env);
+
+        balance
+    }
+
+    /// `reader` paga `amount` por `paper_id` de `publisher` con lo que `sponsor` le dejó para esa
+    /// editorial: la editorial recibe el monto menos la comisión y la tesorería, la comisión.
+    /// Quien lee no paga nada. Si el saldo no alcanza, falla (`SponsorshipTooLow`). Solo firma
+    /// `reader`. Emite `read_taken` y devuelve el reparto.
+    pub fn read_sponsored(
+        env: Env,
+        reader: Address,
+        sponsor: Address,
+        publisher: Address,
+        paper_id: String,
+        amount: i128,
+    ) -> Split {
+        reader.require_auth();
+        validate_paper_id(&env, &paper_id);
+        let config = read_config(&env);
+        let split = compute_split(&env, amount, config.fee_bps);
+        let entry = DataKey::Sponsorship(sponsor, reader.clone(), publisher.clone());
+        let balance: i128 = env.storage().persistent().get(&entry).unwrap_or(0);
+        if amount > balance {
+            panic_with_error!(&env, Error::SponsorshipTooLow);
+        }
+        if amount == balance {
+            env.storage().persistent().remove(&entry);
+        } else {
+            env.storage().persistent().set(&entry, &(balance - amount));
+            keep_max(&env, &entry);
+        }
+
+        pay_from_custody(&env, &config, &publisher, &split);
+        extend_instance_ttl(&env);
+
+        ReadTaken {
+            publisher,
+            reader,
+            paper_id,
+            amount,
+            fee: split.fee,
+        }
+        .publish(&env);
+
+        split
+    }
+
+    /// `sponsor` recupera todo lo que dejó para `reader` con `publisher` y no se usó, sin
+    /// comisión, cuando quiera. Sin saldo, falla (`NothingToWithdraw`). Solo firma `sponsor`.
+    /// Emite `sponsorship_reclaimed` y devuelve lo recuperado.
+    pub fn reclaim_sponsorship(
+        env: Env,
+        sponsor: Address,
+        reader: Address,
+        publisher: Address,
+    ) -> i128 {
+        sponsor.require_auth();
+        let entry = DataKey::Sponsorship(sponsor.clone(), reader.clone(), publisher.clone());
+        let balance: i128 = env.storage().persistent().get(&entry).unwrap_or(0);
+        if balance <= 0 {
+            panic_with_error!(&env, Error::NothingToWithdraw);
+        }
+        env.storage().persistent().remove(&entry);
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &env.current_contract_address(),
+            &sponsor,
+            &balance,
+        );
+        extend_instance_ttl(&env);
+
+        SponsorshipReclaimed {
+            sponsor,
+            reader,
+            publisher,
+            amount: balance,
+        }
+        .publish(&env);
+
+        balance
+    }
+
+    /// Lo que `sponsor` tiene depositado para las lecturas de `reader` con `publisher`.
+    pub fn sponsorship(env: Env, sponsor: Address, reader: Address, publisher: Address) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Sponsorship(sponsor, reader, publisher))
+            .unwrap_or(0)
+    }
+
+    /// `first` propone leer `paper_id` de `publisher` a medias con `second` (otra cuenta:
+    /// `SamePerson` si es la misma) y pone su mitad de `price`, que pasa de su wallet al
+    /// contrato. Con precio impar, quien abre pone el stroop de más. Esa mitad tiene dos salidas:
+    /// hacia la editorial cuando `second` ponga la suya (`join_shared`) o de vuelta a `first`
+    /// (`cancel_shared`). Solo firma `first`. Emite `shared_opened` y devuelve el id.
+    pub fn open_shared(
+        env: Env,
+        first: Address,
+        second: Address,
+        publisher: Address,
+        paper_id: String,
+        price: i128,
+    ) -> u32 {
+        first.require_auth();
+        validate_paper_id(&env, &paper_id);
+        // Cada mitad vale al menos un stroop.
+        if price < 2 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        if first == second {
+            panic_with_error!(&env, Error::SamePerson);
+        }
+        let half = price - price / 2;
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &first,
+            env.current_contract_address(),
+            &half,
+        );
+        let id: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::NextShared)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::NextShared, &(id + 1));
+        let entry = DataKey::Shared(id);
+        env.storage().persistent().set(
+            &entry,
+            &Shared {
+                first: first.clone(),
+                second: second.clone(),
+                publisher: publisher.clone(),
+                paper_id: paper_id.clone(),
+                price,
+                open: true,
+            },
+        );
+        keep_max(&env, &entry);
+        extend_instance_ttl(&env);
+
+        SharedOpened {
+            first,
+            second,
+            shared_id: id,
+            publisher,
+            paper_id,
+            price,
+            paid: half,
+        }
+        .publish(&env);
+
+        id
+    }
+
+    /// `second` completa la lectura a medias `shared_id`: pone su mitad y, con las dos, la
+    /// editorial recibe el precio menos la comisión y la tesorería, la comisión. El artículo
+    /// queda pagado para las dos cuentas. Solo quien fue nombrado al abrir (`NoShared`), una sola
+    /// vez (`SharedClosed`). Solo firma `second`. Emite `shared_joined` y devuelve el reparto.
+    pub fn join_shared(env: Env, second: Address, shared_id: u32) -> Split {
+        second.require_auth();
+        let entry = DataKey::Shared(shared_id);
+        let mut shared = read_shared(&env, &entry);
+        if shared.second != second {
+            panic_with_error!(&env, Error::NoShared);
+        }
+        shared.open = false;
+        env.storage().persistent().set(&entry, &shared);
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &second,
+            env.current_contract_address(),
+            &(shared.price / 2),
+        );
+        let split = compute_split(&env, shared.price, config.fee_bps);
+        pay_from_custody(&env, &config, &shared.publisher, &split);
+        extend_instance_ttl(&env);
+
+        SharedJoined {
+            publisher: shared.publisher,
+            first: shared.first,
+            second,
+            shared_id,
+            paper_id: shared.paper_id,
+            price: shared.price,
+            fee: split.fee,
+        }
+        .publish(&env);
+
+        split
+    }
+
+    /// `first` cancela su lectura a medias `shared_id` mientras la otra cuenta no haya puesto su
+    /// mitad: recupera la suya completa, sin comisión. Solo firma `first`. Emite
+    /// `shared_cancelled` y devuelve lo recuperado.
+    pub fn cancel_shared(env: Env, first: Address, shared_id: u32) -> i128 {
+        first.require_auth();
+        let entry = DataKey::Shared(shared_id);
+        let mut shared = read_shared(&env, &entry);
+        if shared.first != first {
+            panic_with_error!(&env, Error::NoShared);
+        }
+        shared.open = false;
+        env.storage().persistent().set(&entry, &shared);
+
+        let half = shared.price - shared.price / 2;
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &env.current_contract_address(),
+            &first,
+            &half,
+        );
+        extend_instance_ttl(&env);
+
+        SharedCancelled {
+            first,
+            shared_id,
+            amount: half,
+        }
+        .publish(&env);
+
+        half
+    }
+
+    /// La lectura a medias `shared_id`, si existe.
+    pub fn shared(env: Env, shared_id: u32) -> Option<Shared> {
+        env.storage().persistent().get(&DataKey::Shared(shared_id))
+    }
+
     /// La configuración fijada al desplegar.
     pub fn config(env: Env) -> Config {
         read_config(&env)
@@ -511,6 +1165,31 @@ fn pay_from_custody(env: &Env, config: &Config, to: &Address, split: &Split) {
     if split.fee > 0 {
         usdc.transfer(&from, &config.treasury, &split.fee);
     }
+}
+
+fn validate_paper_id(env: &Env, paper_id: &String) {
+    if paper_id.is_empty() || paper_id.len() > MAX_PAPER_ID_LEN {
+        panic_with_error!(env, Error::InvalidPaperId);
+    }
+}
+
+fn read_bond(env: &Env, entry: &DataKey) -> Bond {
+    match env.storage().persistent().get(entry) {
+        Some(bond) => bond,
+        None => panic_with_error!(env, Error::NoBond),
+    }
+}
+
+/// La lectura a medias de `entry`, si existe y sigue abierta.
+fn read_shared(env: &Env, entry: &DataKey) -> Shared {
+    let shared: Shared = match env.storage().persistent().get(entry) {
+        Some(shared) => shared,
+        None => panic_with_error!(env, Error::NoShared),
+    };
+    if !shared.open {
+        panic_with_error!(env, Error::SharedClosed);
+    }
+    shared
 }
 
 fn read_stream(env: &Env, entry: &DataKey) -> Stream {
