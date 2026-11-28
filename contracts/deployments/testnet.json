@@ -4,10 +4,10 @@
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "productionContractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
   "splitter": {
-    "version": "0.18.0",
-    "contractId": "CBAXQMKVDTEXVVOOB7KJQJTJ2QNDQ4P3XZJYVXQB6TH3PK4DMXTISCCJ",
-    "wasmSha256": "3e79adb4d459dda30071913b49814226e5a44c8a560e3970adfa381fd78e4b41",
-    "source": "contracts/splitter @ 59b0b3f, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
+    "version": "0.19.0",
+    "contractId": "CAOZXNCMQ64N4X3E3UQC2RPVYVG3ULFB5AYTFMXGBMVAKARNGXDUFPVY",
+    "wasmSha256": "30eebf3d9d4aa0139dfe2f6822ca111e2b7c0216c8ca87bf89b614d672772f33",
+    "source": "contracts/splitter @ 7c9a150, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
     "constructor": {
       "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
@@ -15,24 +15,34 @@
       "pass_day_price": 10000000,
       "open_day_price": 50000000
     },
-    "uploadTx": "4f40043cae8fe56cf3f1f3ceea75624ed319eb7ae8006590678fc39c70ceb633",
-    "deployTx": "688051786f4bf503e048bd0117970525f4108211a5be82839d6ec7fbefbdf146",
-    "deployedAt": "2026-11-28T01:58:04Z",
+    "uploadTx": "31d7e5e6243758a00fd0ed020a4cf69ad564f85b05aa6f973d9c5f925c5c18e4",
+    "deployTx": "9950e184788f7f79f482c38c6e609df793c2d7ab6514841388dded33fd712b10",
+    "deployedAt": "2026-11-28T02:00:24Z",
     "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
-    "custody": "la misma de la v0.15.0: la renta y la compra van directo de la wallet de quien lee a la editorial y a la tesorería; el contrato solo guarda cuánto se pagó, hasta cuándo y el precio de compra",
+    "custody": "además de lo anterior, guarda los cargos de publicación sin decidir; cada uno sale solo hacia la revista y la tesorería (accept_manuscript, antes del plazo) o de vuelta a quien lo pagó (reject_manuscript, cuando la revista quiera; reclaim_apc, desde el plazo); sin admin",
     "usage": {
-      "rent": {
-        "tx": "6ec274be792c8a4e3dfda97a778ba7f1f2df17e550439f0ed3c58d549a52c725",
-        "what": "GBTPF3R4TKQ3XU6OYAT6KC3ZNPGPBY67MH5Q5S72ZGKZQCGSEIWPSW3Y renta crispr-nanomedicine-biotech por 172800 s: paga 1000000, con precio de compra 5000000",
-        "result": "980000 a la editorial demo y 20000 a la tesorería; evento rented. Segunda renta, 68d8b3254899a2688c175f57461b605192a9cbe4e10e6dc6d9b847dc6008175e: 45 s, que se deja vencer"
+      "pay_apc": {
+        "tx": "5fbbe9aa9cbac442057a7a44607d4bf99bfae227ffc408be184f69124be2bdc0",
+        "what": "GBBETVBBCGEFCTS4MKNXCW36JTFFXVUDOZXLBM4QSUYUPZDCQVLPRKLQ deja 20000000 por el manuscrito ms-2026-0417 en GAWUAPPKXIOJFW3LCHN2AIP5FV7BSSRUKTEXTEUKZR7QSZ3EMIZ5BIGR, plazo de 1 h",
+        "result": "cargo 0; 20000000 al contrato; evento apc_paid. Cargos 1 (be56426b8a9e144823247784eecb1857ed5ee9571209bf541c0fcb967e5ffb19) y 2 (cd87737955c851ada05265418d9b089e81ac7598a51680dc29287d8621456a57): 5000000 cada uno"
       },
-      "buy_out": {
-        "tx": "2120bcd3918d30e50ca2597218de9be0cca936d45276ace87535d7f6ccce534b",
-        "what": "quien rentó convierte la renta en compra",
-        "result": "paga solo la diferencia, 4000000: 3920000 a la editorial demo y 80000 a la tesorería; eventos paid y bought_out"
+      "accept_manuscript": {
+        "tx": "457a2cae808cb3ac2f71a6d9c36334017a9f36e3a2cfe5af9ed6b09f0d4fbdd1",
+        "what": "la revista acepta el cargo 0",
+        "result": "19600000 a la revista y 400000 a la tesorería; evento manuscript_accepted"
+      },
+      "reject_manuscript": {
+        "tx": "4f27f3049a6084a752ed67cbbee5580a9a920bbe47c1445162897d5ef1d856e4",
+        "what": "la revista rechaza el cargo 1",
+        "result": "5000000 de vuelta a quien lo pagó, sin comisión; evento manuscript_rejected"
+      },
+      "reclaim_apc": {
+        "tx": "26708910b580982b391ca726d0f26b73440534f1743e0ca59ff4340499a6fc98",
+        "what": "vencido el plazo de 60 s del cargo 2 sin decisión, quien lo pagó lo recupera",
+        "result": "5000000 de vuelta, sin comisión; evento apc_reclaimed"
       }
     },
-    "checks": "simulados antes de enviar: comprar sin renta (#77), renta que no es más barata (#80), rentar con la renta vigente (#79), otra cuenta comprando (#77), comprar dos veces (#77), comprar con la renta vencida (#78). El contrato nunca tuvo saldo"
+    "checks": "simulados antes de enviar: quien envió rechazándose (#81), otra cuenta aceptando (#81), recuperar antes del plazo (#84), aceptar dos veces (#82), aceptar después del plazo (#83), rechazar un cargo ya recuperado (#82). Al final: saldo del contrato 0, tesorería +400000"
   },
   "boveda": {
     "version": "0.1.0",
@@ -66,6 +76,37 @@
     "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."
   },
   "previous": [
+    {
+      "version": "0.18.0",
+      "contractId": "CBAXQMKVDTEXVVOOB7KJQJTJ2QNDQ4P3XZJYVXQB6TH3PK4DMXTISCCJ",
+      "wasmSha256": "3e79adb4d459dda30071913b49814226e5a44c8a560e3970adfa381fd78e4b41",
+      "source": "contracts/splitter @ 59b0b3f, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200,
+        "pass_day_price": 10000000,
+        "open_day_price": 50000000
+      },
+      "uploadTx": "4f40043cae8fe56cf3f1f3ceea75624ed319eb7ae8006590678fc39c70ceb633",
+      "deployTx": "688051786f4bf503e048bd0117970525f4108211a5be82839d6ec7fbefbdf146",
+      "deployedAt": "2026-11-28T01:58:04Z",
+      "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
+      "custody": "la misma de la v0.15.0: la renta y la compra van directo de la wallet de quien lee a la editorial y a la tesorería; el contrato solo guarda cuánto se pagó, hasta cuándo y el precio de compra",
+      "usage": {
+        "rent": {
+          "tx": "6ec274be792c8a4e3dfda97a778ba7f1f2df17e550439f0ed3c58d549a52c725",
+          "what": "GBTPF3R4TKQ3XU6OYAT6KC3ZNPGPBY67MH5Q5S72ZGKZQCGSEIWPSW3Y renta crispr-nanomedicine-biotech por 172800 s: paga 1000000, con precio de compra 5000000",
+          "result": "980000 a la editorial demo y 20000 a la tesorería; evento rented. Segunda renta, 68d8b3254899a2688c175f57461b605192a9cbe4e10e6dc6d9b847dc6008175e: 45 s, que se deja vencer"
+        },
+        "buy_out": {
+          "tx": "2120bcd3918d30e50ca2597218de9be0cca936d45276ace87535d7f6ccce534b",
+          "what": "quien rentó convierte la renta en compra",
+          "result": "paga solo la diferencia, 4000000: 3920000 a la editorial demo y 80000 a la tesorería; eventos paid y bought_out"
+        }
+      },
+      "checks": "simulados antes de enviar: comprar sin renta (#77), renta que no es más barata (#80), rentar con la renta vigente (#79), otra cuenta comprando (#77), comprar dos veces (#77), comprar con la renta vencida (#78). El contrato nunca tuvo saldo"
+    },
     {
       "version": "0.17.0",
       "contractId": "CALLI44DK4TUF3GCPU55V55A6CLBJS2ADZYU4JTPGJCUVN4QZCJZKX2P",
