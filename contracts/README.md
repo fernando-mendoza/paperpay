@@ -611,7 +611,7 @@ Formas de pagar por otros y de respaldar lo que se publica, en un contrato apart
 
 - **Mecenazgo por flujo:** alguien financia a un autor o a un laboratorio poco a poco; el dinero se devenga segundo a segundo. Desde la v0.2.0, quien lo recibe también puede pagar lecturas directo con lo devengado.
 - **Lectura pendiente**, como el café pendiente: alguien deja lecturas pagadas de una editorial y quien las necesite toma una, sin pagar.
-- **Fianza de integridad** (v0.2.0): una editorial respalda un artículo con su dinero y nombra a un árbitro, que puede ejecutarla a favor de los afectados.
+- **Fianza de integridad** (v0.2.0): una editorial respalda un artículo con su dinero y nombra a un árbitro, que puede ejecutarla a favor de los afectados. Después la editorial puede aumentarla (`top_up_bond`, v0.3.0) y pagarle sus honorarios al árbitro (`pay_arbiter`, v0.5.0), y el árbitro puede cerrar el caso y liberarla antes del plazo (`clear_bond`, v0.4.0).
 - **Apadrinar a un lector** (v0.2.0): alguien deja dinero para las lecturas de una persona concreta, que lo usa con su sola firma.
 - **Leer a medias** (v0.2.0): dos personas compran un artículo entre las dos.
 
@@ -626,6 +626,9 @@ Formas de pagar por otros y de respaldar lo que se publica, en un contrato apart
 | `post_bond(publisher, arbiter, paper_id, amount, duration) -> u32` | `publisher` deposita una fianza por `paper_id` durante `duration` segundos (de 1 a 90 días) y nombra a `arbiter`, que no puede ser ella misma (`SelfArbiter`). Solo firma `publisher`. Emite `bond_posted` y devuelve el id. **Desde la v0.2.0.** |
 | `slash_bond(arbiter, bond_id, to, amount) -> i128` | `arbiter` manda `amount` de la fianza a `to`, sin comisión: solo dentro del plazo (`BondExpired`), sin pasar de lo que queda y nunca hacia sí mismo (`SelfArbiter`). Por partes, si quiere. Solo firma `arbiter`. Emite `bond_slashed` y devuelve lo que queda. **Desde la v0.2.0.** |
 | `release_bond(publisher, bond_id) -> i128` | `publisher` recupera lo que quede de su fianza, sin comisión, desde que termina el plazo (`BondActive` antes). Solo firma `publisher`. Emite `bond_released`. **Desde la v0.2.0.** |
+| `top_up_bond(publisher, bond_id, amount) -> i128` | `publisher` suma `amount` a su fianza mientras sigue en plazo (`BondExpired` después). No cambia el plazo ni el árbitro. Solo firma `publisher`. Emite `bond_topped_up` y devuelve el total. **Desde la v0.3.0.** |
+| `clear_bond(arbiter, bond_id) -> i128` | `arbiter` cierra el caso a favor de la editorial: lo que queda de la fianza vuelve a ella antes del plazo, sin comisión (`BondExpired` después: ahí la recupera ella con `release_bond`). Solo firma `arbiter`. Emite `bond_cleared`. **Desde la v0.4.0.** |
+| `pay_arbiter(publisher, bond_id, amount) -> Split` | `publisher` paga honorarios al árbitro de su fianza: 98% al árbitro y 2% a la tesorería, desde la wallet de la editorial y sin tocar la fianza. También después del plazo. Solo firma `publisher`. Emite `arbiter_paid`. **Desde la v0.5.0.** |
 | `sponsor_reader(sponsor, reader, publisher, amount) -> i128` | `sponsor` deposita `amount` para las lecturas de `reader` con `publisher`; un depósito nuevo se suma. Solo firma `sponsor`. Emite `reader_sponsored` y devuelve el saldo. **Desde la v0.2.0.** |
 | `read_sponsored(reader, sponsor, publisher, paper_id, amount) -> Split` | `reader` paga una lectura con lo que `sponsor` le dejó para esa editorial: 98% a la editorial y 2% a la tesorería. Quien lee no pone dinero. Si el saldo no alcanza, `SponsorshipTooLow`. Solo firma `reader`. Emite `read_taken`. **Desde la v0.2.0.** |
 | `reclaim_sponsorship(sponsor, reader, publisher) -> i128` | `sponsor` recupera lo que no se usó, sin comisión, cuando quiera. Solo firma `sponsor`. Emite `sponsorship_reclaimed`. **Desde la v0.2.0.** |
@@ -641,14 +644,33 @@ Formas de pagar por otros y de respaldar lo que se publica, en un contrato apart
   - no sabe si quien toma una lectura pendiente la necesita: cualquier wallet puede tomar una por editorial al día, y con wallets nuevas se pueden tomar varias;
   - como en `pay`, no conoce el precio de cada artículo: lo valida quien da el acceso, contra los eventos `read_taken` y `shared_joined`;
   - no juzga si un artículo merece que se ejecute su fianza: eso lo decide el árbitro que la editorial nombró. El contrato solo impide que el árbitro se pague a sí mismo y que ejecute después del plazo; no impide que mande el dinero a una cuenta amiga;
+  - el árbitro puede cerrar el caso y devolver la fianza a la editorial en cualquier momento del plazo (`clear_bond`): una fianza vale lo que valga la independencia de su árbitro. Que la editorial le pague honorarios por el contrato (`pay_arbiter`) deja ese pago a la vista, no lo vuelve independiente;
   - el padrino puede recuperar lo apadrinado cuando quiera: el lector no tiene garantía de que el saldo siga ahí;
   - si quien cobra no puede recibir USDC (sin trustline), la llamada falla y no cambia nada; aquí no hay cobros pendientes como en el contrato de reparto;
   - las lecturas pendientes no vencen ni se devuelven: si una editorial desaparece, lo que se dejó para ella se queda en el contrato.
 
 ```bash
-pnpm test:contracts            # incluye las 36 pruebas de mecenas
+pnpm test:contracts            # incluye las 42 pruebas de mecenas
 cd contracts && stellar contract build --package paperpay-mecenas
 ```
+
+| mecenas v0.5.0 | Valor |
+| --- | --- |
+| Contrato | [`CBLK6YQYIHXMMG6DAX6KEJHNRC4U6KTISXZUSCLVG6QQMRR7NC7YLIPT`](https://stellar.expert/explorer/testnet/contract/CBLK6YQYIHXMMG6DAX6KEJHNRC4U6KTISXZUSCLVG6QQMRR7NC7YLIPT) |
+| WASM (sha256) | `832a3eee53bfb20ab29a10bb4fa3879053f4f56d483a240b56e95e70d251629e` (36,553 bytes), igual al que se baja de la red |
+| Constructor | `token` = SAC de USDC de testnet, `treasury` = la tesorería de PaperPay, `fee_bps` = 200 |
+| `pay_arbiter` | Una revista con una fianza de 0.50 ([`888deb9e…`](https://stellar.expert/explorer/testnet/tx/888deb9eb5f1b674c8b127cac161477284c722aa1853a451e934da99f841734f)) paga 0.10 de honorarios a su árbitro: [`06b5eee0…`](https://stellar.expert/explorer/testnet/tx/06b5eee0ce64416cc76b6f0c38cfc7f17c4e139f516aa9ab0a911c5bbac272a1). 0.098 al árbitro y 0.002 a la tesorería; la fianza sigue en 0.50 |
+
+Las otras dos funciones nuevas de la fianza se usaron cada una en el despliegue de su versión:
+
+| Versión | Contrato | WASM (sha256) | Función usada |
+| --- | --- | --- | --- |
+| v0.3.0 | [`CCOCSA…W3MO`](https://stellar.expert/explorer/testnet/contract/CCOCSAJMVIQY32CY27PWQK72VMPLASL7J4RUYAUV34A6OUIUIJ4GW3MO) | `c8811618a05c92e9…` (34,401 bytes) | `top_up_bond`: la revista sube su fianza de 0.50 ([`ed8cda7e…`](https://stellar.expert/explorer/testnet/tx/ed8cda7e1f5a4a3549ee3631d964105705859ec896f1521622fae45b27603943)) a 0.75: [`4804effa…`](https://stellar.expert/explorer/testnet/tx/4804effaac200c88d0dd05e57d45db3f9b0460619e85e2f0af3cbb877a3cf905) |
+| v0.4.0 | [`CBOFIT…MAP4`](https://stellar.expert/explorer/testnet/contract/CBOFITBX7NGG34PB3ZA44AFSWM5U4MFSUEOUYDOZCFBGPUHONL6FMAP4) | `82b3511434cbb9ee…` (35,395 bytes) | `clear_bond`: el árbitro cierra el caso de una fianza de 0.50 ([`987b8525…`](https://stellar.expert/explorer/testnet/tx/987b852544a49461eb62374d18169c2447afd63ad31e18d7231a9e85057b10e5)) y vuelve entera a la revista: [`16ed58a1…`](https://stellar.expert/explorer/testnet/tx/16ed58a1a46e9d7d03925cc1cd78ce224388ab4f33436b17cba7248a98ed102d) |
+
+Antes de enviar, cada script simuló lo que no debe pasar: aumentar la fianza con 0 (#2), el árbitro aumentando una fianza ajena (#12), la revista cerrando su propio caso (#12) y el árbitro cobrándose honorarios como si la fianza fuera suya (#12).
+
+El despliegue de la v0.2.0, con las diez funciones anteriores:
 
 | mecenas v0.2.0 | Valor |
 | --- | --- |
@@ -668,7 +690,7 @@ cd contracts && stellar contract build --package paperpay-mecenas
 
 Antes de enviar, el script simuló lo que no debe pasar: la revista nombrándose su propio árbitro (#15), el árbitro pagándose a sí mismo (#15), la revista sacando su fianza por la vía del árbitro (#12) o antes del plazo (#14), el árbitro ejecutando después del plazo (#13), otra cuenta leyendo con lo apadrinado (#16), leer por más de lo que queda (#16), leer a medias con una misma (#19), otra cuenta completando la lectura a medias (#17), completar una cancelada (#18), el mecenas pagando con el flujo (#6) y pagar más de lo devengado (#7). Al final el contrato guarda 0.95: el flujo sin retirar.
 
-El despliegue anterior, con las cinco primeras funciones:
+El despliegue de la v0.1.0, con las cinco primeras funciones:
 
 | mecenas v0.1.0 | Valor |
 | --- | --- |
