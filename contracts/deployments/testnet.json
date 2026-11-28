@@ -76,6 +76,50 @@
       }
     }
   },
+  "mecenas": {
+    "version": "0.1.0",
+    "contractId": "CCG7IU2NIQSKHHICEZOVKGTUWOALVTCSH7YQU4J7O3354G7TJH3JY5XE",
+    "wasmSha256": "e2c717f7e81a3a90a540218b3f2374569d98931ff46fa5370c826c77c111575e",
+    "source": "contracts/mecenas @ f6b24ac, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
+    "constructor": {
+      "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+      "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+      "fee_bps": 200
+    },
+    "uploadTx": "21c8066f60061825b3daa85520a864ee481e5a6fa5ea0d0087529ade668ff46d",
+    "deployTx": "8968768c4e1e5f767f9ced4e1791a1f61e123531a6c696250d23b560f8b082c1",
+    "deployedAt": "2026-11-28T03:42:59Z",
+    "status": "desplegado en testnet, sin usar en el sitio",
+    "custody": "guarda lo no retirado de cada flujo (sale hacia quien recibe al retirar, o de vuelta al mecenas lo no devengado al cortar) y las lecturas pendientes (salen hacia su editorial y la tesorería, una por lectura tomada); sin admin",
+    "usage": {
+      "open_stream": {
+        "tx": "1fc976465e5c82f473075bba9d6010b5e34c0570f2816211e2cbd7ba0fba2b1d",
+        "what": "GCIJDXYKHBGQGHN2VXQCN4CJ5INDO3Q7BCKPCADDRVLHKB3TE3H66V5J abre un flujo de 10000000 en 120 s para GC356T3QRAIGRHXIKBZBTGGVDBZMC4V5J47LKUVN72UJB2O2OKVIWJ5L",
+        "result": "flujo 0; 10000000 al contrato; evento stream_opened"
+      },
+      "withdraw_stream": {
+        "tx": "3804d75a5221877f9e9489206e5355db21c53424b42acdae64cf30a28d3dcc11",
+        "what": "quien recibe retira lo devengado a los pocos segundos",
+        "result": "1666666 salen del flujo (98% para quien recibe, 2% a la tesorería); evento stream_withdrawn. Segundo retiro después del corte: 46a99b39690a038fc41d54960e6629bce50c41e7941a7fb5ad0104c9b0444a73"
+      },
+      "cancel_stream": {
+        "tx": "eb467ca679eed4b88d1b662bcaf5e1d12a31640f5ff8e5f094fee7458077f325",
+        "what": "el mecenas corta el flujo",
+        "result": "7916667 de vuelta al mecenas, sin comisión; 2083333 quedan como devengados; evento stream_cancelled"
+      },
+      "leave_read": {
+        "tx": "1f7b8daf3330a90b60a0aa4596c8634dde8214c9b7f4bf0b21770ffb76a79e06",
+        "what": "GAFAEGZCQB54HTPTAKLEXWG2V2MHTEMTLJI7PTWVZ723GYZHZR6BGVQ3 deja 2 lecturas de 5000000 de la editorial demo",
+        "result": "10000000 al contrato; 2 pendientes; evento reads_left"
+      },
+      "take_read": {
+        "tx": "fca6b229135e5dc8e3307cb48f415a65b62861255f0859e0fa88ed9dec051f0b",
+        "what": "GBJO2NKGSMDJCMS6EQYPPLKO3NRURLZTCPXKINS57JJ32DDQF2TDY5Y2, sin USDC ni trustline, toma una para crispr-nanomedicine-biotech",
+        "result": "4900000 a la editorial demo y 100000 a la tesorería; queda 1 pendiente; evento read_taken"
+      }
+    },
+    "checks": "simulados antes de enviar: el mecenas retirando (#6), quien recibe cortando (#6), cortar dos veces (#8), retirar sin nada nuevo (#7), tomar sin pendientes (#10), tomar dos el mismo día (#11), tomar a otro precio (#10). Al final: saldo del contrato 5000000 (una lectura pendiente)"
+  },
   "demoPublisher": {
     "address": "GA3MOPOJ374G4APKR4RE7VPXF5CEQKER3FA3LZ2XSAARIRSZEF6QXUZI",
     "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."
