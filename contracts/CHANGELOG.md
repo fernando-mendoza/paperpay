@@ -6,6 +6,7 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 
 | Versión | Contrato (testnet) | Funciones nuevas | Pruebas | ¿La usa el sitio? |
 | --- | --- | --- | --- | --- |
+| [0.19.0](#0190-27-nov-2026) | `CAOZXN…FPVY` | `pay_apc`, `accept_manuscript`, `reject_manuscript`, `reclaim_apc` | 283 | No |
 | [0.18.0](#0180-27-nov-2026) | `CBAXQM…SCCJ` | `rent`, `buy_out` | 267 | No |
 | [0.17.0](#0170-27-nov-2026) | `CALLI4…KX2P` | `pay_from_owed` | 254 | No |
 | [0.16.0](#0160-27-nov-2026) | `CCMUFZ…WBYZ` | `pay_as_agent` (más `authorize_agent` y `revoke_agent`, de soporte) | 245 | No |
@@ -24,6 +25,27 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 | [0.3.0](#030-25-nov-2026) | `CCQRUT…HEQD` | `gift_batch`, `tip`, `refund` | 32 | No |
 | [0.2.0](#020-23-nov-2026) | `CAIMQY…HOR5` | `pay_batch`, `gift` | 21 | Del 23 al 25 de noviembre. Sigue como contrato anterior: sus regalos y lecturas valen |
 | [0.1.0](#010-23-nov-2026) | `CDOUF6…BPOZ` | `pay`, `split`, `config` | 11 | No (reemplazada) |
+
+## 0.19.0 (27 nov 2026)
+
+Cargo de publicación (APC) en garantía: quien envía un manuscrito no paga por publicar algo que no se publicó, y la revista sabe que el dinero existe. Es la **undécima custodia** y el primer flujo del contrato del lado de quien publica.
+
+- **`pay_apc(author, journal, manuscript_id, amount, deadline)`:** deja el cargo en el contrato, con un plazo de hasta 90 días para que la revista decida. Emite `apc_paid`.
+- **`accept_manuscript(journal, apc_id)`:** la revista acepta antes del plazo y cobra: 98% para ella y 2% a la tesorería. Emite `manuscript_accepted`.
+- **`reject_manuscript(journal, apc_id)`:** la revista rechaza y el cargo vuelve completo, sin comisión, sin esperar al plazo. Emite `manuscript_rejected`.
+- **`reclaim_apc(author, apc_id)`:** si la revista no decidió, desde el plazo quien pagó recupera el cargo completo (`ApcActive` antes). Emite `apc_reclaimed`.
+- De lectura: `apc`.
+- Errores nuevos: `NoApc` (81), `ApcClosed` (82), `ApcExpired` (83) y `ApcActive` (84). El plazo inválido reusa `InvalidDeadline` (17).
+- Salió una función más de las tres planeadas: `reclaim_apc`. Sin ella, si la revista nunca decide, el cargo queda atrapado.
+- Un cargo tiene una sola salida. Antes del plazo decide la revista (cobra o devuelve); desde el plazo ya no puede cobrar, y quien pagó lo recupera. Quien envió no puede "rechazarse" para sacar su dinero antes.
+- Código: `a3639cb`. Versión en `7c9a150`.
+- En la red (primero en una red Stellar local, después en testnet):
+  - contrato [`CAOZXNCMQ64N4X3E3UQC2RPVYVG3ULFB5AYTFMXGBMVAKARNGXDUFPVY`](https://stellar.expert/explorer/testnet/contract/CAOZXNCMQ64N4X3E3UQC2RPVYVG3ULFB5AYTFMXGBMVAKARNGXDUFPVY), WASM `30eebf3d…`;
+  - [`pay_apc` `5fbbe9aa…`](https://stellar.expert/explorer/testnet/tx/5fbbe9aa9cbac442057a7a44607d4bf99bfae227ffc408be184f69124be2bdc0) (2.00 USDC en garantía por el manuscrito `ms-2026-0417`, plazo de 1 h);
+  - [`accept_manuscript` `457a2cae…`](https://stellar.expert/explorer/testnet/tx/457a2cae808cb3ac2f71a6d9c36334017a9f36e3a2cfe5af9ed6b09f0d4fbdd1) (la revista cobra 1.96; 0.04 a la tesorería);
+  - [`reject_manuscript` `4f27f304…`](https://stellar.expert/explorer/testnet/tx/4f27f3049a6084a752ed67cbbee5580a9a920bbe47c1445162897d5ef1d856e4) (otro cargo de 0.50: vuelve completo);
+  - [`reclaim_apc` `26708910…`](https://stellar.expert/explorer/testnet/tx/26708910b580982b391ca726d0f26b73440534f1743e0ca59ff4340499a6fc98) (un tercero, con plazo de 60 s y sin decisión: quien pagó lo recupera).
+- Pruebas: 16 nuevas, 283 en total, en `src/test/apc.rs`. Se rompió el código de 32 formas a propósito y alguna prueba detectó cada una.
 
 ## 0.18.0 (27 nov 2026)
 
