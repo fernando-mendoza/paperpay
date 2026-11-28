@@ -6,6 +6,7 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 
 | Versión | Contrato (testnet) | Funciones nuevas | Pruebas | ¿La usa el sitio? |
 | --- | --- | --- | --- | --- |
+| [0.18.0](#0180-27-nov-2026) | `CBAXQM…SCCJ` | `rent`, `buy_out` | 267 | No |
 | [0.17.0](#0170-27-nov-2026) | `CALLI4…KX2P` | `pay_from_owed` | 254 | No |
 | [0.16.0](#0160-27-nov-2026) | `CCMUFZ…WBYZ` | `pay_as_agent` (más `authorize_agent` y `revoke_agent`, de soporte) | 245 | No |
 | [0.15.0](#0150-27-nov-2026) | `CBFYNO…HXAV` | `fund_grant`, `release_milestone`, `cancel_grant` | 231 | No |
@@ -23,6 +24,22 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 | [0.3.0](#030-25-nov-2026) | `CCQRUT…HEQD` | `gift_batch`, `tip`, `refund` | 32 | No |
 | [0.2.0](#020-23-nov-2026) | `CAIMQY…HOR5` | `pay_batch`, `gift` | 21 | Del 23 al 25 de noviembre. Sigue como contrato anterior: sus regalos y lecturas valen |
 | [0.1.0](#010-23-nov-2026) | `CDOUF6…BPOZ` | `pay`, `split`, `config` | 11 | No (reemplazada) |
+
+## 0.18.0 (27 nov 2026)
+
+Renta con opción a compra: leer un artículo por unas horas a una fracción del precio y, si sirve, quedárselo pagando solo la diferencia. **Sin custodia**: cada pago va directo de la wallet de quien lee a la editorial y a la tesorería.
+
+- **`rent(reader, publisher, paper_id, amount, full_price, period)`:** cobra la renta (98/2) y guarda cuánto se pagó, hasta cuándo vale (`period` segundos, hasta 7 días) y el precio de compra pactado, que tiene que ser mayor que la renta. Una renta vigente no se repite; una vencida se reemplaza. Emite `rented` (no `paid`: el acceso vence).
+- **`buy_out(reader, publisher, paper_id)`:** mientras la renta siga vigente, completa la compra cobrando el precio pactado menos lo ya pagado de renta. Una renta se convierte una sola vez. Emite `paid` (el acceso ya no vence) y `bought_out`.
+- De lectura: `rental`.
+- Errores nuevos: `NoRental` (77), `RentalExpired` (78), `RentalActive` (79) y `RentNotCheaper` (80). El periodo inválido reusa `InvalidDays` (11).
+- Lo que el contrato garantiza: rentar y después comprar cuesta, entre los dos pagos, exactamente el precio de compra pactado, y la editorial y la tesorería reciben lo mismo que con una compra directa. Como en `pay`, que la renta y el precio sean los del catálogo lo valida quien da el acceso, contra los eventos.
+- Código: `808b8ad`. Versión en `59b0b3f`.
+- En la red (primero en una red Stellar local, después en testnet):
+  - contrato [`CBAXQMKVDTEXVVOOB7KJQJTJ2QNDQ4P3XZJYVXQB6TH3PK4DMXTISCCJ`](https://stellar.expert/explorer/testnet/contract/CBAXQMKVDTEXVVOOB7KJQJTJ2QNDQ4P3XZJYVXQB6TH3PK4DMXTISCCJ), WASM `3e79adb4…`;
+  - [`rent` `6ec274be…`](https://stellar.expert/explorer/testnet/tx/6ec274be792c8a4e3dfda97a778ba7f1f2df17e550439f0ed3c58d549a52c725) (0.10 USDC por 48 h; comprar cuesta 0.50);
+  - [`buy_out` `2120bcd3…`](https://stellar.expert/explorer/testnet/tx/2120bcd3918d30e50ca2597218de9be0cca936d45276ace87535d7f6ccce534b) (la compra cobra solo los 0.40 de diferencia).
+- Pruebas: 13 nuevas, 267 en total, en `src/test/rent.rs`. Se rompió el código de 24 formas a propósito y alguna prueba detectó cada una.
 
 ## 0.17.0 (27 nov 2026)
 
