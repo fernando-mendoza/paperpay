@@ -6,6 +6,7 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 
 | Versión | Contrato (testnet) | Funciones nuevas | Pruebas | ¿La usa el sitio? |
 | --- | --- | --- | --- | --- |
+| [0.20.0](#0200-27-nov-2026) | `CAK77Y…MA5K` | `extend_rental`, `accept_with_waiver`, `add_milestone`, `increase_bounty`, `pay_batch_as_agent` | 294 | No |
 | [0.19.0](#0190-27-nov-2026) | `CAOZXN…FPVY` | `pay_apc`, `accept_manuscript`, `reject_manuscript`, `reclaim_apc` | 283 | No |
 | [0.18.0](#0180-27-nov-2026) | `CBAXQM…SCCJ` | `rent`, `buy_out` | 267 | No |
 | [0.17.0](#0170-27-nov-2026) | `CALLI4…KX2P` | `pay_from_owed` | 254 | No |
@@ -25,6 +26,26 @@ Hasta la v0.4.0, todas usan el mismo constructor: SAC de USDC de testnet, la tes
 | [0.3.0](#030-25-nov-2026) | `CCQRUT…HEQD` | `gift_batch`, `tip`, `refund` | 32 | No |
 | [0.2.0](#020-23-nov-2026) | `CAIMQY…HOR5` | `pay_batch`, `gift` | 21 | Del 23 al 25 de noviembre. Sigue como contrato anterior: sus regalos y lecturas valen |
 | [0.1.0](#010-23-nov-2026) | `CDOUF6…BPOZ` | `pay`, `split`, `config` | 11 | No (reemplazada) |
+
+## 0.20.0 (27 nov 2026)
+
+Cinco funciones que extienden familias que ya existían. Ninguna abre una custodia nueva ni suma errores: reusan los eventos y los errores de su familia.
+
+- **`extend_rental(reader, publisher, paper_id, amount, period)`** (renta, v0.18.0): más tiempo para una renta vigente. Lo que se paga al extender se suma a lo que cuenta para la compra, así que `buy_out` cobra menos. El vencimiento nuevo no pasa de 7 días desde ahora y lo pagado en total sigue por debajo del precio de compra. Emite `rented`.
+- **`accept_with_waiver(journal, apc_id, waived)`** (cargo de publicación, v0.19.0): la revista acepta y perdona una parte del cargo, que vuelve completa a quien lo pagó; cobra el resto con el reparto de siempre. Es la exención parcial que las revistas dan a quien no puede pagar el cargo completo. Emite `manuscript_accepted` con lo cobrado.
+- **`add_milestone(funder, grant_id, amount)`** (traducción por encargo, v0.15.0): un hito más al final de un encargo abierto, hasta 10. Emite `grant_funded` con el monto agregado.
+- **`increase_bounty(funder, bounty_id, amount)`** (recompensas, v0.8.0): quien publicó una recompensa la sube antes del plazo. La garantía mínima de quien la tome después se calcula sobre el total nuevo. Emite `bounty_posted` con el total nuevo.
+- **`pay_batch_as_agent(agent, owner, items)`** (agente con tope, v0.16.0): el agente paga varios artículos con una sola firma. Cada uno dentro del tope por lectura y la suma dentro del presupuesto; todo o nada. Emite `paid` y `agent_paid` por artículo.
+- El WASM queda en 130,465 bytes, a 607 del tope de testnet (131,072): **en este contrato ya no cabe ninguna función más**.
+- Código: `0f5339d`, más tres aserciones (`eaa5751`). Versión en `d505014`.
+- En la red (primero en una red Stellar local, después en testnet):
+  - contrato [`CAK77YJBWDA5DN5MBTLXNNNT4OEJROWT5DRW3WLNYZTVCAFSF6A4MA5K`](https://stellar.expert/explorer/testnet/contract/CAK77YJBWDA5DN5MBTLXNNNT4OEJROWT5DRW3WLNYZTVCAFSF6A4MA5K), WASM `037d5140…`;
+  - [`extend_rental` `6b629f71…`](https://stellar.expert/explorer/testnet/tx/6b629f71c8a97b03fc05adabdd2a952e7615d48edb33161e28391935c9f70efb) (otra hora de renta por 0.10; lo pagado sube a 0.20);
+  - [`accept_with_waiver` `34eeb442…`](https://stellar.expert/explorer/testnet/tx/34eeb442cd7affaced85798cb7b0a469a63019a7209bdc2f9d4c14df5b3f47a7) (de un cargo de 2.00, la revista perdona 0.50 y cobra 1.50);
+  - [`add_milestone` `fbb1fb64…`](https://stellar.expert/explorer/testnet/tx/fbb1fb64f4edfffa1ff74ce89814c43452e8bd2b37b1fc1b4ff782425e17ce82) (un tercer hito de 0.30 en un encargo de dos);
+  - [`increase_bounty` `a3f1b407…`](https://stellar.expert/explorer/testnet/tx/a3f1b407ef031c0ba9c6d6cc76d39b6c0294e5022bf0838297a6a728d0c937b2) (una recompensa de 1.00 sube a 1.50);
+  - [`pay_batch_as_agent` `698c3d1c…`](https://stellar.expert/explorer/testnet/tx/698c3d1cd5bbc2feac5a3406837f7e5ebe7aab496b70b810a66ff9ad26cadea7) (el agente paga dos artículos, 0.50 y 0.30, con una firma).
+- Pruebas: 11 nuevas, 294 en total, en los archivos de cada familia (`rent.rs`, `apc.rs`, `grant.rs`, `bounty.rs`, `agent.rs`). Se rompió el código de 48 formas a propósito y alguna prueba detectó cada una.
 
 ## 0.19.0 (27 nov 2026)
 

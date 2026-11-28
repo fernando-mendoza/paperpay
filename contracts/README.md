@@ -137,6 +137,16 @@ La v0.19.0 suma el **cargo de publicación (APC) en garantía**, la undécima cu
 
 Un cargo tiene una sola salida, y quien envió no puede sacarlo antes del plazo por su cuenta.
 
+La v0.20.0 suma **cinco extensiones** de familias que ya existían, sin custodia ni errores nuevos:
+
+- `extend_rental`: más tiempo de renta; lo pagado cuenta para la compra;
+- `accept_with_waiver`: la revista acepta un manuscrito y perdona una parte del cargo, que vuelve a quien lo pagó;
+- `add_milestone`: un hito más en un encargo de traducción abierto;
+- `increase_bounty`: quien publicó una recompensa la sube antes del plazo;
+- `pay_batch_as_agent`: el agente paga varios artículos con una sola firma, dentro del tope y del presupuesto.
+
+Con esta versión el WASM queda a 607 bytes del tope de testnet: en este contrato ya no cabe ninguna función más.
+
 | Función | Qué hace |
 | --- | --- |
 | `__constructor(token, treasury, fee_bps, pass_day_price, open_day_price)` | Fija el token (SAC de USDC), la tesorería, la comisión en puntos base (`200` = 2%, máximo `1000`) y, desde la v0.5.0, el precio de un día de pase y de un día de artículo abierto (mayores que 0). No cambia después: no hay admin. |
@@ -216,6 +226,11 @@ Un cargo tiene una sola salida, y quien envió no puede sacarlo antes del plazo 
 | `reject_manuscript(journal, apc_id) -> i128` | `journal` rechaza: el cargo vuelve completo, sin comisión, a quien lo pagó (o queda pendiente a su nombre si no puede recibir). Solo firma `journal`. Emite `manuscript_rejected`. **Desde la v0.19.0.** |
 | `reclaim_apc(author, apc_id) -> i128` | `author` recupera su cargo completo porque la revista no decidió. Solo desde el plazo (`ApcActive` antes). Solo firma `author`. Emite `apc_reclaimed`. **Desde la v0.19.0.** |
 | `apc(apc_id) -> Option<Apc>` | El cargo (`author`, `journal`, `manuscript_id`, `amount`, `deadline`, `open`), sin mover fondos. **Desde la v0.19.0.** |
+| `extend_rental(reader, publisher, paper_id, amount, period) -> u64` | `reader` extiende su renta vigente otros `period` segundos y paga `amount` (98/2), que se suma a lo que cuenta para `buy_out`. El vencimiento nuevo no pasa de 7 días desde ahora (`InvalidDays`) y lo pagado sigue por debajo del precio de compra (`RentNotCheaper`). Solo firma `reader`. Emite `rented`. **Desde la v0.20.0.** |
+| `accept_with_waiver(journal, apc_id, waived) -> Split` | `journal` acepta y perdona `waived` (más que cero y menos que el cargo), que vuelve completo a quien pagó; cobra el resto con el reparto 98/2. Solo antes del plazo. Solo firma `journal`. Emite `manuscript_accepted` con lo cobrado. **Desde la v0.20.0.** |
+| `add_milestone(funder, grant_id, amount) -> u32` | `funder` agrega un hito al final de su encargo abierto: `amount` pasa de su wallet al contrato. Hasta 10 hitos (`InvalidMilestones`). Solo firma `funder`. Emite `grant_funded` y devuelve cuántos hitos hay. **Desde la v0.20.0.** |
+| `increase_bounty(funder, bounty_id, amount) -> i128` | `funder` sube su recompensa abierta antes del plazo (`BountyExpired` después): `amount` pasa de su wallet al contrato. Solo firma `funder`. Emite `bounty_posted` y devuelve el total nuevo. **Desde la v0.20.0.** |
+| `pay_batch_as_agent(agent, owner, items) -> Split` | `agent` paga de 1 a 10 artículos distintos con el USDC de `owner` y una sola firma. Cada monto dentro del tope por lectura y la suma dentro del presupuesto; si uno falla, no se cobra ninguno. **Solo firma `agent`.** Emite `paid` y `agent_paid` por artículo. **Desde la v0.20.0.** |
 | `split(amount) -> Split` | El reparto que aplicaría `pay`, sin mover fondos. |
 | `config() -> Config` | La configuración fijada al desplegar. |
 
@@ -255,7 +270,7 @@ Un cargo tiene una sola salida, y quien envió no puede sacarlo antes del plazo 
 Requiere Rust estable y el target `wasm32v1-none` (`rustup target add wasm32v1-none`).
 
 ```bash
-pnpm test:contracts            # cargo test: 283 pruebas con un SAC de USDC simulado
+pnpm test:contracts            # cargo test: 294 pruebas con un SAC de USDC simulado
 ```
 
 ### Compilar el WASM
@@ -337,6 +352,19 @@ inv --source lector --send no -- campaign --campaign_id 0
 Datos completos en [`deployments/testnet.json`](deployments/testnet.json).
 
 > **Qué versión usa el sitio.** El sitio y la API usan la **v0.4.0** (`productionContractId`) desde el 25 de noviembre de 2026 (CDMX; 00:18 UTC del 26), con `pay`, `pay_ref` (referidos) y `gift`. La v0.4.0 tiene todo lo de la v0.3.0 (`gift_batch`, `tip` y `refund`) más `pay_authors` y `pay_ref`. La v0.2.0, que usó el sitio del 23 al 25 de noviembre, quedó en `SPLITTER_LEGACY_CONTRACT_IDS`: sus regalos se pueden reclamar y sus lecturas siguen en el contador. Los pagos nuevos van solo a la v0.4.0. La **v0.5.0** (pases, suscripción y artículos abiertos) está desplegada y probada en testnet desde el 25 de noviembre de 2026 (CDMX; 05:04 UTC del 26), pero el sitio y la API todavía no la usan. La **v0.6.0** (campañas de acceso abierto y `claim`) está desplegada y probada en testnet desde el 26 de noviembre de 2026 (00:18 CDMX); el sitio y la API tampoco la usan.
+
+| v0.20.0 | Valor |
+| --- | --- |
+| Contrato | [`CAK77YJBWDA5DN5MBTLXNNNT4OEJROWT5DRW3WLNYZTVCAFSF6A4MA5K`](https://stellar.expert/explorer/testnet/contract/CAK77YJBWDA5DN5MBTLXNNNT4OEJROWT5DRW3WLNYZTVCAFSF6A4MA5K) |
+| WASM (sha256) | `037d51401d1ccbd433b0ccecb67264eff067ab31cfb499da5a5c0f542f446705` (130,465 bytes), igual al que se baja de la red |
+| Constructor | El mismo de v0.5.0 |
+| `extend_rental` | Renta de 0.10 por 1 h ([`1aef751b…`](https://stellar.expert/explorer/testnet/tx/1aef751b524d9eb5f6a153f34eb8586b222fbc9b14c60b97f269406cfcdc2c63)). [`6b629f71…`](https://stellar.expert/explorer/testnet/tx/6b629f71c8a97b03fc05adabdd2a952e7615d48edb33161e28391935c9f70efb): otra hora por 0.10; lo pagado sube a 0.20 y eso cuenta para la compra |
+| `accept_with_waiver` | Cargo de 2.00 ([`351dd4e7…`](https://stellar.expert/explorer/testnet/tx/351dd4e7749d1ff8dcb051ad0bda70d1ee0f3f730ca1df1d7f8ced6a4b933c0f)). [`34eeb442…`](https://stellar.expert/explorer/testnet/tx/34eeb442cd7affaced85798cb7b0a469a63019a7209bdc2f9d4c14df5b3f47a7): la revista acepta y perdona 0.50, que vuelven a quien pagó; cobra 1.50 (1.47 para ella y 0.03 a la tesorería) |
+| `add_milestone` | Encargo de dos hitos de 0.50 ([`082f7d2c…`](https://stellar.expert/explorer/testnet/tx/082f7d2cd081c34e60f2d0f6b1a58d3d23a17764d8d3468b9bfbe22c77f55ac4)). [`fbb1fb64…`](https://stellar.expert/explorer/testnet/tx/fbb1fb64f4edfffa1ff74ce89814c43452e8bd2b37b1fc1b4ff782425e17ce82): un tercer hito de 0.30. Después se liberan los tres |
+| `increase_bounty` | Recompensa de 1.00 ([`c7662249…`](https://stellar.expert/explorer/testnet/tx/c7662249f0a5574383d11b9945cc93d539f6b55af3defe8dfada24c476c97938)). [`a3f1b407…`](https://stellar.expert/explorer/testnet/tx/a3f1b407ef031c0ba9c6d6cc76d39b6c0294e5022bf0838297a6a728d0c937b2): sube a 1.50, que es lo que se reparte ([`af858bff…`](https://stellar.expert/explorer/testnet/tx/af858bff9404fd38edc384b30dbb1a38f102d7b7384c89ca0162f8e6d3400889)) |
+| `pay_batch_as_agent` | Permiso de 0.50 por lectura y 1.00 en total ([`c1cc5fdb…`](https://stellar.expert/explorer/testnet/tx/c1cc5fdba448bd4020f746f01088248cb889d931372b8199a9e55c89bfe5e66f)). [`698c3d1c…`](https://stellar.expert/explorer/testnet/tx/698c3d1cd5bbc2feac5a3406837f7e5ebe7aab496b70b810a66ff9ad26cadea7): el agente paga dos artículos, 0.50 y 0.30, con una firma |
+
+Antes de enviar, el script simuló lo que no debe pasar: extender hasta pagar el precio completo (#80), perdonar el cargo completo (#2), agregar un hito de 0 (#68), otra cuenta subiendo una recompensa ajena (#30) y un paquete que pasa del presupuesto (#74). Al final, el contrato tiene saldo 0.
 
 | v0.19.0 | Valor |
 | --- | --- |
