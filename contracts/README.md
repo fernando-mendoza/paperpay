@@ -1,6 +1,6 @@
 # Contratos Soroban
 
-Tres contratos: [`splitter`](#splitter-reparto-98-editorial--2-paperpay) (los pagos de lectura), [`boveda`](#boveda-tarjeta-de-regalo-con-código) (la tarjeta de regalo de `/boveda`) y [`mecenas`](#mecenas-pagar-por-otros) (mecenazgo por flujo y lecturas pendientes).
+Tres contratos: [`splitter`](#splitter-reparto-98-editorial--2-paperpay) (los pagos de lectura), [`boveda`](#boveda-tarjeta-de-regalo-con-código) (la tarjeta de regalo de `/boveda`) y [`mecenas`](#mecenas-pagar-por-otros) (mecenazgo por flujo, lecturas pendientes, fianzas, apadrinar a un lector y leer a medias).
 
 ## `splitter`: reparto 98% editorial / 2% PaperPay
 
@@ -607,34 +607,68 @@ Los datos completos están en [`deployments/testnet.json`](deployments/testnet.j
 
 ## `mecenas`: pagar por otros
 
-Dos formas de pagar por otros, en un contrato aparte: el de reparto llegó al tope de tamaño de testnet (130,465 de 131,072 bytes) con la v0.20.0. Usa el mismo USDC, la misma tesorería y la misma comisión del 2%. No tiene admin.
+Formas de pagar por otros y de respaldar lo que se publica, en un contrato aparte: el de reparto llegó al tope de tamaño de testnet (130,465 de 131,072 bytes) con la v0.20.0. Usa el mismo USDC, la misma tesorería y la misma comisión del 2%. No tiene admin.
 
-**Mecenazgo por flujo:** alguien financia a un autor o a un laboratorio poco a poco. El dinero se devenga segundo a segundo.
-
-**Lectura pendiente**, como el café pendiente: alguien deja lecturas pagadas de una editorial y quien las necesite toma una, sin pagar.
+- **Mecenazgo por flujo:** alguien financia a un autor o a un laboratorio poco a poco; el dinero se devenga segundo a segundo. Desde la v0.2.0, quien lo recibe también puede pagar lecturas directo con lo devengado.
+- **Lectura pendiente**, como el café pendiente: alguien deja lecturas pagadas de una editorial y quien las necesite toma una, sin pagar.
+- **Fianza de integridad** (v0.2.0): una editorial respalda un artículo con su dinero y nombra a un árbitro, que puede ejecutarla a favor de los afectados.
+- **Apadrinar a un lector** (v0.2.0): alguien deja dinero para las lecturas de una persona concreta, que lo usa con su sola firma.
+- **Leer a medias** (v0.2.0): dos personas compran un artículo entre las dos.
 
 | Función | Qué hace |
 | --- | --- |
 | `open_stream(patron, beneficiary, amount, duration) -> u32` | `patron` deposita `amount`, que se devenga de forma pareja durante `duration` segundos (de 1 a 90 días) para `beneficiary`. Solo firma `patron`. Emite `stream_opened` y devuelve el id. |
 | `withdraw_stream(beneficiary, stream_id) -> Split` | `beneficiary` retira lo devengado y no retirado: 98% para él y 2% a la tesorería. Cuantas veces quiera, también después de que el flujo termine o se corte. Sin nada nuevo, `NothingToWithdraw`. Solo firma `beneficiary`. Emite `stream_withdrawn`. |
 | `cancel_stream(patron, stream_id) -> i128` | `patron` corta el flujo: lo no devengado vuelve completo, sin comisión, y el flujo queda terminado en ese momento. Lo ya devengado sigue siendo de quien recibe. Un flujo terminado no se corta (`StreamEnded`). Solo firma `patron`. Emite `stream_cancelled`. |
+| `pay_from_stream(beneficiary, stream_id, publisher, paper_id, amount) -> Split` | `beneficiary` paga una lectura con lo devengado de su flujo, sin retirarlo: 98% a la editorial y 2% a la tesorería. Si lo devengado sin retirar no alcanza, `NothingToWithdraw`. Solo firma `beneficiary`. Emite `read_taken`. **Desde la v0.2.0.** |
 | `leave_read(donor, publisher, price, count) -> u32` | `donor` deja pagadas `count` lecturas (de 1 a 50) de `publisher` a `price` cada una. No elige quién las lee ni las puede recuperar. Solo firma `donor`. Emite `reads_left` y devuelve cuántas hay pendientes. |
 | `take_read(reader, publisher, paper_id, price) -> Split` | `reader` toma una lectura pendiente, sin pagar: la editorial recibe el 98% del precio y la tesorería el 2%, de lo que alguien dejó. Una por lector y editorial cada 24 h (`AlreadyTaken`). Solo firma `reader`. Emite `read_taken`, que es el comprobante de acceso. |
-| `stream(stream_id)`, `pending_reads(publisher, price)`, `config()` | De lectura, sin mover fondos. |
+| `post_bond(publisher, arbiter, paper_id, amount, duration) -> u32` | `publisher` deposita una fianza por `paper_id` durante `duration` segundos (de 1 a 90 días) y nombra a `arbiter`, que no puede ser ella misma (`SelfArbiter`). Solo firma `publisher`. Emite `bond_posted` y devuelve el id. **Desde la v0.2.0.** |
+| `slash_bond(arbiter, bond_id, to, amount) -> i128` | `arbiter` manda `amount` de la fianza a `to`, sin comisión: solo dentro del plazo (`BondExpired`), sin pasar de lo que queda y nunca hacia sí mismo (`SelfArbiter`). Por partes, si quiere. Solo firma `arbiter`. Emite `bond_slashed` y devuelve lo que queda. **Desde la v0.2.0.** |
+| `release_bond(publisher, bond_id) -> i128` | `publisher` recupera lo que quede de su fianza, sin comisión, desde que termina el plazo (`BondActive` antes). Solo firma `publisher`. Emite `bond_released`. **Desde la v0.2.0.** |
+| `sponsor_reader(sponsor, reader, publisher, amount) -> i128` | `sponsor` deposita `amount` para las lecturas de `reader` con `publisher`; un depósito nuevo se suma. Solo firma `sponsor`. Emite `reader_sponsored` y devuelve el saldo. **Desde la v0.2.0.** |
+| `read_sponsored(reader, sponsor, publisher, paper_id, amount) -> Split` | `reader` paga una lectura con lo que `sponsor` le dejó para esa editorial: 98% a la editorial y 2% a la tesorería. Quien lee no pone dinero. Si el saldo no alcanza, `SponsorshipTooLow`. Solo firma `reader`. Emite `read_taken`. **Desde la v0.2.0.** |
+| `reclaim_sponsorship(sponsor, reader, publisher) -> i128` | `sponsor` recupera lo que no se usó, sin comisión, cuando quiera. Solo firma `sponsor`. Emite `sponsorship_reclaimed`. **Desde la v0.2.0.** |
+| `open_shared(first, second, publisher, paper_id, price) -> u32` | `first` propone leer el artículo a medias con `second` (otra cuenta: `SamePerson`) y pone su mitad; con precio impar, pone el stroop de más. Solo firma `first`. Emite `shared_opened` y devuelve el id. **Desde la v0.2.0.** |
+| `join_shared(second, shared_id) -> Split` | `second` pone su mitad y la editorial cobra el precio completo (98/2). El artículo queda pagado para las dos cuentas. Solo quien fue nombrado (`NoShared`), una vez (`SharedClosed`). Solo firma `second`. Emite `shared_joined`. **Desde la v0.2.0.** |
+| `cancel_shared(first, shared_id) -> i128` | `first` recupera su mitad, sin comisión, mientras `second` no haya puesto la suya. Solo firma `first`. Emite `shared_cancelled`. **Desde la v0.2.0.** |
+| `stream`, `pending_reads`, `bond`, `sponsorship`, `shared`, `config` | De lectura, sin mover fondos. |
 
-- **Custodia:** el contrato guarda lo no retirado de cada flujo y las lecturas pendientes, y nada más. El saldo del contrato es siempre esa suma.
-- **Errores:** `FeeTooHigh` (1), `InvalidAmount` (2), `InvalidPaperId` (3), `AmountOverflow` (4), `InvalidDuration` (5), `NoStream` (6; no hay flujo con ese id de esa cuenta), `NothingToWithdraw` (7), `StreamEnded` (8), `InvalidCount` (9), `NoPendingRead` (10; no hay lecturas pendientes de esa editorial a ese precio) y `AlreadyTaken` (11).
-- **Redondeo:** lo devengado se redondea hacia abajo y lo que sobra se devenga al final: entre todos los retiros sale exactamente lo depositado. La comisión se redondea hacia abajo en cada retiro.
+- **Custodia:** el contrato guarda lo no retirado de cada flujo, las lecturas pendientes, lo que queda de cada fianza, lo apadrinado sin usar y las mitades de las lecturas a medias sin completar, y nada más. El saldo del contrato es siempre esa suma.
+- **Errores:** `FeeTooHigh` (1), `InvalidAmount` (2), `InvalidPaperId` (3), `AmountOverflow` (4), `InvalidDuration` (5), `NoStream` (6), `NothingToWithdraw` (7; no hay suficiente devengado, o no queda nada por recuperar), `StreamEnded` (8), `InvalidCount` (9), `NoPendingRead` (10), `AlreadyTaken` (11), `NoBond` (12), `BondExpired` (13), `BondActive` (14), `SelfArbiter` (15), `SponsorshipTooLow` (16), `NoShared` (17), `SharedClosed` (18) y `SamePerson` (19).
+- **Redondeo:** lo devengado se redondea hacia abajo y lo que sobra se devenga al final: entre todos los retiros sale exactamente lo depositado. La comisión se redondea hacia abajo en cada pago.
 - **Lo que el contrato no hace:**
-  - no sabe si quien toma una lectura la necesita: cualquier wallet puede tomar una por editorial al día, y con wallets nuevas se pueden tomar varias;
-  - como en `pay`, no conoce el precio de cada artículo: lo valida quien da el acceso, contra el evento `read_taken`;
+  - no sabe si quien toma una lectura pendiente la necesita: cualquier wallet puede tomar una por editorial al día, y con wallets nuevas se pueden tomar varias;
+  - como en `pay`, no conoce el precio de cada artículo: lo valida quien da el acceso, contra los eventos `read_taken` y `shared_joined`;
+  - no juzga si un artículo merece que se ejecute su fianza: eso lo decide el árbitro que la editorial nombró. El contrato solo impide que el árbitro se pague a sí mismo y que ejecute después del plazo; no impide que mande el dinero a una cuenta amiga;
+  - el padrino puede recuperar lo apadrinado cuando quiera: el lector no tiene garantía de que el saldo siga ahí;
   - si quien cobra no puede recibir USDC (sin trustline), la llamada falla y no cambia nada; aquí no hay cobros pendientes como en el contrato de reparto;
   - las lecturas pendientes no vencen ni se devuelven: si una editorial desaparece, lo que se dejó para ella se queda en el contrato.
 
 ```bash
-pnpm test:contracts            # incluye las 18 pruebas de mecenas
+pnpm test:contracts            # incluye las 36 pruebas de mecenas
 cd contracts && stellar contract build --package paperpay-mecenas
 ```
+
+| mecenas v0.2.0 | Valor |
+| --- | --- |
+| Contrato | [`CD72IGDU4E2LU7FSZJFCCX3OPKD4M6VFTC2AQU2MXC7LY35UDVAU3TCJ`](https://stellar.expert/explorer/testnet/contract/CD72IGDU4E2LU7FSZJFCCX3OPKD4M6VFTC2AQU2MXC7LY35UDVAU3TCJ) |
+| WASM (sha256) | `0b03c5e62dbaf7a0eac183cd855e630d671ffb00f7444a3fc9667decc6fb1903` (33,279 bytes), igual al que se baja de la red |
+| Constructor | `token` = SAC de USDC de testnet, `treasury` = la tesorería de PaperPay, `fee_bps` = 200 |
+| `post_bond` | [`d8e26219…`](https://stellar.expert/explorer/testnet/tx/d8e26219ca100ef461d632a7ff5f6aca764ab0894e681acb96119e4381292ac5): una revista respalda `crispr-nanomedicine-biotech` con 1.00 USDC por 90 s y nombra a un árbitro |
+| `slash_bond` | [`cac4b023…`](https://stellar.expert/explorer/testnet/tx/cac4b0234a2294cf4a9f05fd74d5d148f1de51509922f0f55f33e35a4ad274f1): el árbitro manda 0.30 de la fianza a una lectora afectada. Quedan 0.70 |
+| `release_bond` | [`7c887540…`](https://stellar.expert/explorer/testnet/tx/7c887540473c160bf27f8a81f9416cb904e6c847a6ee3b61dba939d2c05cf0bd): terminado el plazo, la revista recupera los 0.70 que quedaron |
+| `sponsor_reader` | [`a873cc77…`](https://stellar.expert/explorer/testnet/tx/a873cc7780b01b8eac827b72a2dd12f8a20e3bb9010ffa9e237dacd760186c12): una madrina deja 1.00 para las lecturas de su ahijada con la editorial demo |
+| `read_sponsored` | [`9f911a95…`](https://stellar.expert/explorer/testnet/tx/9f911a95a7601d7d3c27eef41381bfd3cbb0cb006ffab14e0c72b2a97072f90e): la ahijada, sin USDC ni trustline, lee por 0.50. 0.49 a la editorial demo y 0.01 a la tesorería |
+| `reclaim_sponsorship` | [`d43f5161…`](https://stellar.expert/explorer/testnet/tx/d43f5161c7c9ddeb51ff4639c08aaa35d6cef0c9ca5f6ca7627ddb13aa80195c): la madrina recupera los 0.50 que no se usaron |
+| `open_shared` | [`87e6b6f9…`](https://stellar.expert/explorer/testnet/tx/87e6b6f90ec27757b0216946d4caafe727084d81b4fd1521b4642a97b2c46b6c): Ana pone 0.25, la mitad de un artículo de 0.50, y nombra a Beto |
+| `join_shared` | [`480a80c8…`](https://stellar.expert/explorer/testnet/tx/480a80c8aa28faba2abfcc351d146a3d3661cdfb336734918ca93c15243680cc): Beto pone su mitad. 0.49 a la editorial demo y 0.01 a la tesorería; queda pagado para los dos |
+| `cancel_shared` | Otra lectura a medias ([`9d0e77f6…`](https://stellar.expert/explorer/testnet/tx/9d0e77f6a9972fb1e56a5e786351bf78876c303006c7fd8d280d2f011f8cb91d)) que Beto no completa. [`93a2371c…`](https://stellar.expert/explorer/testnet/tx/93a2371c1b0a4296793fc7000fd228fad16789251ccca6d7607f1a6d8a25314b): Ana recupera su mitad |
+| `pay_from_stream` | Flujo de 1.00 en 100 s para un laboratorio ([`5192a32e…`](https://stellar.expert/explorer/testnet/tx/5192a32e989d43c715a0d6a35aa8fb351a504cef295fd03b8237425d71331d22)). [`8fc7cde3…`](https://stellar.expert/explorer/testnet/tx/8fc7cde31ef6dacfaf7895b7af75e527f1d4201044a6d3e50b2029b3969337bc): el laboratorio paga 0.05 por un artículo con lo devengado, sin retirarlo |
+
+Antes de enviar, el script simuló lo que no debe pasar: la revista nombrándose su propio árbitro (#15), el árbitro pagándose a sí mismo (#15), la revista sacando su fianza por la vía del árbitro (#12) o antes del plazo (#14), el árbitro ejecutando después del plazo (#13), otra cuenta leyendo con lo apadrinado (#16), leer por más de lo que queda (#16), leer a medias con una misma (#19), otra cuenta completando la lectura a medias (#17), completar una cancelada (#18), el mecenas pagando con el flujo (#6) y pagar más de lo devengado (#7). Al final el contrato guarda 0.95: el flujo sin retirar.
+
+El despliegue anterior, con las cinco primeras funciones:
 
 | mecenas v0.1.0 | Valor |
 | --- | --- |
