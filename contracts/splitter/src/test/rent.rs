@@ -515,6 +515,18 @@ fn extender_la_renta_suma_tiempo_y_lo_pagado_cuenta_para_la_compra() {
     let auths = s.env.auths();
 
     assert_eq!(extended, until + DAY);
+    let ttl = s.env.as_contract(&s.splitter.address, || {
+        s.env.storage().persistent().get_ttl(&DataKey::Rental(
+            s.payer.clone(),
+            s.publisher.clone(),
+            paper(&s.env),
+        ))
+    });
+    assert_eq!(
+        ttl,
+        ((TWO_DAYS + DAY) / 5) as u32 + 7 * DAY_LEDGERS,
+        "la entrada vive hasta el vencimiento nuevo"
+    );
     assert_eq!(
         s.splitter.rental(&s.payer, &s.publisher, &paper(&s.env)),
         Some(Rental {

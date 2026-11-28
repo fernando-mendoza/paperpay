@@ -371,6 +371,15 @@ fn si_el_dueno_se_suscribe_despues_el_agente_no_gasta_la_autorizacion_de_la_susc
             .try_pay_as_agent(&agent, &s.payer, &s.publisher, &paper(&s.env), &PRICE),
         Err(Ok(Error::AllowanceInUse.into()))
     );
+    // Tampoco con un paquete.
+    assert_eq!(
+        s.splitter.try_pay_batch_as_agent(
+            &agent,
+            &s.payer,
+            &vec![&s.env, item(&s.env, "a", &s.publisher, PRICE)]
+        ),
+        Err(Ok(Error::AllowanceInUse.into()))
+    );
     assert_eq!(allowance(&s, &s.payer), reserved);
     assert_eq!(s.usdc.balance(&s.publisher), publisher_before);
 
@@ -594,6 +603,10 @@ fn el_paquete_del_agente_es_todo_o_nada_y_respeta_cada_limite() {
     assert_eq!(
         batch(&vec![&s.env, one("a", PRICE), one("b", 0)]),
         Err(Ok(Error::InvalidAmount.into()))
+    );
+    assert_eq!(
+        batch(&vec![&s.env, one("a", PRICE), one("", PRICE)]),
+        Err(Ok(Error::InvalidPaperId.into()))
     );
     let stranger = Address::generate(&s.env);
     assert_eq!(
