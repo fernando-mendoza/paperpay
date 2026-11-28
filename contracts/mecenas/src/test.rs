@@ -1826,3 +1826,111 @@ fn el_saldo_del_contrato_cuenta_fianzas_apadrinados_y_mitades_ademas_de_flujos()
     check();
     assert_eq!(s.held(), 0);
 }
+
+// ---------- top_up_bond ----------
+
+#[test]
+fn la_editorial_aumenta_su_fianza_y_el_arbitro_puede_ejecutar_el_total() {
+    let s = setup();
+    let publisher = s.funded(BOND + 5_000_000);
+    let arbiter = Address::generate(&s.env);
+    let ana = Address::generate(&s.env);
+    let id = s
+        .mecenas
+        .post_bond(&publisher, &arbiter, &paper(&s.env), &BOND, &TERM);
+
+    let total = s.mecenas.top_up_bond(&publisher, &id, &5_000_000);
+    let receipts = s.receipts();
+    let auths = s.env.auths();
+
+    assert_eq!(total, BOND + 5_000_000);
+    assert_eq!(s.usdc.balance(&publisher), 0);
+    assert_eq!(s.held(), BOND + 5_000_000);
+    let bond = s.mecenas.bond(&id).unwrap();
+    assert_eq!(bond.amount, BOND + 5_000_000);
+    assert_eq!(bond.until, START + TERM);
+    assert_eq!(bond.arbiter, arbiter);
+    let expected = crate::BondToppedUp {
+        publisher: publisher.clone(),
+        bond_id: id,
+        amount: 5_000_000,
+        total: BOND + 5_000_000,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.mecenas.address)]);
+    assert_eq!(
+        auths,
+        std::vec![(
+            publisher.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.mecenas.address.clone(),
+                    Symbol::new(&s.env, "top_up_bond"),
+                    (publisher.clone(), id, 5_000_000_i128).into_val(&s.env),
+                )),
+                sub_invocations: std::vec![s.transfer_auth(
+                    &publisher,
+                    &s.mecenas.address,
+                    5_000_000
+                )],
+            }
+        )]
+    );
+
+    // El árbitro puede ejecutar el total aumentado, no solo lo original.
+    assert_eq!(
+        s.mecenas
+            .slash_bond(&arbiter, &id, &ana, &(BOND + 5_000_000)),
+        0
+    );
+    assert_eq!(s.usdc.balance(&ana), BOND + 5_000_000);
+    assert_eq!(s.held(), 0);
+}
+
+#[test]
+fn la_fianza_no_se_aumenta_con_cero_ni_por_otro_ni_fuera_de_plazo() {
+    let s = setup();
+    let publisher = s.funded(2 * BOND);
+    let arbiter = s.funded(BOND);
+    let stranger = s.funded(BOND);
+    let id = s
+        .mecenas
+        .post_bond(&publisher, &arbiter, &paper(&s.env), &BOND, &TERM);
+
+    for amount in [0, -1] {
+        assert_eq!(
+            s.mecenas.try_top_up_bond(&publisher, &id, &amount),
+            Err(Ok(Error::InvalidAmount.into()))
+        );
+    }
+    for who in [&arbiter, &stranger] {
+        assert_eq!(
+            s.mecenas.try_top_up_bond(who, &id, &1),
+            Err(Ok(Error::NoBond.into()))
+        );
+    }
+    assert_eq!(
+        s.mecenas.try_top_up_bond(&publisher, &99, &1),
+        Err(Ok(Error::NoBond.into()))
+    );
+    assert_eq!(
+        s.mecenas.try_top_up_bond(&publisher, &id, &i128::MAX),
+        Err(Ok(Error::AmountOverflow.into()))
+    );
+    s.env.set_auths(&[]);
+    assert!(s.mecenas.try_top_up_bond(&publisher, &id, &1).is_err());
+    s.env.mock_all_auths();
+
+    // En el último segundo del plazo todavía se puede; cumplido el plazo, ya no.
+    s.advance(TERM - 1);
+    assert_eq!(s.mecenas.top_up_bond(&publisher, &id, &1), BOND + 1);
+    s.advance(1);
+    assert_eq!(
+        s.mecenas.try_top_up_bond(&publisher, &id, &1),
+        Err(Ok(Error::BondExpired.into()))
+    );
+    assert_eq!(s.held(), BOND + 1);
+    assert_eq!(s.usdc.balance(&publisher), BOND - 1);
+    // Lo aumentado vuelve con el resto al terminar el plazo.
+    assert_eq!(s.mecenas.release_bond(&publisher, &id), BOND + 1);
+    assert_eq!(s.usdc.balance(&publisher), 2 * BOND);
+}

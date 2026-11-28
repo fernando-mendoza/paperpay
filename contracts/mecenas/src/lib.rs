@@ -299,6 +299,18 @@ pub struct BondSlashed {
     pub remaining: i128,
 }
 
+/// Una fianza aumentada por su editorial. Topics: `["bond_topped_up", publisher]`. `total` es lo
+/// que respalda ahora.
+#[contractevent(topics = ["bond_topped_up"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BondToppedUp {
+    #[topic]
+    pub publisher: Address,
+    pub bond_id: u32,
+    pub amount: i128,
+    pub total: i128,
+}
+
 /// Una fianza devuelta a la editorial al terminar su plazo. Topics: `["bond_released", publisher]`.
 #[contractevent(topics = ["bond_released"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -854,6 +866,48 @@ impl Mecenas {
         .publish(&env);
 
         amount
+    }
+
+    /// `publisher` suma `amount` a su fianza `bond_id` mientras sigue en plazo (`BondExpired`
+    /// después): el respaldo crece sin tocar el plazo ni el árbitro. Solo firma `publisher`.
+    /// Emite `bond_topped_up` y devuelve el total de la fianza.
+    pub fn top_up_bond(env: Env, publisher: Address, bond_id: u32, amount: i128) -> i128 {
+        publisher.require_auth();
+        if amount <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let entry = DataKey::Bond(bond_id);
+        let mut bond = read_bond(&env, &entry);
+        if bond.publisher != publisher {
+            panic_with_error!(&env, Error::NoBond);
+        }
+        if env.ledger().timestamp() >= bond.until {
+            panic_with_error!(&env, Error::BondExpired);
+        }
+        let total = match bond.amount.checked_add(amount) {
+            Some(total) => total,
+            None => panic_with_error!(&env, Error::AmountOverflow),
+        };
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &publisher,
+            env.current_contract_address(),
+            &amount,
+        );
+        bond.amount = total;
+        env.storage().persistent().set(&entry, &bond);
+        keep_until(&env, &entry, bond.until + GRACE_SECONDS);
+        extend_instance_ttl(&env);
+
+        BondToppedUp {
+            publisher,
+            bond_id,
+            amount,
+            total,
+        }
+        .publish(&env);
+
+        total
     }
 
     /// La fianza `bond_id`, si existe.
