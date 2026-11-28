@@ -1,5 +1,18 @@
 # Estado de QA
 
+## Revisión del 27 de noviembre de 2026: contrato mecenas v0.2.0 (diez funciones más)
+
+- `pnpm test:contracts`: 36 pruebas de mecenas (18 nuevas, en `contracts/mecenas/src/test.rs`), además de las 294 del reparto y las 10 de la bóveda. `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
+  - **`pay_from_stream`:** con 0.50 devengado se paga justo una lectura y no queda nada que retirar; un stroop más falla. Solo quien recibe el flujo.
+  - **Fianza:** la editorial no puede ser su propio árbitro; el árbitro no se paga a sí mismo, no pasa de lo que queda y no ejecuta en el segundo final ni después. La editorial no recupera un segundo antes del plazo y sí en el segundo exacto; con la fianza ejecutada completa, no queda nada.
+  - **Apadrinar:** el saldo es de ese lector con esa editorial y de ese padrino: otro lector, otra editorial u otro padrino no encuentran nada. Gastar justo el saldo borra la entrada. El lector no puede llevarse el dinero.
+  - **A medias:** cada mitad vale al menos un stroop; con precio impar quien abre pone el stroop de más y, si cancela, lo recupera. Solo completa la persona nombrada, una vez; cancelada no se completa y completada no se cancela.
+  - **Firmas:** los árboles de autorización de las diez funciones. `join_shared` autoriza solo la mitad de quien firma.
+  - **Invariante de custodia:** el saldo del contrato es siempre flujos sin retirar + lecturas pendientes + fianzas + apadrinado + mitades abiertas.
+- Mutaciones (75), con `tools/mutaciones-mecenas020.py` del run `2026-11-27-paperpay-contrato-v130` del hub: todas detectadas. La lista hizo agregar una aserción (`2cb18d9`): cancelar una lectura a medias de precio impar.
+- Red Stellar local y testnet (`tools/usar-mecenas020.sh`, 27-nov 22:12 CDMX): las diez funciones usadas y doce errores simulados antes de enviar. Es un despliegue nuevo: la v0.1.0 sigue en su contrato.
+- **No probado:** no hay pantalla ni API. Que el árbitro mande la fianza a quien de verdad fue afectado no lo puede comprobar el contrato. En la fianza y en lo apadrinado, si quien cobra no puede recibir USDC la llamada falla (aquí no hay cobros pendientes).
+
 ## Revisión del 27 de noviembre de 2026: contrato mecenas v0.1.0 (un segundo contrato)
 
 - El contrato de reparto quedó en 130,465 bytes de 131,072 con la v0.20.0 y `stellar contract build` ya lo entrega optimizado: no cabe otra función. Las funciones nuevas van en `contracts/mecenas` (16,913 bytes).
