@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["splitter", "boveda"]
+members = ["splitter", "boveda", "mecenas"]
 
 [workspace.dependencies]
 soroban-sdk = "=29.0.1"
