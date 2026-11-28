@@ -107,6 +107,10 @@
 //!   del dueño, dentro del tope y del presupuesto, y el acceso queda a nombre del dueño.
 //! - `revoke_agent` (de soporte): el dueño retira el permiso y deja la autorización en cero.
 //!
+//! Pagar con el saldo pendiente:
+//! - `pay_from_owed`: quien tiene dinero pendiente en el contrato (una recompensa, un hito o un
+//!   cobro que no pudo recibir) paga una lectura con ese saldo, sin retirarlo y sin trustline.
+//!
 //! Si una cuenta no puede recibir lo que le paga el contrato (por ejemplo, una editorial nueva sin
 //! trustline de USDC), su parte no se pierde ni bloquea a nadie: queda pendiente a su nombre, y
 //! `claim` la cobra con una firma que además le abre la trustline (`trust` del SAC, CAP-73).
@@ -345,6 +349,8 @@ pub enum Error {
     /// La autorización del token ya es de la suscripción de esa cuenta: no se comparte con un
     /// agente.
     AllowanceInUse = 75,
+    /// A lo pendiente de esa cuenta no le alcanza para ese pago.
+    OwedTooLow = 76,
 }
 
 #[contracttype]
@@ -1288,6 +1294,18 @@ pub struct AgentRevoked {
     pub owner: Address,
     #[topic]
     pub agent: Address,
+}
+
+/// Una lectura pagada con lo pendiente. Topics: `["paid_from_owed", account]`. Acompaña al `paid`
+/// de la lectura; `remaining` es lo que el contrato le sigue debiendo a `account`.
+#[contractevent(topics = ["paid_from_owed"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaidFromOwed {
+    #[topic]
+    pub account: Address,
+    pub paper_id: String,
+    pub amount: i128,
+    pub remaining: i128,
 }
 
 #[contract]
@@ -3751,6 +3769,61 @@ impl Splitter {
     /// El permiso del agente de `owner`, si tiene uno.
     pub fn agent(env: Env, owner: Address) -> Option<AgentPermit> {
         env.storage().persistent().get(&DataKey::Agent(owner))
+    }
+
+    /// `account` paga `amount` por `paper_id` de `publisher` con lo que el contrato le debe (una
+    /// recompensa, un hito o un cobro que quedó pendiente porque no podía recibir), sin retirarlo
+    /// antes: la editorial recibe el monto menos la comisión y la tesorería, la comisión, desde
+    /// la custodia del contrato. Sirve a quien todavía no tiene trustline de USDC: lee con lo que
+    /// ganó. Si lo pendiente no alcanza, falla (`OwedTooLow`) y no cambia nada. Si la editorial no
+    /// puede recibir, su parte queda pendiente a su nombre. Solo firma `account`. Emite `paid` y
+    /// `paid_from_owed`; devuelve el reparto.
+    pub fn pay_from_owed(
+        env: Env,
+        account: Address,
+        publisher: Address,
+        paper_id: String,
+        amount: i128,
+    ) -> Split {
+        account.require_auth();
+        validate_paper_id(&env, &paper_id);
+        let config = read_config(&env);
+        let split = compute_split(&env, amount, config.fee_bps);
+        let entry = DataKey::Owed(account.clone());
+        let owed: i128 = env.storage().persistent().get(&entry).unwrap_or(0);
+        if amount > owed {
+            panic_with_error!(&env, Error::OwedTooLow);
+        }
+        let remaining = owed - amount;
+        if remaining == 0 {
+            env.storage().persistent().remove(&entry);
+        } else {
+            env.storage().persistent().set(&entry, &remaining);
+            keep_max(&env, &entry);
+        }
+
+        payout(&env, &config, &publisher, split.publisher);
+        payout(&env, &config, &config.treasury, split.fee);
+        extend_instance_ttl(&env);
+
+        Paid {
+            publisher,
+            reader: account.clone(),
+            paper_id: paper_id.clone(),
+            payer: account.clone(),
+            amount,
+            fee: split.fee,
+        }
+        .publish(&env);
+        PaidFromOwed {
+            account,
+            paper_id,
+            amount,
+            remaining,
+        }
+        .publish(&env);
+
+        split
     }
 
     /// Lo que el contrato le debe a `account` (pagos que no pudo recibir).

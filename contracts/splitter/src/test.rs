@@ -23,6 +23,7 @@ mod club;
 mod gpass;
 mod grant;
 mod lock;
+mod owed;
 mod pool;
 mod stake;
 mod tab;
