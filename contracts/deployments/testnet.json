@@ -4,10 +4,10 @@
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "productionContractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
   "splitter": {
-    "version": "0.17.0",
-    "contractId": "CALLI44DK4TUF3GCPU55V55A6CLBJS2ADZYU4JTPGJCUVN4QZCJZKX2P",
-    "wasmSha256": "a91c26e27307935c4942398f18d06cfc8bdc84e5b8d7bf54d824b1751979a36a",
-    "source": "contracts/splitter @ 73b661f, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
+    "version": "0.18.0",
+    "contractId": "CBAXQMKVDTEXVVOOB7KJQJTJ2QNDQ4P3XZJYVXQB6TH3PK4DMXTISCCJ",
+    "wasmSha256": "3e79adb4d459dda30071913b49814226e5a44c8a560e3970adfa381fd78e4b41",
+    "source": "contracts/splitter @ 59b0b3f, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
     "constructor": {
       "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
@@ -15,19 +15,24 @@
       "pass_day_price": 10000000,
       "open_day_price": 50000000
     },
-    "uploadTx": "6b40503f8c828cc9066b9c3a293bf5ceec2dc1c6e1329867bf720b4b66d95c7d",
-    "deployTx": "147a3914e2b8363fe61efa056fad7632ea90b0f00eb328881139dcd81e80cfc5",
-    "deployedAt": "2026-11-28T01:53:29Z",
+    "uploadTx": "4f40043cae8fe56cf3f1f3ceea75624ed319eb7ae8006590678fc39c70ceb633",
+    "deployTx": "688051786f4bf503e048bd0117970525f4108211a5be82839d6ec7fbefbdf146",
+    "deployedAt": "2026-11-28T01:58:04Z",
     "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
-    "custody": "la misma de la v0.15.0: pay_from_owed no suma custodia, gasta lo pendiente de una cuenta (hacia una editorial y la tesorería) con la firma de esa cuenta",
+    "custody": "la misma de la v0.15.0: la renta y la compra van directo de la wallet de quien lee a la editorial y a la tesorería; el contrato solo guarda cuánto se pagó, hasta cuándo y el precio de compra",
     "usage": {
-      "pay_from_owed": {
-        "tx": "eb6b71507e6732bb664d1f1b7fcbc9ac67fffb20acab6b84f78dd1384db5eba4",
-        "what": "GDO6L6HZNTZCSAO7QGEJ6AIERTBRGJAJL6QX346P4Y5MW77F2VDLTRKE, sin trustline y con 9800000 pendientes de una recompensa (award_bounty d7f3dca1abb916cb4244581e4142750e997cbec4778a403e9eae19e2a734c974), paga 5000000 por quantum-cryptography-post-quantum",
-        "result": "4900000 a la editorial demo y 100000 a la tesorería, desde la custodia; quedan 4800000 pendientes (cobrados después con claim, a8d2f39f38a91a5d11accb5c672dc8fdec90b23bb152e67bdfd9589046f6db6e); eventos paid y paid_from_owed"
+      "rent": {
+        "tx": "6ec274be792c8a4e3dfda97a778ba7f1f2df17e550439f0ed3c58d549a52c725",
+        "what": "GBTPF3R4TKQ3XU6OYAT6KC3ZNPGPBY67MH5Q5S72ZGKZQCGSEIWPSW3Y renta crispr-nanomedicine-biotech por 172800 s: paga 1000000, con precio de compra 5000000",
+        "result": "980000 a la editorial demo y 20000 a la tesorería; evento rented. Segunda renta, 68d8b3254899a2688c175f57461b605192a9cbe4e10e6dc6d9b847dc6008175e: 45 s, que se deja vencer"
+      },
+      "buy_out": {
+        "tx": "2120bcd3918d30e50ca2597218de9be0cca936d45276ace87535d7f6ccce534b",
+        "what": "quien rentó convierte la renta en compra",
+        "result": "paga solo la diferencia, 4000000: 3920000 a la editorial demo y 80000 a la tesorería; eventos paid y bought_out"
       }
     },
-    "checks": "simulados antes de enviar: pagar más de lo pendiente (#76), una cuenta a la que no se le debe nada (#76), pagar 5000000 con 4800000 pendientes (#76). Al final: saldo del contrato 0"
+    "checks": "simulados antes de enviar: comprar sin renta (#77), renta que no es más barata (#80), rentar con la renta vigente (#79), otra cuenta comprando (#77), comprar dos veces (#77), comprar con la renta vencida (#78). El contrato nunca tuvo saldo"
   },
   "boveda": {
     "version": "0.1.0",
@@ -61,6 +66,32 @@
     "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."
   },
   "previous": [
+    {
+      "version": "0.17.0",
+      "contractId": "CALLI44DK4TUF3GCPU55V55A6CLBJS2ADZYU4JTPGJCUVN4QZCJZKX2P",
+      "wasmSha256": "a91c26e27307935c4942398f18d06cfc8bdc84e5b8d7bf54d824b1751979a36a",
+      "source": "contracts/splitter @ 73b661f, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200,
+        "pass_day_price": 10000000,
+        "open_day_price": 50000000
+      },
+      "uploadTx": "6b40503f8c828cc9066b9c3a293bf5ceec2dc1c6e1329867bf720b4b66d95c7d",
+      "deployTx": "147a3914e2b8363fe61efa056fad7632ea90b0f00eb328881139dcd81e80cfc5",
+      "deployedAt": "2026-11-28T01:53:29Z",
+      "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
+      "custody": "la misma de la v0.15.0: pay_from_owed no suma custodia, gasta lo pendiente de una cuenta (hacia una editorial y la tesorería) con la firma de esa cuenta",
+      "usage": {
+        "pay_from_owed": {
+          "tx": "eb6b71507e6732bb664d1f1b7fcbc9ac67fffb20acab6b84f78dd1384db5eba4",
+          "what": "GDO6L6HZNTZCSAO7QGEJ6AIERTBRGJAJL6QX346P4Y5MW77F2VDLTRKE, sin trustline y con 9800000 pendientes de una recompensa (award_bounty d7f3dca1abb916cb4244581e4142750e997cbec4778a403e9eae19e2a734c974), paga 5000000 por quantum-cryptography-post-quantum",
+          "result": "4900000 a la editorial demo y 100000 a la tesorería, desde la custodia; quedan 4800000 pendientes (cobrados después con claim, a8d2f39f38a91a5d11accb5c672dc8fdec90b23bb152e67bdfd9589046f6db6e); eventos paid y paid_from_owed"
+        }
+      },
+      "checks": "simulados antes de enviar: pagar más de lo pendiente (#76), una cuenta a la que no se le debe nada (#76), pagar 5000000 con 4800000 pendientes (#76). Al final: saldo del contrato 0"
+    },
     {
       "version": "0.16.0",
       "contractId": "CCMUFZQR543HAJYYWMVIMA2A47VL2YVEJBRQMJA2F3UELAXAIPWEWBYZ",
