@@ -102,6 +102,16 @@ fn gastar_justo_lo_pendiente_lo_deja_en_cero() {
         .pay_from_owed(&ana, &s.publisher, &paper(&s.env), &EARNED);
 
     assert_eq!(s.splitter.owed(&ana), 0);
+    let stored = s.env.as_contract(&s.splitter.address, || {
+        s.env
+            .storage()
+            .persistent()
+            .has(&DataKey::Owed(ana.clone()))
+    });
+    assert!(
+        !stored,
+        "no queda una entrada en cero pagando renta en la red"
+    );
     assert_eq!(s.usdc.balance(&s.splitter.address), 0);
     assert_eq!(s.usdc.balance(&s.publisher), 9_604_000);
     assert_eq!(
