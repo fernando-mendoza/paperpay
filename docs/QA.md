@@ -1,5 +1,17 @@
 # Estado de QA
 
+## Revisión del 27 de noviembre de 2026: contrato v0.19.0 (cargo de publicación en garantía)
+
+- `pnpm test:contracts`: 283 pruebas (16 nuevas, en `contracts/splitter/src/test/apc.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
+  - **Quién decide:** solo la revista del cargo acepta o rechaza, con su firma. Quien envió no puede "rechazarse" para sacar su dinero antes del plazo (`NoApc`).
+  - **Plazo:** la revista cobra un segundo antes del plazo y ya no en el segundo exacto (`ApcExpired`); quien pagó no recupera un segundo antes (`ApcActive`) y sí en el segundo exacto. Rechazar vale también después del plazo.
+  - **Una sola salida:** un cargo aceptado, rechazado o recuperado no admite ninguna otra operación (`ApcClosed`).
+  - **Quien no puede recibir:** una revista sin trustline queda con su cobro pendiente; un autor con la cuenta desautorizada, con su devolución pendiente. Los dos cobran después con `claim`.
+  - **Invariante de custodia:** el saldo del contrato es siempre cargos sin decidir + pendientes.
+- Mutaciones (32), con `tools/mutaciones-v0190.py` del run `2026-11-27-paperpay-contrato-v130` del hub: todas detectadas. Entre ellas: pagar sin firma, cargo de 0, plazo sin tope, cualquiera aceptando o rechazando un cargo ajeno, la revista cobrando después del plazo o sin comisión, aceptar o rechazar sin cerrar el cargo, el cargo rechazado quedándose en la revista, y recuperar antes del plazo o un cargo ajeno.
+- Red Stellar local y testnet (`tools/usar-v0190.sh`, 27-nov 20:00 CDMX): las cuatro funciones usadas en tres cargos (uno aceptado, uno rechazado, uno recuperado) y seis errores simulados antes de enviar. Saldo final del contrato: 0.
+- **No probado:** no hay pantalla ni API. El contrato no sabe si el manuscrito se publicó: aceptar es la palabra de la revista, y el autor no tiene forma de recuperar un cargo que la revista aceptó sin publicar.
+
 ## Revisión del 27 de noviembre de 2026: contrato v0.18.0 (renta con opción a compra)
 
 - `pnpm test:contracts`: 267 pruebas (13 nuevas, en `contracts/splitter/src/test/rent.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
