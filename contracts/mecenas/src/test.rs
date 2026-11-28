@@ -445,6 +445,11 @@ fn cortar_en_el_mismo_segundo_en_que_se_abrio_devuelve_todo() {
     assert_eq!(s.mecenas.cancel_stream(&patron, &id), GRANT);
     assert_eq!(s.usdc.balance(&patron), GRANT);
     assert_eq!(s.held(), 0);
+    // El flujo quedó con duración cero: retirar en ese mismo segundo no divide entre cero.
+    assert_eq!(
+        s.mecenas.try_withdraw_stream(&lab, &id),
+        Err(Ok(Error::NothingToWithdraw.into()))
+    );
     s.advance(DAY);
     assert_eq!(
         s.mecenas.try_withdraw_stream(&lab, &id),
@@ -701,6 +706,16 @@ fn el_flujo_y_las_lecturas_pendientes_viven_en_la_red_lo_que_hace_falta() {
     let donor = s.funded(2 * PRICE);
     let publisher = Address::generate(&s.env);
     s.mecenas.leave_read(&donor, &publisher, &PRICE, &2);
+    let (left_ttl, left_max) = s.env.as_contract(&s.mecenas.address, || {
+        (
+            s.env
+                .storage()
+                .persistent()
+                .get_ttl(&DataKey::Pending(publisher.clone(), PRICE)),
+            s.env.storage().max_ttl(),
+        )
+    });
+    assert_eq!(left_ttl, left_max, "recién dejadas ya viven el máximo");
     s.advance(30 * DAY);
     s.mecenas
         .take_read(&donor, &publisher, &paper(&s.env), &PRICE);
