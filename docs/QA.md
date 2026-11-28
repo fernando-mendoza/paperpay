@@ -1,5 +1,18 @@
 # Estado de QA
 
+## Revisión del 27 de noviembre de 2026: contrato v0.20.0 (cinco extensiones)
+
+- `pnpm test:contracts`: 294 pruebas (11 nuevas, en los archivos de cada familia), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
+  - **`extend_rental`:** lo pagado se acumula (0.10 + 0.10) y la compra cuesta solo lo que falta; no se extiende hasta pagar el precio completo, ni más allá de 7 días desde ahora (los dos bordes exactos sí valen), ni una renta vencida.
+  - **`accept_with_waiver`:** de 2.00 con 0.50 perdonados, 1.47 a la revista, 0.03 a la tesorería y 0.50 de vuelta, sin comisión. Perdonar nada o todo falla (para eso están aceptar y rechazar). Si quien pagó no puede recibir, lo perdonado queda pendiente y la revista cobra igual.
+  - **`add_milestone`:** de 3 a 10 hitos caben 7 más y el undécimo falla; cancelar devuelve también los hitos agregados.
+  - **`increase_bounty`:** la garantía mínima y el reparto siguen al total nuevo; se sube un segundo antes del plazo y ya no en el segundo exacto.
+  - **`pay_batch_as_agent`:** todo o nada: con un artículo sobre el tope o una suma sobre el presupuesto no se cobra ninguno; cuatro lecturas al tope gastan justo el presupuesto. Con una suscripción activa tampoco paga.
+- Mutaciones (48), con `tools/mutaciones-v0200.py` del run `2026-11-27-paperpay-contrato-v130` del hub: todas detectadas. La lista hizo agregar tres aserciones (`eaa5751`): la vida en la red de la renta extendida, y que el paquete del agente respete la suscripción y valide cada id.
+- **El máximo cabe en la red:** el paquete del agente hace dos transferencias por artículo, sin agrupar por editorial. Un paquete de 10 artículos (20 transferencias) entró en una sola transacción de testnet: [`8cb41306…`](https://stellar.expert/explorer/testnet/tx/8cb41306abb76e60bafaa7fa61d342b1f8e688bcd6f93093e691c9c876d5cb8b).
+- Red Stellar local y testnet (`tools/usar-v0200.sh`, 27-nov 21:01 CDMX): las cinco funciones usadas y cinco errores simulados antes de enviar. Saldo final del contrato: 0.
+- **No probado:** no hay pantalla ni API. En `add_milestone`, la revisión de que la suma de los hitos no desborde no tiene prueba: no se puede llegar a ese monto con saldos reales.
+
 ## Revisión del 27 de noviembre de 2026: contrato v0.19.0 (cargo de publicación en garantía)
 
 - `pnpm test:contracts`: 283 pruebas (16 nuevas, en `contracts/splitter/src/test/apc.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
