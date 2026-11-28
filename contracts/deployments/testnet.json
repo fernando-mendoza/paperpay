@@ -4,10 +4,10 @@
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "productionContractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
   "splitter": {
-    "version": "0.16.0",
-    "contractId": "CCMUFZQR543HAJYYWMVIMA2A47VL2YVEJBRQMJA2F3UELAXAIPWEWBYZ",
-    "wasmSha256": "10b35983349911698bba5b99776605003d66111578dd2a2fceb001154ffc474a",
-    "source": "contracts/splitter @ 40aa14f, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
+    "version": "0.17.0",
+    "contractId": "CALLI44DK4TUF3GCPU55V55A6CLBJS2ADZYU4JTPGJCUVN4QZCJZKX2P",
+    "wasmSha256": "a91c26e27307935c4942398f18d06cfc8bdc84e5b8d7bf54d824b1751979a36a",
+    "source": "contracts/splitter @ 73b661f, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
     "constructor": {
       "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
@@ -15,29 +15,19 @@
       "pass_day_price": 10000000,
       "open_day_price": 50000000
     },
-    "uploadTx": "8dce60e43de2647b802d39ecb1f9c7d0ef4b55f60cede80b597a6c53b28fed00",
-    "deployTx": "3dfe9b52e47416acf659d24036e7212bda95dedd62a950e1105e7e5adddb97e5",
-    "deployedAt": "2026-11-27T22:11:54Z",
+    "uploadTx": "6b40503f8c828cc9066b9c3a293bf5ceec2dc1c6e1329867bf720b4b66d95c7d",
+    "deployTx": "147a3914e2b8363fe61efa056fad7632ea90b0f00eb328881139dcd81e80cfc5",
+    "deployedAt": "2026-11-28T01:53:29Z",
     "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
-    "custody": "la misma de la v0.15.0: el agente con tope no guarda fondos. El presupuesto es una allowance del token al contrato y cada pago va directo de la wallet del dueño a la editorial y a la tesorería",
+    "custody": "la misma de la v0.15.0: pay_from_owed no suma custodia, gasta lo pendiente de una cuenta (hacia una editorial y la tesorería) con la firma de esa cuenta",
     "usage": {
-      "authorize_agent": {
-        "tx": "ab4ee2e08050219d68410b0bc5fd27545d90606e65da60ab00c316e46c269796",
-        "what": "soporte: GDSK47A7XO7URX7VY7ME2CGIXVZWOA4CZ7KLAFVDAND6VNILUL4OCDN5 autoriza a GAUVX46MDI2MPXS3QACOGKU3WAWFR3OFEYSUC6B25OOTOQZVANKO7SVN: tope 5000000 por lectura, presupuesto 12000000, 1 día",
-        "result": "no mueve fondos; allowance de 12000000 al contrato; evento agent_authorized"
-      },
-      "pay_as_agent": {
-        "tx": "8a1b1576b0806ae35cf0e23cfb2ddbce2025d27f18b967a304506a286f942658",
-        "what": "el agente paga 5000000 por crispr-nanomedicine-biotech con su sola firma; después quantum-cryptography-post-quantum (38c9dafd994ee031e0ab051df80519e13b1b449510d560a38949e09b709d84eb)",
-        "result": "4900000 a la editorial demo y 100000 a la tesorería, desde la wallet de la dueña; eventos paid (a nombre de la dueña) y agent_paid; al presupuesto le quedan 2000000 después del segundo pago"
-      },
-      "revoke_agent": {
-        "tx": "03a47c0f0ab975b06353f53dc9c81079457a7c60ea33ebd362760eccedceadc6",
-        "what": "soporte: la dueña retira el permiso",
-        "result": "permiso borrado y allowance en 0; evento agent_revoked"
+      "pay_from_owed": {
+        "tx": "eb6b71507e6732bb664d1f1b7fcbc9ac67fffb20acab6b84f78dd1384db5eba4",
+        "what": "GDO6L6HZNTZCSAO7QGEJ6AIERTBRGJAJL6QX346P4Y5MW77F2VDLTRKE, sin trustline y con 9800000 pendientes de una recompensa (award_bounty d7f3dca1abb916cb4244581e4142750e997cbec4778a403e9eae19e2a734c974), paga 5000000 por quantum-cryptography-post-quantum",
+        "result": "4900000 a la editorial demo y 100000 a la tesorería, desde la custodia; quedan 4800000 pendientes (cobrados después con claim, a8d2f39f38a91a5d11accb5c672dc8fdec90b23bb152e67bdfd9589046f6db6e); eventos paid y paid_from_owed"
       }
     },
-    "checks": "simulados antes de enviar: pagar sin permiso (#72), pasar del tope por lectura (#27), otra cuenta como agente (#72), pagar más de lo que queda (#74), pagar con el permiso retirado (#72). El contrato nunca tuvo saldo; la dueña terminó con 10000000 de sus 20000000"
+    "checks": "simulados antes de enviar: pagar más de lo pendiente (#76), una cuenta a la que no se le debe nada (#76), pagar 5000000 con 4800000 pendientes (#76). Al final: saldo del contrato 0"
   },
   "boveda": {
     "version": "0.1.0",
@@ -71,6 +61,42 @@
     "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."
   },
   "previous": [
+    {
+      "version": "0.16.0",
+      "contractId": "CCMUFZQR543HAJYYWMVIMA2A47VL2YVEJBRQMJA2F3UELAXAIPWEWBYZ",
+      "wasmSha256": "10b35983349911698bba5b99776605003d66111578dd2a2fceb001154ffc474a",
+      "source": "contracts/splitter @ 40aa14f, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200,
+        "pass_day_price": 10000000,
+        "open_day_price": 50000000
+      },
+      "uploadTx": "8dce60e43de2647b802d39ecb1f9c7d0ef4b55f60cede80b597a6c53b28fed00",
+      "deployTx": "3dfe9b52e47416acf659d24036e7212bda95dedd62a950e1105e7e5adddb97e5",
+      "deployedAt": "2026-11-27T22:11:54Z",
+      "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
+      "custody": "la misma de la v0.15.0: el agente con tope no guarda fondos. El presupuesto es una allowance del token al contrato y cada pago va directo de la wallet del dueño a la editorial y a la tesorería",
+      "usage": {
+        "authorize_agent": {
+          "tx": "ab4ee2e08050219d68410b0bc5fd27545d90606e65da60ab00c316e46c269796",
+          "what": "soporte: GDSK47A7XO7URX7VY7ME2CGIXVZWOA4CZ7KLAFVDAND6VNILUL4OCDN5 autoriza a GAUVX46MDI2MPXS3QACOGKU3WAWFR3OFEYSUC6B25OOTOQZVANKO7SVN: tope 5000000 por lectura, presupuesto 12000000, 1 día",
+          "result": "no mueve fondos; allowance de 12000000 al contrato; evento agent_authorized"
+        },
+        "pay_as_agent": {
+          "tx": "8a1b1576b0806ae35cf0e23cfb2ddbce2025d27f18b967a304506a286f942658",
+          "what": "el agente paga 5000000 por crispr-nanomedicine-biotech con su sola firma; después quantum-cryptography-post-quantum (38c9dafd994ee031e0ab051df80519e13b1b449510d560a38949e09b709d84eb)",
+          "result": "4900000 a la editorial demo y 100000 a la tesorería, desde la wallet de la dueña; eventos paid (a nombre de la dueña) y agent_paid; al presupuesto le quedan 2000000 después del segundo pago"
+        },
+        "revoke_agent": {
+          "tx": "03a47c0f0ab975b06353f53dc9c81079457a7c60ea33ebd362760eccedceadc6",
+          "what": "soporte: la dueña retira el permiso",
+          "result": "permiso borrado y allowance en 0; evento agent_revoked"
+        }
+      },
+      "checks": "simulados antes de enviar: pagar sin permiso (#72), pasar del tope por lectura (#27), otra cuenta como agente (#72), pagar más de lo que queda (#74), pagar con el permiso retirado (#72). El contrato nunca tuvo saldo; la dueña terminó con 10000000 de sus 20000000"
+    },
     {
       "version": "0.15.0",
       "contractId": "CBFYNOBCVMLQF3DACYYU24FLWDHJLR4ZSZZT2OJ4RKXEFYBZKF5EHXAV",
