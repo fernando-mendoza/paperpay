@@ -311,6 +311,19 @@ pub struct BondToppedUp {
     pub total: i128,
 }
 
+/// Una fianza liberada por su árbitro antes del plazo. Topics: `["bond_cleared", arbiter,
+/// publisher]`.
+#[contractevent(topics = ["bond_cleared"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BondCleared {
+    #[topic]
+    pub arbiter: Address,
+    #[topic]
+    pub publisher: Address,
+    pub bond_id: u32,
+    pub amount: i128,
+}
+
 /// Una fianza devuelta a la editorial al terminar su plazo. Topics: `["bond_released", publisher]`.
 #[contractevent(topics = ["bond_released"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -908,6 +921,45 @@ impl Mecenas {
         .publish(&env);
 
         total
+    }
+
+    /// `arbiter` cierra el caso a favor de la editorial: lo que queda de la fianza `bond_id` vuelve
+    /// a su editorial antes del plazo (`BondExpired` después: ahí la recupera ella con
+    /// `release_bond`). Solo firma `arbiter`. Emite `bond_cleared` y devuelve lo devuelto.
+    pub fn clear_bond(env: Env, arbiter: Address, bond_id: u32) -> i128 {
+        arbiter.require_auth();
+        let entry = DataKey::Bond(bond_id);
+        let mut bond = read_bond(&env, &entry);
+        if bond.arbiter != arbiter {
+            panic_with_error!(&env, Error::NoBond);
+        }
+        if env.ledger().timestamp() >= bond.until {
+            panic_with_error!(&env, Error::BondExpired);
+        }
+        if bond.amount <= 0 {
+            panic_with_error!(&env, Error::NothingToWithdraw);
+        }
+        let amount = bond.amount;
+        bond.amount = 0;
+        env.storage().persistent().set(&entry, &bond);
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &env.current_contract_address(),
+            &bond.publisher,
+            &amount,
+        );
+        extend_instance_ttl(&env);
+
+        BondCleared {
+            arbiter,
+            publisher: bond.publisher,
+            bond_id,
+            amount,
+        }
+        .publish(&env);
+
+        amount
     }
 
     /// La fianza `bond_id`, si existe.

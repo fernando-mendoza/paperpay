@@ -1934,3 +1934,80 @@ fn la_fianza_no_se_aumenta_con_cero_ni_por_otro_ni_fuera_de_plazo() {
     assert_eq!(s.mecenas.release_bond(&publisher, &id), BOND + 1);
     assert_eq!(s.usdc.balance(&publisher), 2 * BOND);
 }
+
+// ---------- clear_bond ----------
+
+#[test]
+fn el_arbitro_cierra_el_caso_y_la_fianza_vuelve_a_la_editorial_antes_del_plazo() {
+    let s = setup();
+    let (publisher, arbiter, id) = s.bonded();
+    let ana = Address::generate(&s.env);
+    s.mecenas.slash_bond(&arbiter, &id, &ana, &5_000_000);
+
+    let back = s.mecenas.clear_bond(&arbiter, &id);
+    let receipts = s.receipts();
+    let auths = s.env.auths();
+
+    assert_eq!(back, 15_000_000);
+    assert_eq!(s.usdc.balance(&publisher), 15_000_000);
+    assert_eq!(s.usdc.balance(&arbiter), 0);
+    assert_eq!(s.usdc.balance(&s.treasury), 0);
+    assert_eq!(s.held(), 0);
+    assert_eq!(s.mecenas.bond(&id).unwrap().amount, 0);
+    let expected = crate::BondCleared {
+        arbiter: arbiter.clone(),
+        publisher: publisher.clone(),
+        bond_id: id,
+        amount: 15_000_000,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.mecenas.address)]);
+    assert_eq!(
+        auths,
+        std::vec![(
+            arbiter.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.mecenas.address.clone(),
+                    Symbol::new(&s.env, "clear_bond"),
+                    (arbiter.clone(), id).into_val(&s.env),
+                )),
+                sub_invocations: std::vec![],
+            }
+        )]
+    );
+    // Ya no queda nada que cerrar.
+    assert_eq!(
+        s.mecenas.try_clear_bond(&arbiter, &id),
+        Err(Ok(Error::NothingToWithdraw.into()))
+    );
+}
+
+#[test]
+fn solo_el_arbitro_cierra_el_caso_y_solo_dentro_del_plazo() {
+    let s = setup();
+    let (publisher, arbiter, id) = s.bonded();
+    let stranger = Address::generate(&s.env);
+
+    for who in [&publisher, &stranger] {
+        assert_eq!(
+            s.mecenas.try_clear_bond(who, &id),
+            Err(Ok(Error::NoBond.into()))
+        );
+    }
+    assert_eq!(
+        s.mecenas.try_clear_bond(&arbiter, &99),
+        Err(Ok(Error::NoBond.into()))
+    );
+    s.env.set_auths(&[]);
+    assert!(s.mecenas.try_clear_bond(&arbiter, &id).is_err());
+    s.env.mock_all_auths();
+
+    s.advance(TERM);
+    assert_eq!(
+        s.mecenas.try_clear_bond(&arbiter, &id),
+        Err(Ok(Error::BondExpired.into()))
+    );
+    assert_eq!(s.held(), BOND);
+    // Cumplido el plazo, la editorial la recupera por su cuenta.
+    assert_eq!(s.mecenas.release_bond(&publisher, &id), BOND);
+}
