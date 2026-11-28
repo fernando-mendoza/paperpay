@@ -4,10 +4,10 @@
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "productionContractId": "CC5SIM7JV6TXMWABU7G3DAA3V7HROFBOBF7I5TW4JZHKAQPBFJUWADGA",
   "splitter": {
-    "version": "0.19.0",
-    "contractId": "CAOZXNCMQ64N4X3E3UQC2RPVYVG3ULFB5AYTFMXGBMVAKARNGXDUFPVY",
-    "wasmSha256": "30eebf3d9d4aa0139dfe2f6822ca111e2b7c0216c8ca87bf89b614d672772f33",
-    "source": "contracts/splitter @ 7c9a150, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
+    "version": "0.20.0",
+    "contractId": "CAK77YJBWDA5DN5MBTLXNNNT4OEJROWT5DRW3WLNYZTVCAFSF6A4MA5K",
+    "wasmSha256": "037d51401d1ccbd433b0ccecb67264eff067ab31cfb499da5a5c0f542f446705",
+    "source": "contracts/splitter @ d505014, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
     "constructor": {
       "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
@@ -15,34 +15,39 @@
       "pass_day_price": 10000000,
       "open_day_price": 50000000
     },
-    "uploadTx": "31d7e5e6243758a00fd0ed020a4cf69ad564f85b05aa6f973d9c5f925c5c18e4",
-    "deployTx": "9950e184788f7f79f482c38c6e609df793c2d7ab6514841388dded33fd712b10",
-    "deployedAt": "2026-11-28T02:00:24Z",
+    "uploadTx": "8c66e030a63188ecf8b9aa16688a89f923ce9238189d640591051c9fda4e6651",
+    "deployTx": "fad20e1b611e376a1468036f1121e888fb61f0e308058a8508763a2fb66520d4",
+    "deployedAt": "2026-11-28T03:01:49Z",
     "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
-    "custody": "además de lo anterior, guarda los cargos de publicación sin decidir; cada uno sale solo hacia la revista y la tesorería (accept_manuscript, antes del plazo) o de vuelta a quien lo pagó (reject_manuscript, cuando la revista quiera; reclaim_apc, desde el plazo); sin admin",
+    "custody": "la misma de la v0.19.0: las cinco funciones nuevas extienden familias que ya existían y no abren ninguna custodia",
     "usage": {
-      "pay_apc": {
-        "tx": "5fbbe9aa9cbac442057a7a44607d4bf99bfae227ffc408be184f69124be2bdc0",
-        "what": "GBBETVBBCGEFCTS4MKNXCW36JTFFXVUDOZXLBM4QSUYUPZDCQVLPRKLQ deja 20000000 por el manuscrito ms-2026-0417 en GAWUAPPKXIOJFW3LCHN2AIP5FV7BSSRUKTEXTEUKZR7QSZ3EMIZ5BIGR, plazo de 1 h",
-        "result": "cargo 0; 20000000 al contrato; evento apc_paid. Cargos 1 (be56426b8a9e144823247784eecb1857ed5ee9571209bf541c0fcb967e5ffb19) y 2 (cd87737955c851ada05265418d9b089e81ac7598a51680dc29287d8621456a57): 5000000 cada uno"
+      "extend_rental": {
+        "tx": "6b629f71c8a97b03fc05adabdd2a952e7615d48edb33161e28391935c9f70efb",
+        "what": "GCPBS2CCY7RFJ2JXMLMM6GD2QYEUN7MCSNRZLGI3FQCOANWDRI3L2VX7 extiende 3600 s su renta de crispr-nanomedicine-biotech (1aef751b524d9eb5f6a153f34eb8586b222fbc9b14c60b97f269406cfcdc2c63) y paga 1000000",
+        "result": "980000 a la editorial demo y 20000 a la tesorería; lo pagado sube a 2000000; evento rented"
       },
-      "accept_manuscript": {
-        "tx": "457a2cae808cb3ac2f71a6d9c36334017a9f36e3a2cfe5af9ed6b09f0d4fbdd1",
-        "what": "la revista acepta el cargo 0",
-        "result": "19600000 a la revista y 400000 a la tesorería; evento manuscript_accepted"
+      "accept_with_waiver": {
+        "tx": "34eeb442cd7affaced85798cb7b0a469a63019a7209bdc2f9d4c14df5b3f47a7",
+        "what": "GDMRPXIPLTBX4AZ42BOF77OXRGNUOQRQYXQ55GD7ZCJHVPJRDDIKX6HE acepta el cargo 0 (20000000, 351dd4e7749d1ff8dcb051ad0bda70d1ee0f3f730ca1df1d7f8ced6a4b933c0f) y perdona 5000000",
+        "result": "14700000 a la revista, 300000 a la tesorería y 5000000 de vuelta a quien pagó; evento manuscript_accepted"
       },
-      "reject_manuscript": {
-        "tx": "4f27f3049a6084a752ed67cbbee5580a9a920bbe47c1445162897d5ef1d856e4",
-        "what": "la revista rechaza el cargo 1",
-        "result": "5000000 de vuelta a quien lo pagó, sin comisión; evento manuscript_rejected"
+      "add_milestone": {
+        "tx": "fbb1fb64f4edfffa1ff74ce89814c43452e8bd2b37b1fc1b4ff782425e17ce82",
+        "what": "quien encargó agrega un hito de 3000000 al encargo 0 (dos hitos de 5000000, 082f7d2cd081c34e60f2d0f6b1a58d3d23a17764d8d3468b9bfbe22c77f55ac4)",
+        "result": "3000000 al contrato; el encargo queda con 3 hitos; evento grant_funded"
       },
-      "reclaim_apc": {
-        "tx": "26708910b580982b391ca726d0f26b73440534f1743e0ca59ff4340499a6fc98",
-        "what": "vencido el plazo de 60 s del cargo 2 sin decisión, quien lo pagó lo recupera",
-        "result": "5000000 de vuelta, sin comisión; evento apc_reclaimed"
+      "increase_bounty": {
+        "tx": "a3f1b407ef031c0ba9c6d6cc76d39b6c0294e5022bf0838297a6a728d0c937b2",
+        "what": "quien publicó sube 5000000 la recompensa 0 (10000000, c7662249f0a5574383d11b9945cc93d539f6b55af3defe8dfada24c476c97938)",
+        "result": "total 15000000; evento bounty_posted. Repartida después en af858bff9404fd38edc384b30dbb1a38f102d7b7384c89ca0162f8e6d3400889"
+      },
+      "pay_batch_as_agent": {
+        "tx": "698c3d1cd5bbc2feac5a3406837f7e5ebe7aab496b70b810a66ff9ad26cadea7",
+        "what": "GBBQDYDFYXKVRHL2ONZAV5YUI3JB6Z4JKXXI7GCL6NLFEWPDIQZZI7EM paga dos artículos (5000000 y 3000000) con el USDC de su dueña (permiso en c1cc5fdba448bd4020f746f01088248cb889d931372b8199a9e55c89bfe5e66f)",
+        "result": "7840000 a la editorial demo y 160000 a la tesorería, desde la wallet de la dueña; eventos paid y agent_paid por artículo"
       }
     },
-    "checks": "simulados antes de enviar: quien envió rechazándose (#81), otra cuenta aceptando (#81), recuperar antes del plazo (#84), aceptar dos veces (#82), aceptar después del plazo (#83), rechazar un cargo ya recuperado (#82). Al final: saldo del contrato 0, tesorería +400000"
+    "checks": "simulados antes de enviar: extender hasta pagar el precio completo (#80), perdonar el cargo completo (#2), agregar un hito de 0 (#68), otra cuenta subiendo una recompensa ajena (#30), un paquete que pasa del presupuesto (#74). Al final: saldo del contrato 0"
   },
   "boveda": {
     "version": "0.1.0",
@@ -76,6 +81,47 @@
     "note": "Cuenta única de \"Editorial demo\" con trustline USDC: recibe el 98% de todas las editoriales ficticias del catálogo."
   },
   "previous": [
+    {
+      "version": "0.19.0",
+      "contractId": "CAOZXNCMQ64N4X3E3UQC2RPVYVG3ULFB5AYTFMXGBMVAKARNGXDUFPVY",
+      "wasmSha256": "30eebf3d9d4aa0139dfe2f6822ca111e2b7c0216c8ca87bf89b614d672772f33",
+      "source": "contracts/splitter @ 7c9a150, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200,
+        "pass_day_price": 10000000,
+        "open_day_price": 50000000
+      },
+      "uploadTx": "31d7e5e6243758a00fd0ed020a4cf69ad564f85b05aa6f973d9c5f925c5c18e4",
+      "deployTx": "9950e184788f7f79f482c38c6e609df793c2d7ab6514841388dded33fd712b10",
+      "deployedAt": "2026-11-28T02:00:24Z",
+      "status": "desplegado en testnet, sin usar en el sitio: la API y el sitio siguen en v0.4.0",
+      "custody": "además de lo anterior, guarda los cargos de publicación sin decidir; cada uno sale solo hacia la revista y la tesorería (accept_manuscript, antes del plazo) o de vuelta a quien lo pagó (reject_manuscript, cuando la revista quiera; reclaim_apc, desde el plazo); sin admin",
+      "usage": {
+        "pay_apc": {
+          "tx": "5fbbe9aa9cbac442057a7a44607d4bf99bfae227ffc408be184f69124be2bdc0",
+          "what": "GBBETVBBCGEFCTS4MKNXCW36JTFFXVUDOZXLBM4QSUYUPZDCQVLPRKLQ deja 20000000 por el manuscrito ms-2026-0417 en GAWUAPPKXIOJFW3LCHN2AIP5FV7BSSRUKTEXTEUKZR7QSZ3EMIZ5BIGR, plazo de 1 h",
+          "result": "cargo 0; 20000000 al contrato; evento apc_paid. Cargos 1 (be56426b8a9e144823247784eecb1857ed5ee9571209bf541c0fcb967e5ffb19) y 2 (cd87737955c851ada05265418d9b089e81ac7598a51680dc29287d8621456a57): 5000000 cada uno"
+        },
+        "accept_manuscript": {
+          "tx": "457a2cae808cb3ac2f71a6d9c36334017a9f36e3a2cfe5af9ed6b09f0d4fbdd1",
+          "what": "la revista acepta el cargo 0",
+          "result": "19600000 a la revista y 400000 a la tesorería; evento manuscript_accepted"
+        },
+        "reject_manuscript": {
+          "tx": "4f27f3049a6084a752ed67cbbee5580a9a920bbe47c1445162897d5ef1d856e4",
+          "what": "la revista rechaza el cargo 1",
+          "result": "5000000 de vuelta a quien lo pagó, sin comisión; evento manuscript_rejected"
+        },
+        "reclaim_apc": {
+          "tx": "26708910b580982b391ca726d0f26b73440534f1743e0ca59ff4340499a6fc98",
+          "what": "vencido el plazo de 60 s del cargo 2 sin decisión, quien lo pagó lo recupera",
+          "result": "5000000 de vuelta, sin comisión; evento apc_reclaimed"
+        }
+      },
+      "checks": "simulados antes de enviar: quien envió rechazándose (#81), otra cuenta aceptando (#81), recuperar antes del plazo (#84), aceptar dos veces (#82), aceptar después del plazo (#83), rechazar un cargo ya recuperado (#82). Al final: saldo del contrato 0, tesorería +400000"
+    },
     {
       "version": "0.18.0",
       "contractId": "CBAXQMKVDTEXVVOOB7KJQJTJ2QNDQ4P3XZJYVXQB6TH3PK4DMXTISCCJ",
