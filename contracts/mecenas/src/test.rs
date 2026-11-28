@@ -2011,3 +2011,84 @@ fn solo_el_arbitro_cierra_el_caso_y_solo_dentro_del_plazo() {
     // Cumplido el plazo, la editorial la recupera por su cuenta.
     assert_eq!(s.mecenas.release_bond(&publisher, &id), BOND);
 }
+
+// ---------- pay_arbiter ----------
+
+#[test]
+fn la_editorial_paga_los_honorarios_del_arbitro_sin_tocar_la_fianza() {
+    let s = setup();
+    let publisher = s.funded(BOND + 10_000_000);
+    let arbiter = Address::generate(&s.env);
+    let id = s
+        .mecenas
+        .post_bond(&publisher, &arbiter, &paper(&s.env), &BOND, &TERM);
+    let fee = 10_000_000 * s.mecenas.config().fee_bps as i128 / 10_000;
+    assert!(fee > 0);
+
+    let split = s.mecenas.pay_arbiter(&publisher, &id, &10_000_000);
+    let receipts = s.receipts();
+    let auths = s.env.auths();
+
+    assert_eq!(split.net, 10_000_000 - fee);
+    assert_eq!(split.fee, fee);
+    assert_eq!(s.usdc.balance(&arbiter), 10_000_000 - fee);
+    assert_eq!(s.usdc.balance(&s.treasury), fee);
+    assert_eq!(s.usdc.balance(&publisher), 0);
+    assert_eq!(s.held(), BOND);
+    assert_eq!(s.mecenas.bond(&id).unwrap().amount, BOND);
+    let expected = crate::ArbiterPaid {
+        publisher: publisher.clone(),
+        arbiter: arbiter.clone(),
+        bond_id: id,
+        amount: 10_000_000,
+        fee,
+    };
+    assert_eq!(receipts, [expected.to_xdr(&s.env, &s.mecenas.address)]);
+    assert_eq!(
+        auths,
+        std::vec![(
+            publisher.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    s.mecenas.address.clone(),
+                    Symbol::new(&s.env, "pay_arbiter"),
+                    (publisher.clone(), id, 10_000_000_i128).into_val(&s.env),
+                )),
+                sub_invocations: std::vec![s.transfer_auth(
+                    &publisher,
+                    &s.mecenas.address,
+                    10_000_000
+                )],
+            }
+        )]
+    );
+}
+
+#[test]
+fn solo_la_editorial_de_la_fianza_paga_a_su_arbitro_y_nunca_con_cero() {
+    let s = setup();
+    let (publisher, arbiter, id) = s.bonded();
+    let stranger = s.funded(BOND);
+
+    for amount in [0, -1] {
+        assert_eq!(
+            s.mecenas.try_pay_arbiter(&publisher, &id, &amount),
+            Err(Ok(Error::InvalidAmount.into()))
+        );
+    }
+    for who in [&arbiter, &stranger] {
+        assert_eq!(
+            s.mecenas.try_pay_arbiter(who, &id, &1),
+            Err(Ok(Error::NoBond.into()))
+        );
+    }
+    assert_eq!(
+        s.mecenas.try_pay_arbiter(&stranger, &99, &1),
+        Err(Ok(Error::NoBond.into()))
+    );
+    s.env.set_auths(&[]);
+    assert!(s.mecenas.try_pay_arbiter(&publisher, &id, &1).is_err());
+    s.env.mock_all_auths();
+    assert_eq!(s.held(), BOND);
+    assert_eq!(s.usdc.balance(&arbiter), 0);
+}

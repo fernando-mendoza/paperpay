@@ -324,6 +324,20 @@ pub struct BondCleared {
     pub amount: i128,
 }
 
+/// Honorarios pagados al árbitro de una fianza. Topics: `["arbiter_paid", publisher, arbiter]`.
+/// `amount` incluye la comisión `fee`.
+#[contractevent(topics = ["arbiter_paid"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ArbiterPaid {
+    #[topic]
+    pub publisher: Address,
+    #[topic]
+    pub arbiter: Address,
+    pub bond_id: u32,
+    pub amount: i128,
+    pub fee: i128,
+}
+
 /// Una fianza devuelta a la editorial al terminar su plazo. Topics: `["bond_released", publisher]`.
 #[contractevent(topics = ["bond_released"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -960,6 +974,41 @@ impl Mecenas {
         .publish(&env);
 
         amount
+    }
+
+    /// `publisher` paga `amount` de honorarios al árbitro de su fianza `bond_id`: el árbitro
+    /// recibe el neto y la tesorería la comisión, desde la wallet de la editorial y sin tocar la
+    /// fianza. Vale también después del plazo. Solo firma `publisher`. Emite `arbiter_paid`.
+    pub fn pay_arbiter(env: Env, publisher: Address, bond_id: u32, amount: i128) -> Split {
+        publisher.require_auth();
+        if amount <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let entry = DataKey::Bond(bond_id);
+        let bond = read_bond(&env, &entry);
+        if bond.publisher != publisher {
+            panic_with_error!(&env, Error::NoBond);
+        }
+        let config = read_config(&env);
+        let split = compute_split(&env, amount, config.fee_bps);
+        token::Client::new(&env, &config.token).transfer(
+            &publisher,
+            env.current_contract_address(),
+            &amount,
+        );
+        pay_from_custody(&env, &config, &bond.arbiter, &split);
+        extend_instance_ttl(&env);
+
+        ArbiterPaid {
+            publisher,
+            arbiter: bond.arbiter,
+            bond_id,
+            amount,
+            fee: split.fee,
+        }
+        .publish(&env);
+
+        split
     }
 
     /// La fianza `bond_id`, si existe.
