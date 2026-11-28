@@ -1,6 +1,6 @@
 # Contratos Soroban
 
-Dos contratos: [`splitter`](#splitter-reparto-98-editorial--2-paperpay) (los pagos de lectura) y [`boveda`](#boveda-tarjeta-de-regalo-con-código) (la tarjeta de regalo de `/boveda`).
+Tres contratos: [`splitter`](#splitter-reparto-98-editorial--2-paperpay) (los pagos de lectura), [`boveda`](#boveda-tarjeta-de-regalo-con-código) (la tarjeta de regalo de `/boveda`) y [`mecenas`](#mecenas-pagar-por-otros) (mecenazgo por flujo y lecturas pendientes).
 
 ## `splitter`: reparto 98% editorial / 2% PaperPay
 
@@ -604,3 +604,47 @@ La pantalla perdona mayúsculas, comillas y espacios de más («ship it» → `S
 | Relleno | [`138328bb…`](https://stellar.expert/explorer/testnet/tx/138328bbf4054bd8311098e981f40b6cf79cbdf39b0689090479bead9d251560): otros 5555 XLM a las 12:32:26, de una vigilancia que corrió hasta las 16:00 |
 
 Los datos completos están en [`deployments/testnet.json`](deployments/testnet.json) (`boveda`).
+
+## `mecenas`: pagar por otros
+
+Dos formas de pagar por otros, en un contrato aparte: el de reparto llegó al tope de tamaño de testnet (130,465 de 131,072 bytes) con la v0.20.0. Usa el mismo USDC, la misma tesorería y la misma comisión del 2%. No tiene admin.
+
+**Mecenazgo por flujo:** alguien financia a un autor o a un laboratorio poco a poco. El dinero se devenga segundo a segundo.
+
+**Lectura pendiente**, como el café pendiente: alguien deja lecturas pagadas de una editorial y quien las necesite toma una, sin pagar.
+
+| Función | Qué hace |
+| --- | --- |
+| `open_stream(patron, beneficiary, amount, duration) -> u32` | `patron` deposita `amount`, que se devenga de forma pareja durante `duration` segundos (de 1 a 90 días) para `beneficiary`. Solo firma `patron`. Emite `stream_opened` y devuelve el id. |
+| `withdraw_stream(beneficiary, stream_id) -> Split` | `beneficiary` retira lo devengado y no retirado: 98% para él y 2% a la tesorería. Cuantas veces quiera, también después de que el flujo termine o se corte. Sin nada nuevo, `NothingToWithdraw`. Solo firma `beneficiary`. Emite `stream_withdrawn`. |
+| `cancel_stream(patron, stream_id) -> i128` | `patron` corta el flujo: lo no devengado vuelve completo, sin comisión, y el flujo queda terminado en ese momento. Lo ya devengado sigue siendo de quien recibe. Un flujo terminado no se corta (`StreamEnded`). Solo firma `patron`. Emite `stream_cancelled`. |
+| `leave_read(donor, publisher, price, count) -> u32` | `donor` deja pagadas `count` lecturas (de 1 a 50) de `publisher` a `price` cada una. No elige quién las lee ni las puede recuperar. Solo firma `donor`. Emite `reads_left` y devuelve cuántas hay pendientes. |
+| `take_read(reader, publisher, paper_id, price) -> Split` | `reader` toma una lectura pendiente, sin pagar: la editorial recibe el 98% del precio y la tesorería el 2%, de lo que alguien dejó. Una por lector y editorial cada 24 h (`AlreadyTaken`). Solo firma `reader`. Emite `read_taken`, que es el comprobante de acceso. |
+| `stream(stream_id)`, `pending_reads(publisher, price)`, `config()` | De lectura, sin mover fondos. |
+
+- **Custodia:** el contrato guarda lo no retirado de cada flujo y las lecturas pendientes, y nada más. El saldo del contrato es siempre esa suma.
+- **Errores:** `FeeTooHigh` (1), `InvalidAmount` (2), `InvalidPaperId` (3), `AmountOverflow` (4), `InvalidDuration` (5), `NoStream` (6; no hay flujo con ese id de esa cuenta), `NothingToWithdraw` (7), `StreamEnded` (8), `InvalidCount` (9), `NoPendingRead` (10; no hay lecturas pendientes de esa editorial a ese precio) y `AlreadyTaken` (11).
+- **Redondeo:** lo devengado se redondea hacia abajo y lo que sobra se devenga al final: entre todos los retiros sale exactamente lo depositado. La comisión se redondea hacia abajo en cada retiro.
+- **Lo que el contrato no hace:**
+  - no sabe si quien toma una lectura la necesita: cualquier wallet puede tomar una por editorial al día, y con wallets nuevas se pueden tomar varias;
+  - como en `pay`, no conoce el precio de cada artículo: lo valida quien da el acceso, contra el evento `read_taken`;
+  - si quien cobra no puede recibir USDC (sin trustline), la llamada falla y no cambia nada; aquí no hay cobros pendientes como en el contrato de reparto;
+  - las lecturas pendientes no vencen ni se devuelven: si una editorial desaparece, lo que se dejó para ella se queda en el contrato.
+
+```bash
+pnpm test:contracts            # incluye las 18 pruebas de mecenas
+cd contracts && stellar contract build --package paperpay-mecenas
+```
+
+| mecenas v0.1.0 | Valor |
+| --- | --- |
+| Contrato | [`CCG7IU2NIQSKHHICEZOVKGTUWOALVTCSH7YQU4J7O3354G7TJH3JY5XE`](https://stellar.expert/explorer/testnet/contract/CCG7IU2NIQSKHHICEZOVKGTUWOALVTCSH7YQU4J7O3354G7TJH3JY5XE) |
+| WASM (sha256) | `e2c717f7e81a3a90a540218b3f2374569d98931ff46fa5370c826c77c111575e` (16,913 bytes), igual al que se baja de la red |
+| Constructor | `token` = SAC de USDC de testnet, `treasury` = la tesorería de PaperPay, `fee_bps` = 200 |
+| `open_stream` | [`1fc97646…`](https://stellar.expert/explorer/testnet/tx/1fc976465e5c82f473075bba9d6010b5e34c0570f2816211e2cbd7ba0fba2b1d): 1.00 USDC que se devenga en 120 s para un laboratorio |
+| `withdraw_stream` | [`3804d75a…`](https://stellar.expert/explorer/testnet/tx/3804d75a5221877f9e9489206e5355db21c53424b42acdae64cf30a28d3dcc11): a los pocos segundos el laboratorio retira lo devengado, 0.1666666 (98% para él, 2% a la tesorería) |
+| `cancel_stream` | [`eb467ca6…`](https://stellar.expert/explorer/testnet/tx/eb467ca679eed4b88d1b662bcaf5e1d12a31640f5ff8e5f094fee7458077f325): el mecenas corta el flujo y recupera 0.7916667, lo no devengado. El laboratorio retira después lo que le faltaba ([`46a99b39…`](https://stellar.expert/explorer/testnet/tx/46a99b39690a038fc41d54960e6629bce50c41e7941a7fb5ad0104c9b0444a73)) y el flujo queda en 0 |
+| `leave_read` | [`1f7b8daf…`](https://stellar.expert/explorer/testnet/tx/1f7b8daf3330a90b60a0aa4596c8634dde8214c9b7f4bf0b21770ffb76a79e06): una donante deja pagadas 2 lecturas de 0.50 de la editorial demo |
+| `take_read` | [`fca6b229…`](https://stellar.expert/explorer/testnet/tx/fca6b229135e5dc8e3307cb48f415a65b62861255f0859e0fa88ed9dec051f0b): una lectora sin USDC ni trustline toma una. 0.49 a la editorial demo y 0.01 a la tesorería; queda 1 pendiente |
+
+Antes de enviar, el script simuló lo que no debe pasar: el mecenas retirando lo devengado (#6), quien recibe cortando el flujo (#6), cortar un flujo ya cortado (#8), retirar sin nada nuevo (#7), tomar una lectura sin pendientes (#10), la misma lectora tomando otra el mismo día (#11) y tomar una a otro precio (#10). Al final el contrato guarda 0.50: la lectura que sigue pendiente.
