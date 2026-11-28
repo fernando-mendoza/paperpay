@@ -18,6 +18,7 @@ use soroban_sdk::{
 };
 
 mod agent;
+mod apc;
 mod bounty;
 mod club;
 mod gpass;

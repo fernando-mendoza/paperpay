@@ -118,6 +118,13 @@
 //! - `buy_out`: mientras la renta siga vigente, quien lee completa la compra pagando el precio
 //!   pactado menos lo que ya pagó de renta.
 //!
+//! Cargo de publicación (APC) en garantía, la undécima custodia: la revista solo cobra si acepta.
+//! - `pay_apc`: quien envía un manuscrito deja el cargo de publicación en el contrato, con un
+//!   plazo para que la revista decida.
+//! - `accept_manuscript`: la revista acepta antes del plazo y cobra (98%; 2% a la tesorería).
+//! - `reject_manuscript`: la revista rechaza y el cargo vuelve completo a quien lo pagó.
+//! - `reclaim_apc`: si la revista no decidió a tiempo, quien pagó recupera el cargo.
+//!
 //! Si una cuenta no puede recibir lo que le paga el contrato (por ejemplo, una editorial nueva sin
 //! trustline de USDC), su parte no se pierde ni bloquea a nadie: queda pendiente a su nombre, y
 //! `claim` la cobra con una firma que además le abre la trustline (`trust` del SAC, CAP-73).
@@ -180,6 +187,8 @@ pub const MAX_GRANT_DAYS: u32 = 90;
 pub const MAX_AGENT_DAYS: u32 = 30;
 /// Duración máxima de una renta, en segundos (7 días).
 pub const MAX_RENT_SECONDS: u64 = 7 * DAY_SECONDS;
+/// Plazo máximo para que una revista decida sobre un manuscrito, en días.
+pub const MAX_APC_DAYS: u32 = 90;
 /// Máximo de editoriales con deuda en una cuenta abierta.
 pub const MAX_TAB_PUBLISHERS: u32 = 10;
 /// Después del plazo, las entradas de una campaña siguen en la red al menos estos días, para que
@@ -368,6 +377,14 @@ pub enum Error {
     RentalActive = 79,
     /// La renta tiene que costar menos que la compra.
     RentNotCheaper = 80,
+    /// No hay cargo de publicación con ese id (o esa cuenta no es parte de él).
+    NoApc = 81,
+    /// El cargo de publicación ya se cobró o se devolvió.
+    ApcClosed = 82,
+    /// El plazo para decidir ya venció: la revista ya no puede aceptar y cobrar.
+    ApcExpired = 83,
+    /// El plazo para decidir sigue corriendo: quien pagó todavía no puede recuperar el cargo.
+    ApcActive = 84,
 }
 
 #[contracttype]
@@ -590,6 +607,21 @@ pub struct Rental {
     pub until: u64,
 }
 
+/// Un cargo de publicación (APC) en garantía: `author` dejó `amount` en el contrato al enviar
+/// `manuscript_id` a `journal`. Hasta `deadline` (segundos Unix) la revista decide: si acepta,
+/// cobra; si rechaza, vuelve a `author`. Desde `deadline` sin decisión, `author` lo recupera.
+/// `open` es falso cuando ya se cobró o se devolvió.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Apc {
+    pub author: Address,
+    pub journal: Address,
+    pub manuscript_id: String,
+    pub amount: i128,
+    pub deadline: u64,
+    pub open: bool,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -643,6 +675,10 @@ enum DataKey {
     Agent(Address),
     /// La renta de `reader` (`.0`) del artículo `.2` de `publisher` (`.1`).
     Rental(Address, Address, String),
+    /// Id del próximo cargo de publicación (instance): los ids son secuenciales desde 0.
+    NextApc,
+    /// Un cargo de publicación en garantía, por id.
+    Apc(u32),
 }
 
 /// Comprobante de un artículo pagado. Topics: `["paid", publisher, reader]`.
@@ -1368,6 +1404,60 @@ pub struct BoughtOut {
     pub rented: i128,
     pub amount: i128,
     pub total: i128,
+}
+
+/// Un cargo de publicación en garantía. Topics: `["apc_paid", author, journal]`. `amount` ya está
+/// en el contrato y `deadline` es hasta cuándo decide la revista.
+#[contractevent(topics = ["apc_paid"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ApcPaid {
+    #[topic]
+    pub author: Address,
+    #[topic]
+    pub journal: Address,
+    pub apc_id: u32,
+    pub manuscript_id: String,
+    pub amount: i128,
+    pub deadline: u64,
+}
+
+/// Un manuscrito aceptado. Topics: `["manuscript_accepted", journal, author]`. La revista cobró
+/// `amount` menos `fee`.
+#[contractevent(topics = ["manuscript_accepted"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ManuscriptAccepted {
+    #[topic]
+    pub journal: Address,
+    #[topic]
+    pub author: Address,
+    pub apc_id: u32,
+    pub manuscript_id: String,
+    pub amount: i128,
+    pub fee: i128,
+}
+
+/// Un manuscrito rechazado. Topics: `["manuscript_rejected", journal, author]`. `amount` volvió
+/// completo a `author`.
+#[contractevent(topics = ["manuscript_rejected"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ManuscriptRejected {
+    #[topic]
+    pub journal: Address,
+    #[topic]
+    pub author: Address,
+    pub apc_id: u32,
+    pub manuscript_id: String,
+    pub amount: i128,
+}
+
+/// Un cargo recuperado porque la revista no decidió a tiempo. Topics: `["apc_reclaimed", author]`.
+#[contractevent(topics = ["apc_reclaimed"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ApcReclaimed {
+    #[topic]
+    pub author: Address,
+    pub apc_id: u32,
+    pub amount: i128,
 }
 
 #[contract]
@@ -4010,6 +4100,172 @@ impl Splitter {
             .get(&DataKey::Rental(reader, publisher, paper_id))
     }
 
+    /// `author` envía `manuscript_id` a `journal` y deja el cargo de publicación (`amount`) en el
+    /// contrato. Hasta `deadline` (segundos Unix, a no más de `MAX_APC_DAYS`) decide la revista:
+    /// si acepta, cobra (`accept_manuscript`); si rechaza, el cargo vuelve (`reject_manuscript`).
+    /// Desde `deadline` sin decisión, `author` lo recupera (`reclaim_apc`). Así nadie paga por
+    /// publicar algo que no se publicó, y la revista sabe que el dinero existe. Solo firma
+    /// `author`. Emite `apc_paid` y devuelve el id del cargo.
+    pub fn pay_apc(
+        env: Env,
+        author: Address,
+        journal: Address,
+        manuscript_id: String,
+        amount: i128,
+        deadline: u64,
+    ) -> u32 {
+        author.require_auth();
+        validate_paper_id(&env, &manuscript_id);
+        if amount <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let now = env.ledger().timestamp();
+        if deadline <= now || deadline - now > MAX_APC_DAYS as u64 * DAY_SECONDS {
+            panic_with_error!(&env, Error::InvalidDeadline);
+        }
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &author,
+            env.current_contract_address(),
+            &amount,
+        );
+        let id: u32 = env.storage().instance().get(&DataKey::NextApc).unwrap_or(0);
+        env.storage().instance().set(&DataKey::NextApc, &(id + 1));
+        let entry = DataKey::Apc(id);
+        env.storage().persistent().set(
+            &entry,
+            &Apc {
+                author: author.clone(),
+                journal: journal.clone(),
+                manuscript_id: manuscript_id.clone(),
+                amount,
+                deadline,
+                open: true,
+            },
+        );
+        keep_campaign(&env, &entry, deadline);
+        extend_instance_ttl(&env);
+
+        ApcPaid {
+            author,
+            journal,
+            apc_id: id,
+            manuscript_id,
+            amount,
+            deadline,
+        }
+        .publish(&env);
+
+        id
+    }
+
+    /// `journal` acepta el manuscrito del cargo `apc_id` y cobra: recibe el cargo menos la
+    /// comisión y la tesorería, la comisión. Solo antes del plazo (`ApcExpired` después: desde
+    /// ahí el dinero solo puede volver a quien pagó). Si la revista no puede recibir (sin
+    /// trustline), su parte queda pendiente a su nombre para `claim`. Solo firma `journal`.
+    /// Emite `manuscript_accepted` y devuelve el reparto.
+    pub fn accept_manuscript(env: Env, journal: Address, apc_id: u32) -> Split {
+        journal.require_auth();
+        let entry = DataKey::Apc(apc_id);
+        let mut apc = read_apc(&env, &entry);
+        if apc.journal != journal {
+            panic_with_error!(&env, Error::NoApc);
+        }
+        if env.ledger().timestamp() >= apc.deadline {
+            panic_with_error!(&env, Error::ApcExpired);
+        }
+        apc.open = false;
+        env.storage().persistent().set(&entry, &apc);
+
+        let config = read_config(&env);
+        let split = compute_split(&env, apc.amount, config.fee_bps);
+        payout(&env, &config, &journal, split.publisher);
+        payout(&env, &config, &config.treasury, split.fee);
+        extend_instance_ttl(&env);
+
+        ManuscriptAccepted {
+            journal,
+            author: apc.author,
+            apc_id,
+            manuscript_id: apc.manuscript_id,
+            amount: apc.amount,
+            fee: split.fee,
+        }
+        .publish(&env);
+
+        split
+    }
+
+    /// `journal` rechaza el manuscrito del cargo `apc_id`: el cargo vuelve completo, sin
+    /// comisión, a quien lo pagó, sin esperar al plazo. Si esa cuenta no puede recibir, queda
+    /// pendiente a su nombre para `claim`. Solo firma `journal`. Emite `manuscript_rejected` y
+    /// devuelve lo devuelto.
+    pub fn reject_manuscript(env: Env, journal: Address, apc_id: u32) -> i128 {
+        journal.require_auth();
+        let entry = DataKey::Apc(apc_id);
+        let mut apc = read_apc(&env, &entry);
+        if apc.journal != journal {
+            panic_with_error!(&env, Error::NoApc);
+        }
+        apc.open = false;
+        env.storage().persistent().set(&entry, &apc);
+
+        let config = read_config(&env);
+        payout(&env, &config, &apc.author, apc.amount);
+        extend_instance_ttl(&env);
+
+        ManuscriptRejected {
+            journal,
+            author: apc.author,
+            apc_id,
+            manuscript_id: apc.manuscript_id,
+            amount: apc.amount,
+        }
+        .publish(&env);
+
+        apc.amount
+    }
+
+    /// `author` recupera su cargo de publicación `apc_id` completo, sin comisión, porque la
+    /// revista no decidió: solo desde el plazo (`ApcActive` antes) y si no se cobró ni se
+    /// devolvió. Solo firma `author`. Emite `apc_reclaimed` y devuelve lo recuperado.
+    pub fn reclaim_apc(env: Env, author: Address, apc_id: u32) -> i128 {
+        author.require_auth();
+        let entry = DataKey::Apc(apc_id);
+        let mut apc = read_apc(&env, &entry);
+        if apc.author != author {
+            panic_with_error!(&env, Error::NoApc);
+        }
+        if env.ledger().timestamp() < apc.deadline {
+            panic_with_error!(&env, Error::ApcActive);
+        }
+        apc.open = false;
+        env.storage().persistent().set(&entry, &apc);
+
+        let config = read_config(&env);
+        token::Client::new(&env, &config.token).transfer(
+            &env.current_contract_address(),
+            &author,
+            &apc.amount,
+        );
+        extend_instance_ttl(&env);
+
+        ApcReclaimed {
+            author,
+            apc_id,
+            amount: apc.amount,
+        }
+        .publish(&env);
+
+        apc.amount
+    }
+
+    /// El cargo de publicación `apc_id`, si existe.
+    pub fn apc(env: Env, apc_id: u32) -> Option<Apc> {
+        env.storage().persistent().get(&DataKey::Apc(apc_id))
+    }
+
     /// Lo que el contrato le debe a `account` (pagos que no pudo recibir).
     pub fn owed(env: Env, account: Address) -> i128 {
         env.storage()
@@ -4291,6 +4547,18 @@ fn check_keys(env: &Env, keys: &Vec<BytesN<32>>) {
     if keys.len() > MAX_BATCH_ITEMS {
         panic_with_error!(env, Error::BatchTooLarge);
     }
+}
+
+/// El cargo de publicación de `entry`, si existe y sigue sin cobrarse ni devolverse.
+fn read_apc(env: &Env, entry: &DataKey) -> Apc {
+    let apc: Apc = match env.storage().persistent().get(entry) {
+        Some(apc) => apc,
+        None => panic_with_error!(env, Error::NoApc),
+    };
+    if !apc.open {
+        panic_with_error!(env, Error::ApcClosed);
+    }
+    apc
 }
 
 /// El permiso del agente de `owner`, si tiene uno.
