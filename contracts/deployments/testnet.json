@@ -77,75 +77,160 @@
     }
   },
   "mecenas": {
-    "version": "0.2.0",
-    "contractId": "CD72IGDU4E2LU7FSZJFCCX3OPKD4M6VFTC2AQU2MXC7LY35UDVAU3TCJ",
-    "wasmSha256": "0b03c5e62dbaf7a0eac183cd855e630d671ffb00f7444a3fc9667decc6fb1903",
-    "source": "contracts/mecenas @ 59336a5, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
+    "version": "0.5.0",
+    "contractId": "CBLK6YQYIHXMMG6DAX6KEJHNRC4U6KTISXZUSCLVG6QQMRR7NC7YLIPT",
+    "wasmSha256": "832a3eee53bfb20ab29a10bb4fa3879053f4f56d483a240b56e95e70d251629e",
+    "source": "contracts/mecenas @ bde0cad, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
     "constructor": {
       "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
       "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
       "fee_bps": 200
     },
-    "uploadTx": "a2da32221713cbc8ca033fb45fae6ac4ac1a5ad6e4c0ed7bce8848f661f337b9",
-    "deployTx": "fe6954fd4e3ef80c4204e4a6e9b4d46d6d1e7b5a6b702c64ef0d590fb215343f",
-    "deployedAt": "2026-11-28T04:12:44Z",
+    "uploadTx": "c5b3f6e48734c6dbb0dd77b38b34c413d67c63c1187bc1494ec35ddfce378a98",
+    "deployTx": "85241299b7df6045a2fc4fee52745dfbc3815d77880d2fef22b8b2c2f0657129",
+    "deployedAt": "2026-11-28T05:54:59Z",
     "status": "desplegado en testnet, sin usar en el sitio",
-    "custody": "guarda lo no retirado de cada flujo, las lecturas pendientes, lo que queda de cada fianza (sale por el árbitro dentro del plazo, o de vuelta a la editorial después), lo apadrinado sin usar (sale por una lectura del lector, o de vuelta al padrino) y las mitades de las lecturas a medias abiertas (salen hacia la editorial al completarse, o de vuelta a quien abrió); sin admin",
     "usage": {
       "post_bond": {
-        "tx": "d8e26219ca100ef461d632a7ff5f6aca764ab0894e681acb96119e4381292ac5",
-        "what": "GD34BMQQKHRKLZ7Y3U5WBR2TKSXMAU3RWV666GPALGTCHLLM73VAGAIN respalda crispr-nanomedicine-biotech con 10000000 por 90 s; árbitro GDAIKMJNUHIOKF7RF45LM4VQZEE73HTP65PJVDDOWUHOX455TZGPLW6Z",
-        "result": "fianza 0; 10000000 al contrato; evento bond_posted"
+        "tx": "888deb9eb5f1b674c8b127cac161477284c722aa1853a451e934da99f841734f",
+        "what": "GCNT7T6XTKFRNOWGMYNUGOC23XOGXWBWDVPURKCDBGI7CDIZIMU723TC respalda un artículo con 5000000 por 3600 s; árbitro GC3XXFOOBPAMZYQM2GEXG63VDBOKN6IZNLZZHJKDXGFSL5I3GMAGZDV2",
+        "result": "fianza 0; 5000000 al contrato; evento bond_posted"
       },
-      "slash_bond": {
-        "tx": "cac4b0234a2294cf4a9f05fd74d5d148f1de51509922f0f55f33e35a4ad274f1",
-        "what": "el árbitro manda 3000000 a GBQAJKZV7FI6K62UKS3TWKTLBA72OO57GSQWOJYPPOSJGCZRE4EMG4TD",
-        "result": "3000000 a la lectora afectada, sin comisión; quedan 7000000; evento bond_slashed"
-      },
-      "release_bond": {
-        "tx": "7c887540473c160bf27f8a81f9416cb904e6c847a6ee3b61dba939d2c05cf0bd",
-        "what": "terminado el plazo, la revista recupera lo que quedó",
-        "result": "7000000 de vuelta, sin comisión; evento bond_released"
-      },
-      "sponsor_reader": {
-        "tx": "a873cc7780b01b8eac827b72a2dd12f8a20e3bb9010ffa9e237dacd760186c12",
-        "what": "GD4JFK6NVUP4KDIFSYSUKJMJQ6MTHIG5XZFPOXO2RLPJTTD6OQ6C4NMO deja 10000000 para las lecturas de GDT3BAW6NA2JQKHGZ4ACJJZTWXDGBXH4XUVOG6OARMYEHRSND4ZDN5GE con la editorial demo",
-        "result": "10000000 al contrato; evento reader_sponsored"
-      },
-      "read_sponsored": {
-        "tx": "9f911a95a7601d7d3c27eef41381bfd3cbb0cb006ffab14e0c72b2a97072f90e",
-        "what": "la ahijada, sin USDC ni trustline, lee crispr-nanomedicine-biotech por 5000000",
-        "result": "4900000 a la editorial demo y 100000 a la tesorería; quedan 5000000 apadrinados; evento read_taken"
-      },
-      "reclaim_sponsorship": {
-        "tx": "d43f5161c7c9ddeb51ff4639c08aaa35d6cef0c9ca5f6ca7627ddb13aa80195c",
-        "what": "la madrina recupera lo que no se usó",
-        "result": "5000000 de vuelta, sin comisión; evento sponsorship_reclaimed"
-      },
-      "open_shared": {
-        "tx": "87e6b6f90ec27757b0216946d4caafe727084d81b4fd1521b4642a97b2c46b6c",
-        "what": "GB5BXHUNJMSZTIF47Y3ON5H6Q3ML72UWXVBHARKNBNUYZGIJJJ4QWY77 abre una lectura a medias de 5000000 con GBGOSZAHFY7UCT5CNWHK55LL5V5N2RMFAKTA5LV26DON2FKA43AGP7CF",
-        "result": "2500000 al contrato; lectura a medias 0; evento shared_opened"
-      },
-      "join_shared": {
-        "tx": "480a80c8aa28faba2abfcc351d146a3d3661cdfb336734918ca93c15243680cc",
-        "what": "Beto pone su mitad",
-        "result": "4900000 a la editorial demo y 100000 a la tesorería; evento shared_joined"
-      },
-      "cancel_shared": {
-        "tx": "93a2371c1b0a4296793fc7000fd228fad16789251ccca6d7607f1a6d8a25314b",
-        "what": "Ana cancela otra lectura a medias (9d0e77f6a9972fb1e56a5e786351bf78876c303006c7fd8d280d2f011f8cb91d) que nadie completó",
-        "result": "2500000 de vuelta, sin comisión; evento shared_cancelled"
-      },
-      "pay_from_stream": {
-        "tx": "8fc7cde31ef6dacfaf7895b7af75e527f1d4201044a6d3e50b2029b3969337bc",
-        "what": "GBGKX4IZE7PF446MIS5SK2YLCJDTEN5URRI55VKSZUB3PAFSLLGSZEHR paga 500000 por un artículo con lo devengado de su flujo (5192a32e989d43c715a0d6a35aa8fb351a504cef295fd03b8237425d71331d22)",
-        "result": "490000 a la editorial demo y 10000 a la tesorería; evento read_taken"
+      "pay_arbiter": {
+        "tx": "06b5eee0ce64416cc76b6f0c38cfc7f17c4e139f516aa9ab0a911c5bbac272a1",
+        "what": "la revista paga 1000000 de honorarios a su árbitro",
+        "result": "980000 al árbitro y 20000 a la tesorería; la fianza sigue en 5000000; evento arbiter_paid"
       }
     },
-    "checks": "simulados antes de enviar: la revista como su propio árbitro (#15), el árbitro pagándose (#15), la revista ejecutando su fianza (#12) o recuperándola antes del plazo (#14), ejecutar después del plazo (#13), otra cuenta leyendo con lo apadrinado (#16), leer por más del saldo (#16), a medias con una misma (#19), otra cuenta completando (#17), completar una cancelada (#18), el mecenas pagando con el flujo (#6), pagar más de lo devengado (#7). Al final: saldo del contrato 9500000 (el flujo sin retirar)"
+    "checks": "simulado antes de enviar: el árbitro cobrándose honorarios como editorial de la fianza (#12). Al final: saldo del contrato 5000000 (la fianza)",
+    "custody": "guarda lo no retirado de cada flujo, las lecturas pendientes, lo que queda de cada fianza (sale por el árbitro dentro del plazo, o de vuelta a la editorial después), lo apadrinado sin usar (sale por una lectura del lector, o de vuelta al padrino) y las mitades de las lecturas a medias abiertas (salen hacia la editorial al completarse, o de vuelta a quien abrió); sin admin"
   },
   "mecenasPrevious": [
+    {
+      "version": "0.4.0",
+      "contractId": "CBOFITBX7NGG34PB3ZA44AFSWM5U4MFSUEOUYDOZCFBGPUHONL6FMAP4",
+      "wasmSha256": "82b3511434cbb9ee5a1614405a49a73d19fbddb9eab20b559fc08794d518685d",
+      "source": "contracts/mecenas @ f5ba626, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200
+      },
+      "uploadTx": "f144caa0944370be05b1d6a79421af9a2902d19d597cdc8bde1decc73cd14dc9",
+      "deployTx": "56357d797a45f1767205741db98f43fb2f0fb6227794026cd32e114099bbe6c7",
+      "deployedAt": "2026-11-28T05:52:24Z",
+      "status": "desplegado en testnet, sin usar en el sitio",
+      "usage": {
+        "post_bond": {
+          "tx": "987b852544a49461eb62374d18169c2447afd63ad31e18d7231a9e85057b10e5",
+          "what": "GCLSDAWQ533I6Q3HPRMQ3YUSATIK3L7HTUJZKO5N6UDNHXVJMDPVWI7K respalda un artículo con 5000000 por 3600 s; árbitro GBW4KC4UNXCD6E5ZO5YDI4YMSINKZ5HGD2VW4UTVSVZBK2G755M54KCW",
+          "result": "fianza 0; 5000000 al contrato; evento bond_posted"
+        },
+        "clear_bond": {
+          "tx": "16ed58a1a46e9d7d03925cc1cd78ce224388ab4f33436b17cba7248a98ed102d",
+          "what": "el árbitro cierra el caso a favor de la revista",
+          "result": "5000000 de vuelta a la revista, sin comisión; la fianza queda en 0; evento bond_cleared"
+        }
+      },
+      "checks": "simulado antes de enviar: la revista cerrando su propio caso (#12). Al final: saldo del contrato 0"
+    },
+    {
+      "version": "0.3.0",
+      "contractId": "CCOCSAJMVIQY32CY27PWQK72VMPLASL7J4RUYAUV34A6OUIUIJ4GW3MO",
+      "wasmSha256": "c8811618a05c92e98d36822da1c5720a8c1f0744f007ee195f93e3a8b9f7db0d",
+      "source": "contracts/mecenas @ 8134a99, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200
+      },
+      "uploadTx": "a15e1a382bdeef20e44cfabcd8cd288a1c2cfab2792d71f31d7e07f44f31abeb",
+      "deployTx": "bc38e6a1607ef85cf1d745953475446ab5e8deede0c2dd79a6daf22e5fac24a6",
+      "deployedAt": "2026-11-28T05:49:49Z",
+      "status": "desplegado en testnet, sin usar en el sitio",
+      "usage": {
+        "post_bond": {
+          "tx": "ed8cda7e1f5a4a3549ee3631d964105705859ec896f1521622fae45b27603943",
+          "what": "GDBJTQSGSVAQ5WNXIX4G23Y62ACWELF4ZCHYXKX5X3UAXLTZ4QUXUPHQ respalda un artículo con 5000000 por 3600 s; árbitro GAUOOSRYUGDZH5WQUYBTXWWZ3377UA5S7GACRKJXELC57M2IG7KYFFYX",
+          "result": "fianza 0; 5000000 al contrato; evento bond_posted"
+        },
+        "top_up_bond": {
+          "tx": "4804effaac200c88d0dd05e57d45db3f9b0460619e85e2f0af3cbb877a3cf905",
+          "what": "la revista suma 2500000 a su fianza",
+          "result": "2500000 más al contrato; la fianza queda en 7500000; evento bond_topped_up"
+        }
+      },
+      "checks": "simulados antes de enviar: aumentar con 0 (#2), el árbitro aumentando una fianza ajena (#12). Al final: saldo del contrato 7500000 (la fianza)"
+    },
+    {
+      "version": "0.2.0",
+      "contractId": "CD72IGDU4E2LU7FSZJFCCX3OPKD4M6VFTC2AQU2MXC7LY35UDVAU3TCJ",
+      "wasmSha256": "0b03c5e62dbaf7a0eac183cd855e630d671ffb00f7444a3fc9667decc6fb1903",
+      "source": "contracts/mecenas @ 59336a5, soroban-sdk 29.0.1, stellar-cli 30.0.1 (imagen Docker con Rust 1.100.0)",
+      "constructor": {
+        "token": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+        "treasury": "GAB2NXBPZMJEPZPXMAAEZDJA7SB6ZQRHTT2KF4Z7LMOEAJKSP4JBCWRV",
+        "fee_bps": 200
+      },
+      "uploadTx": "a2da32221713cbc8ca033fb45fae6ac4ac1a5ad6e4c0ed7bce8848f661f337b9",
+      "deployTx": "fe6954fd4e3ef80c4204e4a6e9b4d46d6d1e7b5a6b702c64ef0d590fb215343f",
+      "deployedAt": "2026-11-28T04:12:44Z",
+      "status": "desplegado en testnet, sin usar en el sitio",
+      "custody": "guarda lo no retirado de cada flujo, las lecturas pendientes, lo que queda de cada fianza (sale por el árbitro dentro del plazo, o de vuelta a la editorial después), lo apadrinado sin usar (sale por una lectura del lector, o de vuelta al padrino) y las mitades de las lecturas a medias abiertas (salen hacia la editorial al completarse, o de vuelta a quien abrió); sin admin",
+      "usage": {
+        "post_bond": {
+          "tx": "d8e26219ca100ef461d632a7ff5f6aca764ab0894e681acb96119e4381292ac5",
+          "what": "GD34BMQQKHRKLZ7Y3U5WBR2TKSXMAU3RWV666GPALGTCHLLM73VAGAIN respalda crispr-nanomedicine-biotech con 10000000 por 90 s; árbitro GDAIKMJNUHIOKF7RF45LM4VQZEE73HTP65PJVDDOWUHOX455TZGPLW6Z",
+          "result": "fianza 0; 10000000 al contrato; evento bond_posted"
+        },
+        "slash_bond": {
+          "tx": "cac4b0234a2294cf4a9f05fd74d5d148f1de51509922f0f55f33e35a4ad274f1",
+          "what": "el árbitro manda 3000000 a GBQAJKZV7FI6K62UKS3TWKTLBA72OO57GSQWOJYPPOSJGCZRE4EMG4TD",
+          "result": "3000000 a la lectora afectada, sin comisión; quedan 7000000; evento bond_slashed"
+        },
+        "release_bond": {
+          "tx": "7c887540473c160bf27f8a81f9416cb904e6c847a6ee3b61dba939d2c05cf0bd",
+          "what": "terminado el plazo, la revista recupera lo que quedó",
+          "result": "7000000 de vuelta, sin comisión; evento bond_released"
+        },
+        "sponsor_reader": {
+          "tx": "a873cc7780b01b8eac827b72a2dd12f8a20e3bb9010ffa9e237dacd760186c12",
+          "what": "GD4JFK6NVUP4KDIFSYSUKJMJQ6MTHIG5XZFPOXO2RLPJTTD6OQ6C4NMO deja 10000000 para las lecturas de GDT3BAW6NA2JQKHGZ4ACJJZTWXDGBXH4XUVOG6OARMYEHRSND4ZDN5GE con la editorial demo",
+          "result": "10000000 al contrato; evento reader_sponsored"
+        },
+        "read_sponsored": {
+          "tx": "9f911a95a7601d7d3c27eef41381bfd3cbb0cb006ffab14e0c72b2a97072f90e",
+          "what": "la ahijada, sin USDC ni trustline, lee crispr-nanomedicine-biotech por 5000000",
+          "result": "4900000 a la editorial demo y 100000 a la tesorería; quedan 5000000 apadrinados; evento read_taken"
+        },
+        "reclaim_sponsorship": {
+          "tx": "d43f5161c7c9ddeb51ff4639c08aaa35d6cef0c9ca5f6ca7627ddb13aa80195c",
+          "what": "la madrina recupera lo que no se usó",
+          "result": "5000000 de vuelta, sin comisión; evento sponsorship_reclaimed"
+        },
+        "open_shared": {
+          "tx": "87e6b6f90ec27757b0216946d4caafe727084d81b4fd1521b4642a97b2c46b6c",
+          "what": "GB5BXHUNJMSZTIF47Y3ON5H6Q3ML72UWXVBHARKNBNUYZGIJJJ4QWY77 abre una lectura a medias de 5000000 con GBGOSZAHFY7UCT5CNWHK55LL5V5N2RMFAKTA5LV26DON2FKA43AGP7CF",
+          "result": "2500000 al contrato; lectura a medias 0; evento shared_opened"
+        },
+        "join_shared": {
+          "tx": "480a80c8aa28faba2abfcc351d146a3d3661cdfb336734918ca93c15243680cc",
+          "what": "Beto pone su mitad",
+          "result": "4900000 a la editorial demo y 100000 a la tesorería; evento shared_joined"
+        },
+        "cancel_shared": {
+          "tx": "93a2371c1b0a4296793fc7000fd228fad16789251ccca6d7607f1a6d8a25314b",
+          "what": "Ana cancela otra lectura a medias (9d0e77f6a9972fb1e56a5e786351bf78876c303006c7fd8d280d2f011f8cb91d) que nadie completó",
+          "result": "2500000 de vuelta, sin comisión; evento shared_cancelled"
+        },
+        "pay_from_stream": {
+          "tx": "8fc7cde31ef6dacfaf7895b7af75e527f1d4201044a6d3e50b2029b3969337bc",
+          "what": "GBGKX4IZE7PF446MIS5SK2YLCJDTEN5URRI55VKSZUB3PAFSLLGSZEHR paga 500000 por un artículo con lo devengado de su flujo (5192a32e989d43c715a0d6a35aa8fb351a504cef295fd03b8237425d71331d22)",
+          "result": "490000 a la editorial demo y 10000 a la tesorería; evento read_taken"
+        }
+      },
+      "checks": "simulados antes de enviar: la revista como su propio árbitro (#15), el árbitro pagándose (#15), la revista ejecutando su fianza (#12) o recuperándola antes del plazo (#14), ejecutar después del plazo (#13), otra cuenta leyendo con lo apadrinado (#16), leer por más del saldo (#16), a medias con una misma (#19), otra cuenta completando (#17), completar una cancelada (#18), el mecenas pagando con el flujo (#6), pagar más de lo devengado (#7). Al final: saldo del contrato 9500000 (el flujo sin retirar)"
+    },
     {
       "version": "0.1.0",
       "contractId": "CCG7IU2NIQSKHHICEZOVKGTUWOALVTCSH7YQU4J7O3354G7TJH3JY5XE",
