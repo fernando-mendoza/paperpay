@@ -1,5 +1,18 @@
 # Estado de QA
 
+## Revisión del 27 de noviembre de 2026: contrato v0.17.0 (pagar con el saldo pendiente)
+
+- `pnpm test:contracts`: 254 pruebas (9 nuevas, en `contracts/splitter/src/test/owed.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
+  - **Sin trustline:** una cuenta G inyectada en el ledger, que ganó una recompensa, paga una lectura sin tener USDC en su wallet.
+  - **Lo justo:** gastar exactamente lo pendiente lo deja en cero y borra la entrada; un stroop más falla (`OwedTooLow`) y no mueve nada.
+  - **Nadie gasta lo de otro:** sin la firma de la cuenta, falla; una cuenta con USDC en su wallet pero sin nada pendiente recibe `OwedTooLow`.
+  - **Editorial sin trustline:** su parte queda pendiente a su nombre y también puede leer con eso o cobrarla.
+  - **Vida en la red:** pagar una parte renueva al máximo la entrada de lo que queda.
+  - **Invariante de custodia:** el saldo del contrato es siempre la suma de lo pendiente de todas las cuentas.
+- Mutaciones (13), con `tools/mutaciones-v0170.py` del run `2026-11-27-paperpay-contrato-v130` del hub, sobre un clon aparte del repo: todas detectadas. La lista hizo agregar una aserción (`2efb3b2`): que gastar todo no deje una entrada en cero en la red.
+- Red Stellar local y testnet (`tools/usar-v0170.sh`, 27-nov 19:53 CDMX): la función usada por una revisora sin trustline y tres errores simulados antes de enviar. Saldo final del contrato: 0.
+- **No probado:** no hay pantalla ni API.
+
 ## Revisión del 27 de noviembre de 2026: contrato v0.16.0 (agente con tope)
 
 - `pnpm test:contracts`: 245 pruebas (14 nuevas, en `contracts/splitter/src/test/agent.rs`), `cargo clippy --all-targets -D warnings` y `cargo fmt --check` limpios.
